@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -18,6 +19,7 @@ interface ActivityFeedProps {
 }
 
 export function ActivityFeed({ currentRole, onNavigateToUnits }: ActivityFeedProps) {
+  const { t } = useTranslation();
   const { orgId: effectiveOrgId } = useEffectiveOrgId();
   const [activities, setActivities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -119,9 +121,9 @@ export function ActivityFeed({ currentRole, onNavigateToUnits }: ActivityFeedPro
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-base">Activity Feed</CardTitle>
+            <CardTitle className="text-base">{t('dashboard.activityFeed')}</CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Recent learner activity across your {currentRole === 'admin' ? 'organization' : currentRole === 'district-manager' ? 'district' : 'store'}
+              {currentRole === 'admin' ? t('dashboard.recentActivityOrg') : currentRole === 'district-manager' ? t('dashboard.recentActivityDistrict') : t('dashboard.recentActivityStore')}
             </p>
           </div>
           <Button 
@@ -135,7 +137,7 @@ export function ActivityFeed({ currentRole, onNavigateToUnits }: ActivityFeedPro
             }}
           >
             <Activity className="h-3.5 w-3.5 mr-1.5" />
-            View All
+            {t('common.viewAll')}
           </Button>
         </div>
       </CardHeader>
@@ -148,7 +150,7 @@ export function ActivityFeed({ currentRole, onNavigateToUnits }: ActivityFeedPro
           </div>
         ) : activities.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground text-sm">
-            No recent activity
+            {t('dashboard.noRecentActivity')}
           </div>
         ) : (
           <div className="space-y-0">

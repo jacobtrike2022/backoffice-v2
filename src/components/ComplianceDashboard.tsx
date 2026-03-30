@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import { supabase } from '../lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -119,6 +120,7 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
     return null;
   }
 
+  const { t } = useTranslation();
   const { orgId: effectiveOrgId } = useEffectiveOrgId();
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState<ComplianceDashboardMetrics | null>(null);
@@ -206,19 +208,19 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
       {onBackToDashboard && (
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-foreground">Compliance Dashboard</h1>
+            <h1 className="text-foreground">{t('compliance.dashboardTitle')}</h1>
             <p className="text-muted-foreground mt-1">
-              Monitor training compliance and risk assessment across the organization
+              {t('compliance.dashboardSubtitle')}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowUploadDialog(true)}>
               <Upload className="w-4 h-4 mr-1.5" />
-              Upload Certification
+              {t('compliance.uploadCertification')}
             </Button>
             <Button variant="outline" size="sm">
               <Download className="w-4 h-4 mr-1.5" />
-              Export Report
+              {t('compliance.exportReport')}
             </Button>
             <Button
               size="sm"
@@ -226,7 +228,7 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
               onClick={() => onNavigate?.('compliance-audit')}
             >
               <FileText className="w-4 h-4 mr-1.5" />
-              Generate Audit
+              {t('compliance.generateAudit')}
             </Button>
           </div>
         </div>
@@ -237,15 +239,15 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
         <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
           <TabsTrigger value="overview" className="gap-2">
             <CheckCircle className="h-4 w-4" />
-            Overview
+            {t('compliance.tabOverview')}
           </TabsTrigger>
           <TabsTrigger value="certifications" className="gap-2">
             <Award className="h-4 w-4" />
-            Certifications
+            {t('compliance.tabCertifications')}
           </TabsTrigger>
           <TabsTrigger value="approvals" className="gap-2 relative">
             <Clock className="h-4 w-4" />
-            Pending Approvals
+            {t('compliance.tabPendingApprovals')}
             {pendingCount > 0 && (
               <Badge
                 variant="destructive"
@@ -271,14 +273,14 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
               {complianceRate > 0 && (
                 <div className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400">
                   <ArrowUpRight className="h-3 w-3" />
-                  <span>Live</span>
+                  <span>{t('compliance.live')}</span>
                 </div>
               )}
             </div>
             <div className="space-y-1">
               <div className="text-3xl font-bold text-foreground leading-none">{complianceRate}%</div>
-              <h3 className="text-sm font-medium text-muted-foreground mt-2">Overall Compliance</h3>
-              <p className="text-xs text-muted-foreground/80">System-wide</p>
+              <h3 className="text-sm font-medium text-muted-foreground mt-2">{t('compliance.overallCompliance')}</h3>
+              <p className="text-xs text-muted-foreground/80">{t('compliance.systemWide')}</p>
             </div>
           </CardContent>
         </Card>
@@ -293,14 +295,14 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
               {compliantEmployees > 0 && (
                 <div className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400">
                   <ArrowUpRight className="h-3 w-3" />
-                  <span>Live</span>
+                  <span>{t('compliance.live')}</span>
                 </div>
               )}
             </div>
             <div className="space-y-1">
               <div className="text-3xl font-bold text-foreground leading-none">{compliantEmployees}</div>
-              <h3 className="text-sm font-medium text-muted-foreground mt-2">Employees Compliant</h3>
-              <p className="text-xs text-muted-foreground/80">of {totalEmployees} total</p>
+              <h3 className="text-sm font-medium text-muted-foreground mt-2">{t('compliance.employeesCompliant')}</h3>
+              <p className="text-xs text-muted-foreground/80">{t('compliance.ofTotal', { total: totalEmployees })}</p>
             </div>
           </CardContent>
         </Card>
@@ -314,14 +316,14 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
               </div>
               {expiringSoonCount > 0 && (
                 <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 text-xs dark:bg-yellow-900/10 dark:text-yellow-400">
-                  Due Soon
+                  {t('compliance.dueSoon')}
                 </Badge>
               )}
             </div>
             <div className="space-y-1">
               <div className="text-3xl font-bold text-foreground leading-none">{expiringSoonCount}</div>
-              <h3 className="text-sm font-medium text-muted-foreground mt-2">Expiring Soon</h3>
-              <p className="text-xs text-muted-foreground/80">Next 30 days</p>
+              <h3 className="text-sm font-medium text-muted-foreground mt-2">{t('compliance.expiringSoonLabel')}</h3>
+              <p className="text-xs text-muted-foreground/80">{t('compliance.next30Days')}</p>
             </div>
           </CardContent>
         </Card>
@@ -335,14 +337,14 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
               </div>
               {highRiskCount > 0 && (
                 <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 text-xs dark:bg-red-900/10 dark:text-red-400">
-                  Critical
+                  {t('compliance.critical')}
                 </Badge>
               )}
             </div>
             <div className="space-y-1">
               <div className="text-3xl font-bold text-foreground leading-none">{highRiskCount}</div>
-              <h3 className="text-sm font-medium text-muted-foreground mt-2">High-Risk Units</h3>
-              <p className="text-xs text-muted-foreground/80">Require attention</p>
+              <h3 className="text-sm font-medium text-muted-foreground mt-2">{t('compliance.highRiskUnits')}</h3>
+              <p className="text-xs text-muted-foreground/80">{t('compliance.requireAttention')}</p>
             </div>
           </CardContent>
         </Card>
@@ -353,12 +355,12 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
         <CardHeader className="border-b border-border/50 bg-muted/30">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Compliance Trends</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">6-month compliance rate comparison</p>
+              <CardTitle>{t('compliance.complianceTrends')}</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">{t('compliance.sixMonthComparison')}</p>
             </div>
             <Button variant="ghost" size="sm">
               <Eye className="w-4 h-4 mr-1.5" />
-              Details
+              {t('common.details')}
             </Button>
           </div>
         </CardHeader>
@@ -412,23 +414,23 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
                   stroke="#F74A05" 
                   strokeWidth={2.5}
                   fill="url(#companyGradient)" 
-                  name="Company-wide"
+                  name={t('compliance.chartCompanyWide')}
                 />
-                <Area 
-                  type="monotone" 
-                  dataKey="district" 
-                  stroke="#FF733C" 
+                <Area
+                  type="monotone"
+                  dataKey="district"
+                  stroke="#FF733C"
                   strokeWidth={2.5}
-                  fill="url(#districtGradient)" 
-                  name="District Average"
+                  fill="url(#districtGradient)"
+                  name={t('compliance.chartDistrictAvg')}
                 />
-                <Area 
-                  type="monotone" 
-                  dataKey="unit" 
-                  stroke="#94a3b8" 
+                <Area
+                  type="monotone"
+                  dataKey="unit"
+                  stroke="#94a3b8"
                   strokeWidth={2.5}
-                  fill="url(#unitGradient)" 
-                  name="Unit Average"
+                  fill="url(#unitGradient)"
+                  name={t('compliance.chartUnitAvg')}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -441,8 +443,8 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
         {/* Compliance by Category */}
         <Card className="border-border/50 shadow-sm">
           <CardHeader className="border-b border-border/50 bg-muted/30">
-            <CardTitle>Compliance by Category</CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">Training completion rates</p>
+            <CardTitle>{t('compliance.complianceByCategory')}</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">{t('compliance.trainingCompletionRates')}</p>
           </CardHeader>
           <CardContent className="p-6">
             <div className="space-y-5">
@@ -477,12 +479,12 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
                   {item.overdue > 0 && (
                     <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
                       <AlertTriangle className="h-3 w-3" />
-                      {item.overdue} overdue
+                      {t('compliance.overdueCount', { count: item.overdue })}
                     </p>
                   )}
                 </div>
               )) : (
-                <p className="text-sm text-muted-foreground text-center py-4">No compliance categories found</p>
+                <p className="text-sm text-muted-foreground text-center py-4">{t('compliance.noCategoriesFound')}</p>
               )}
             </div>
           </CardContent>
@@ -491,8 +493,8 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
         {/* Upcoming Deadlines */}
         <Card className="border-border/50 shadow-sm">
           <CardHeader className="border-b border-border/50 bg-muted/30">
-            <CardTitle>Upcoming Deadlines</CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">Action required items</p>
+            <CardTitle>{t('compliance.upcomingDeadlines')}</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">{t('compliance.actionRequiredItems')}</p>
           </CardHeader>
           <CardContent className="p-6">
             <div className="space-y-4">
@@ -524,7 +526,7 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
                     <div className="flex items-center gap-4 mt-2">
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
                         <Clock className="h-3 w-3" />
-                        {cert.daysUntilExpiration} days
+                        {t('compliance.daysCount', { count: cert.daysUntilExpiration })}
                       </p>
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
                         <UserCheck className="h-3 w-3" />
@@ -534,7 +536,7 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
                   </div>
                 </div>
               )) : (
-                <p className="text-sm text-muted-foreground text-center py-4">No certifications expiring in the next 30 days</p>
+                <p className="text-sm text-muted-foreground text-center py-4">{t('compliance.noExpiring30Days')}</p>
               )}
             </div>
           </CardContent>
@@ -546,12 +548,12 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
         <CardHeader className="border-b border-border/50 bg-muted/30">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Unit Risk Assessment</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">Compliance risk levels by location</p>
+              <CardTitle>{t('compliance.unitRiskAssessment')}</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">{t('compliance.riskLevelsByLocation')}</p>
             </div>
             <Button variant="outline" size="sm">
               <FileText className="w-4 h-4 mr-1.5" />
-              Full Report
+              {t('compliance.fullReport')}
             </Button>
           </div>
         </CardHeader>
@@ -561,19 +563,19 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
               <thead className="bg-muted/30 border-b border-border/50">
                 <tr>
                   <th className="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Unit
+                    {t('compliance.colUnit')}
                   </th>
                   <th className="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Risk Level
+                    {t('compliance.colRiskLevel')}
                   </th>
                   <th className="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Compliance Score
+                    {t('compliance.colComplianceScore')}
                   </th>
                   <th className="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Open Issues
+                    {t('compliance.colOpenIssues')}
                   </th>
                   <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Actions
+                    {t('common.actions')}
                   </th>
                 </tr>
               </thead>
@@ -611,21 +613,21 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
                       ) : (
                         <span className="flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400 font-medium">
                           <CheckCircle className="h-3.5 w-3.5" />
-                          None
+                          {t('common.none')}
                         </span>
                       )}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <Button variant="ghost" size="sm">
                         <Eye className="w-4 h-4 mr-1.5" />
-                        View
+                        {t('common.viewAll')}
                       </Button>
                     </td>
                   </tr>
                 )) : (
                   <tr>
                     <td colSpan={5} className="px-6 py-8 text-center text-sm text-muted-foreground">
-                      No stores found for risk assessment
+                      {t('compliance.noStoresFound')}
                     </td>
                   </tr>
                 )}
@@ -655,7 +657,7 @@ export function ComplianceDashboard({ currentRole, onBackToDashboard, onNavigate
       <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Upload External Certification</DialogTitle>
+            <DialogTitle>{t('compliance.uploadExternalCertification')}</DialogTitle>
           </DialogHeader>
           <ExternalCertificationUpload
             onSuccess={() => {

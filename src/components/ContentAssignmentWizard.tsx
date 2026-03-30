@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -141,6 +142,7 @@ interface ContentAssignmentWizardProps {
 }
 
 export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: ContentAssignmentWizardProps) {
+  const { t } = useTranslation();
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedPlaylists, setSelectedPlaylists] = useState<string[]>([]);
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
@@ -258,8 +260,8 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
       autoReminders
     };
     
-    toast.success(`Successfully assigned ${selectedPlaylists.length} playlist(s) to ${getTotalSelectedEmployees()} employee(s)`, {
-      description: 'Assignments will be available immediately in employee dashboards.'
+    toast.success(t('assignments.wizard.successToast', { playlists: selectedPlaylists.length, employees: getTotalSelectedEmployees() }), {
+      description: t('assignments.wizard.successDesc')
     });
     onClose();
     
@@ -325,10 +327,10 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
   });
 
   const stepTitles = [
-    'Choose Content',
-    'Select Audience',
-    'Schedule & Rules',
-    'Review & Confirm'
+    t('assignments.wizard.stepChooseContent'),
+    t('assignments.wizard.stepSelectAudience'),
+    t('assignments.wizard.stepScheduleRules'),
+    t('assignments.wizard.stepReviewConfirm'),
   ];
 
   // Render the wizard content
@@ -337,9 +339,9 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
       {/* Header - only show in full page mode */}
       {isFullPage && (
         <div className="mb-6">
-          <h1 className="text-foreground">Assign Content to Employees</h1>
+          <h1 className="text-foreground">{t('assignments.wizard.title')}</h1>
           <p className="text-muted-foreground mt-1">
-            Create and manage training assignments across your organization
+            {t('assignments.wizard.subtitle')}
           </p>
         </div>
       )}
@@ -377,9 +379,9 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
         {currentStep === 1 && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Choose Training Content</h3>
+              <h3 className="text-lg font-semibold">{t('assignments.wizard.chooseTrainingContent')}</h3>
               <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                {selectedPlaylists.length} selected
+                {t('assignments.wizard.selectedCount', { count: selectedPlaylists.length })}
               </Badge>
             </div>
             
@@ -430,7 +432,7 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
                           </span>
                           <span className="flex items-center space-x-1">
                             <PlaySquare className="w-3 h-3" />
-                            <span>{playlist.tracks} modules</span>
+                            <span>{playlist.tracks} {t('assignments.wizard.modules')}</span>
                           </span>
                         </div>
                         <Badge variant="outline" className={getDifficultyColor(playlist.difficulty)}>
@@ -440,7 +442,7 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
                       
                       <div className="flex items-center justify-between pt-2 border-t border-border">
                         <span className="text-xs text-muted-foreground">
-                          Est. completion: {playlist.estimatedCompletion}
+                          {t('assignments.wizard.estCompletion')}: {playlist.estimatedCompletion}
                         </span>
                         <Target className="w-4 h-4 text-primary" />
                       </div>
@@ -456,9 +458,9 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
         {currentStep === 2 && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Select Target Audience</h3>
+              <h3 className="text-lg font-semibold">{t('assignments.wizard.selectTargetAudience')}</h3>
               <Badge variant="outline" className="bg-green-50 text-green-700">
-                {getTotalSelectedEmployees()} employees selected
+                {t('assignments.wizard.employeesSelected', { count: getTotalSelectedEmployees() })}
               </Badge>
             </div>
             
@@ -467,7 +469,7 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search employees by name, role, or unit..."
+                  placeholder={t('assignments.wizard.searchEmployees')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
@@ -475,13 +477,13 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
               </div>
               <Button variant="outline" size="sm">
                 <Filter className="h-4 w-4 mr-2" />
-                Filters
+                {t('common.filters')}
               </Button>
             </div>
 
             {/* Select by Role */}
             <div>
-              <Label className="text-base font-semibold mb-3 block">Select by Role</Label>
+              <Label className="text-base font-semibold mb-3 block">{t('assignments.wizard.selectByRole')}</Label>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {availableRoles.map((role) => {
                   const employeeCount = mockEmployees.filter(emp => emp.role === role).length;
@@ -499,7 +501,7 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
                           <div className="flex-1 min-w-0">
                             <p className="font-medium text-sm truncate">{role}</p>
                             <p className="text-xs text-muted-foreground">
-                              {employeeCount} {employeeCount === 1 ? 'employee' : 'employees'}
+                              {employeeCount} {employeeCount === 1 ? t('assignments.wizard.employee') : t('assignments.wizard.employees')}
                             </p>
                           </div>
                         </div>
@@ -514,7 +516,7 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
 
             {/* Select by State */}
             <div>
-              <Label className="text-base font-semibold mb-3 block">Select by State</Label>
+              <Label className="text-base font-semibold mb-3 block">{t('assignments.wizard.selectByState')}</Label>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 {availableStates.map((state) => {
                   const employeeCount = mockEmployees.filter(emp => emp.state === state).length;
@@ -533,7 +535,7 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
                           <div className="flex-1">
                             <p className="font-semibold text-base">{state}</p>
                             <p className="text-xs text-muted-foreground">
-                              {storeCount} {storeCount === 1 ? 'store' : 'stores'} • {employeeCount} emp
+                              {storeCount} {storeCount === 1 ? t('assignments.wizard.store') : t('assignments.wizard.stores')} • {employeeCount} {t('assignments.wizard.emp')}
                             </p>
                           </div>
                         </div>
@@ -548,7 +550,7 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
 
             {/* Units Selection */}
             <div>
-              <Label className="text-base font-semibold mb-3 block">Select by Unit</Label>
+              <Label className="text-base font-semibold mb-3 block">{t('assignments.wizard.selectByUnit')}</Label>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {mockUnits.map((unit) => (
                   <Card 
@@ -564,10 +566,10 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
                         <div className="flex-1">
                           <h4 className="font-semibold">{unit.name}</h4>
                           <p className="text-sm text-muted-foreground">
-                            {unit.employeeCount} employees • {unit.district} District
+                            {unit.employeeCount} {t('assignments.wizard.employees')} • {unit.district} {t('assignments.wizard.district')}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            Manager: {unit.manager}
+                            {t('assignments.wizard.manager')}: {unit.manager}
                           </p>
                         </div>
                       </div>
@@ -582,18 +584,18 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
             {/* Individual Employees */}
             <div>
               <div className="flex items-center justify-between mb-3">
-                <Label className="text-base font-semibold">Individual Employees</Label>
+                <Label className="text-base font-semibold">{t('assignments.wizard.individualEmployees')}</Label>
                 <div className="flex items-center space-x-2">
-                  <Checkbox 
+                  <Checkbox
                     id="all-employees"
                     checked={allEmployeesSelected}
                     onCheckedChange={handleAllEmployeesToggle}
                   />
-                  <label 
+                  <label
                     htmlFor="all-employees"
                     className="text-sm font-medium cursor-pointer text-primary"
                   >
-                    All Employees ({filteredEmployees.length})
+                    {t('assignments.wizard.allEmployees')} ({filteredEmployees.length})
                   </label>
                 </div>
               </div>
@@ -635,7 +637,7 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
                         {employee.alreadyAssigned && (
                           <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">
                             <AlertTriangle className="w-3 h-3 mr-1" />
-                            Assigned
+                            {t('assignments.wizard.assigned')}
                           </Badge>
                         )}
                       </div>
@@ -653,11 +655,11 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
                     <Users className="h-5 w-5 text-primary" />
                     <div>
                       <p className="font-semibold">
-                        {getTotalSelectedEmployees()} employees selected
+                        {t('assignments.wizard.employeesSelected', { count: getTotalSelectedEmployees() })}
                       </p>
                       {getAlreadyAssignedCount() > 0 && (
                         <p className="text-sm text-orange-600">
-                          {getAlreadyAssignedCount()} already have similar assignments
+                          {t('assignments.wizard.alreadySimilar', { count: getAlreadyAssignedCount() })}
                         </p>
                       )}
                     </div>
@@ -666,7 +668,7 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
                     setSelectedEmployees([]);
                     setSelectedUnits([]);
                   }}>
-                    Clear All
+                    {t('common.clearAll')}
                   </Button>
                 </div>
               </CardContent>
@@ -677,21 +679,21 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
         {/* Step 3: Schedule & Rules */}
         {currentStep === 3 && (
           <div className="space-y-6">
-            <h3 className="text-lg font-semibold">Schedule & Assignment Rules</h3>
+            <h3 className="text-lg font-semibold">{t('assignments.wizard.scheduleAndRules')}</h3>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-6">
                 {/* Date Selection */}
                 <div>
-                  <Label className="text-base font-semibold mb-3 block">Assignment Schedule</Label>
+                  <Label className="text-base font-semibold mb-3 block">{t('assignments.wizard.assignmentSchedule')}</Label>
                   <div className="space-y-4">
                     <div>
-                      <Label className="text-sm mb-2 block">Start Date</Label>
+                      <Label className="text-sm mb-2 block">{t('assignments.wizard.startDate')}</Label>
                       <Popover>
                         <PopoverTrigger asChild>
                           <Button variant="outline" className="w-full justify-start">
                             <CalendarIcon className="mr-2 h-4 w-4" />
-                            {startDate ? startDate.toLocaleDateString() : 'Select start date'}
+                            {startDate ? startDate.toLocaleDateString() : t('assignments.wizard.selectStartDate')}
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0" align="start">
@@ -704,14 +706,14 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
                         </PopoverContent>
                       </Popover>
                     </div>
-                    
+
                     <div>
-                      <Label className="text-sm mb-2 block">End Date (Optional)</Label>
+                      <Label className="text-sm mb-2 block">{t('assignments.wizard.endDateOptional')}</Label>
                       <Popover>
                         <PopoverTrigger asChild>
                           <Button variant="outline" className="w-full justify-start">
                             <CalendarIcon className="mr-2 h-4 w-4" />
-                            {endDate ? endDate.toLocaleDateString() : 'No end date set'}
+                            {endDate ? endDate.toLocaleDateString() : t('assignments.wizard.noEndDate')}
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0" align="start">
@@ -731,7 +733,7 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
               <div className="space-y-6">
                 {/* Assignment Rules */}
                 <div>
-                  <Label className="text-base font-semibold mb-3 block">Assignment Rules</Label>
+                  <Label className="text-base font-semibold mb-3 block">{t('assignments.wizard.assignmentRules')}</Label>
                   <div className="space-y-4">
                     <Card>
                       <CardContent className="p-4">
@@ -741,9 +743,9 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
                               <AlertTriangle className="h-4 w-4 text-red-600" />
                             </div>
                             <div>
-                              <Label className="font-medium">Mandatory Assignment</Label>
+                              <Label className="font-medium">{t('assignments.wizard.mandatoryAssignment')}</Label>
                               <p className="text-sm text-muted-foreground">
-                                Employees must complete this training
+                                {t('assignments.wizard.mustComplete')}
                               </p>
                             </div>
                           </div>
@@ -760,9 +762,9 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
                               <Zap className="h-4 w-4 text-blue-600" />
                             </div>
                             <div>
-                              <Label className="font-medium">Auto Reminders</Label>
+                              <Label className="font-medium">{t('assignments.wizard.autoReminders')}</Label>
                               <p className="text-sm text-muted-foreground">
-                                Send weekly reminder notifications
+                                {t('assignments.wizard.weeklyReminders')}
                               </p>
                             </div>
                           </div>
@@ -780,13 +782,13 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
         {/* Step 4: Review & Confirm */}
         {currentStep === 4 && (
           <div className="space-y-6">
-            <h3 className="text-lg font-semibold">Review Assignment Details</h3>
+            <h3 className="text-lg font-semibold">{t('assignments.wizard.reviewDetails')}</h3>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Selected Content */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Selected Content</CardTitle>
+                  <CardTitle className="text-base">{t('assignments.wizard.selectedContent')}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {selectedPlaylists.map(id => {
@@ -799,7 +801,7 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
                         <div className="flex-1">
                           <h4 className="font-medium text-sm">{playlist.title}</h4>
                           <p className="text-xs text-muted-foreground">
-                            {playlist.duration} • {playlist.tracks} modules
+                            {playlist.duration} • {playlist.tracks} {t('assignments.wizard.modules')}
                           </p>
                         </div>
                         <Badge className={getTypeColor(playlist.type)}>
@@ -814,37 +816,37 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
               {/* Assignment Summary */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Assignment Summary</CardTitle>
+                  <CardTitle className="text-base">{t('assignments.wizard.assignmentSummary')}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-between p-3 bg-accent/50 rounded-lg">
                     <div className="flex items-center space-x-2">
                       <Users className="w-4 h-4 text-primary" />
-                      <span className="font-medium">Target Audience</span>
+                      <span className="font-medium">{t('assignments.wizard.targetAudience')}</span>
                     </div>
                     <span className="font-bold text-primary">
-                      {getTotalSelectedEmployees()} employees
+                      {t('assignments.wizard.employeesSelected', { count: getTotalSelectedEmployees() })}
                     </span>
                   </div>
                   
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <span>Start Date:</span>
+                      <span>{t('assignments.wizard.startDate')}:</span>
                       <span className="font-medium">{startDate?.toLocaleDateString()}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>End Date:</span>
-                      <span className="font-medium">{endDate?.toLocaleDateString() || 'No end date'}</span>
+                      <span>{t('assignments.wizard.endDate')}:</span>
+                      <span className="font-medium">{endDate?.toLocaleDateString() || t('assignments.wizard.noEndDate')}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Assignment Type:</span>
+                      <span>{t('assignments.wizard.assignmentType')}:</span>
                       <Badge variant={isMandatory ? "default" : "outline"}>
-                        {isMandatory ? 'Mandatory' : 'Optional'}
+                        {isMandatory ? t('assignments.wizard.mandatory') : t('assignments.wizard.optional')}
                       </Badge>
                     </div>
                     <div className="flex justify-between">
-                      <span>Reminders:</span>
-                      <span className="font-medium">{autoReminders ? 'Weekly' : 'Disabled'}</span>
+                      <span>{t('assignments.wizard.reminders')}:</span>
+                      <span className="font-medium">{autoReminders ? t('assignments.wizard.weekly') : t('assignments.wizard.disabled')}</span>
                     </div>
                   </div>
 
@@ -855,10 +857,10 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
                           <AlertTriangle className="w-4 h-4 text-yellow-600 mt-0.5" />
                           <div>
                             <p className="text-sm font-medium text-yellow-800">
-                              Duplicate Assignment Warning
+                              {t('assignments.wizard.duplicateWarning')}
                             </p>
                             <p className="text-xs text-yellow-700">
-                              {getAlreadyAssignedCount()} employee(s) already have similar assignments
+                              {t('assignments.wizard.alreadySimilar', { count: getAlreadyAssignedCount() })}
                             </p>
                           </div>
                         </div>
@@ -874,44 +876,44 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
 
       {/* Enhanced Navigation */}
       <div className="flex items-center justify-between pt-6 border-t border-border">
-        <Button 
-          variant="outline" 
+        <Button
+          variant="outline"
           onClick={handleBack}
           disabled={currentStep === 1}
           className="flex items-center space-x-2"
         >
           <ChevronLeft className="w-4 h-4" />
-          <span>Back</span>
+          <span>{t('common.back')}</span>
         </Button>
         
         <div className="flex items-center space-x-4">
           <span className="text-sm text-muted-foreground">
-            Step {currentStep} of {totalSteps}
+            {t('assignments.wizard.stepOf', { current: currentStep, total: totalSteps })}
           </span>
           {!canProceed() && (
             <span className="text-xs text-red-600">
-              Please complete required fields
+              {t('assignments.wizard.completeRequired')}
             </span>
           )}
         </div>
         
         {currentStep < totalSteps ? (
-          <Button 
+          <Button
             onClick={handleNext}
             disabled={!canProceed()}
             className="bg-primary hover:bg-primary/90 flex items-center space-x-2"
           >
-            <span>Continue</span>
+            <span>{t('assignments.wizard.continue')}</span>
             <ChevronRight className="w-4 h-4" />
           </Button>
         ) : (
-          <Button 
+          <Button
             onClick={handleComplete}
             disabled={!canProceed()}
             className="bg-brand-gradient hover:opacity-90 text-white shadow-brand flex items-center space-x-2"
           >
             <CheckCircle className="w-4 h-4" />
-            <span>Assign Content</span>
+            <span>{t('assignments.wizard.assignContent')}</span>
           </Button>
         )}
       </div>
@@ -932,9 +934,9 @@ export function ContentAssignmentWizard({ isOpen, onClose, isFullPage }: Content
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-5xl max-h-[95vh] overflow-hidden">
         <DialogHeader className="border-b border-border pb-4">
-          <DialogTitle className="text-xl font-bold">Assign Content to Employees</DialogTitle>
+          <DialogTitle className="text-xl font-bold">{t('assignments.wizard.title')}</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            Create and manage training assignments across your organization
+            {t('assignments.wizard.subtitle')}
           </DialogDescription>
         </DialogHeader>
         

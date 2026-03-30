@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -119,6 +120,7 @@ const AUTHORITY_TYPES = [
 ];
 
 export function AuthoritiesManager() {
+  const { t } = useTranslation();
   const [authorities, setAuthorities] = useState<ComplianceAuthority[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -301,7 +303,7 @@ export function AuthoritiesManager() {
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search authorities..."
+                placeholder={t('compliance.auth.searchPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -310,7 +312,7 @@ export function AuthoritiesManager() {
             <Select value={stateFilter} onValueChange={setStateFilter}>
               <SelectTrigger className="w-full md:w-48">
                 <Filter className="h-4 w-4 mr-2" />
-                <SelectValue placeholder="Filter by state" />
+                <SelectValue placeholder={t('compliance.auth.filterByState')} />
               </SelectTrigger>
               <SelectContent>
                 {US_STATES.map((state) => (
@@ -330,15 +332,15 @@ export function AuthoritiesManager() {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Building2 className="h-5 w-5 text-primary" />
-                Compliance Authorities
+                {t('compliance.auth.title')}
               </CardTitle>
               <CardDescription>
-                Regulatory bodies and certification providers
+                {t('compliance.auth.description')}
               </CardDescription>
             </div>
             <Button onClick={openCreateDialog}>
               <Plus className="h-4 w-4 mr-2" />
-              Add Authority
+              {t('compliance.auth.addAuthority')}
             </Button>
           </div>
         </CardHeader>
@@ -346,18 +348,18 @@ export function AuthoritiesManager() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>State</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Contact</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
+                <TableHead>{t('compliance.auth.colState')}</TableHead>
+                <TableHead>{t('compliance.topics.colName')}</TableHead>
+                <TableHead>{t('compliance.auth.colType')}</TableHead>
+                <TableHead>{t('compliance.auth.colContact')}</TableHead>
+                <TableHead className="w-24">{t('compliance.colActions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredAuthorities.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                    No compliance authorities found
+                    {t('compliance.auth.empty')}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -443,27 +445,27 @@ export function AuthoritiesManager() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              {editingAuthority ? 'Edit Authority' : 'Create Authority'}
+              {editingAuthority ? t('compliance.auth.editAuthority') : t('compliance.auth.createAuthority')}
             </DialogTitle>
             <DialogDescription>
               {editingAuthority
-                ? 'Update the compliance authority details'
-                : 'Add a new regulatory body or certification provider'}
+                ? t('compliance.auth.editAuthorityDesc')
+                : t('compliance.auth.createAuthorityDesc')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="state_code">State</Label>
+                <Label htmlFor="state_code">{t('compliance.auth.colState')}</Label>
                 <Select
                   value={formData.state_code || 'none'}
                   onValueChange={(value) => setFormData({ ...formData, state_code: value === 'none' ? '' : value })}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select state" />
+                    <SelectValue placeholder={t('compliance.auth.selectState')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">National / No State</SelectItem>
+                    <SelectItem value="none">{t('compliance.auth.nationalNoState')}</SelectItem>
                     {US_STATES.filter(s => s.value && s.value !== 'all').map((state) => (
                       <SelectItem key={state.value} value={state.value}>
                         {state.label}
@@ -473,7 +475,7 @@ export function AuthoritiesManager() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="authority_type">Type</Label>
+                <Label htmlFor="authority_type">{t('compliance.auth.colType')}</Label>
                 <Select
                   value={formData.authority_type}
                   onValueChange={(value) => setFormData({ ...formData, authority_type: value })}
@@ -492,25 +494,25 @@ export function AuthoritiesManager() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="name">Name *</Label>
+              <Label htmlFor="name">{t('compliance.topics.labelName')}</Label>
               <Input
                 id="name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g., Texas Alcoholic Beverage Commission"
+                placeholder={t('compliance.auth.namePlaceholder')}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="abbreviation">Abbreviation</Label>
+              <Label htmlFor="abbreviation">{t('compliance.auth.labelAbbreviation')}</Label>
               <Input
                 id="abbreviation"
                 value={formData.abbreviation}
                 onChange={(e) => setFormData({ ...formData, abbreviation: e.target.value })}
-                placeholder="e.g., TABC"
+                placeholder={t('compliance.auth.abbreviationPlaceholder')}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="website_url">Website URL</Label>
+              <Label htmlFor="website_url">{t('compliance.auth.labelWebsite')}</Label>
               <Input
                 id="website_url"
                 type="url"
@@ -521,7 +523,7 @@ export function AuthoritiesManager() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="contact_email">Contact Email</Label>
+                <Label htmlFor="contact_email">{t('compliance.auth.labelContactEmail')}</Label>
                 <Input
                   id="contact_email"
                   type="email"
@@ -531,7 +533,7 @@ export function AuthoritiesManager() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="contact_phone">Contact Phone</Label>
+                <Label htmlFor="contact_phone">{t('compliance.auth.labelContactPhone')}</Label>
                 <Input
                   id="contact_phone"
                   type="tel"
@@ -544,16 +546,16 @@ export function AuthoritiesManager() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDialog(false)}>
-              Cancel
+              {t('compliance.cancel')}
             </Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
+                  {t('compliance.saving')}
                 </>
               ) : (
-                editingAuthority ? 'Update' : 'Create'
+                editingAuthority ? t('compliance.update') : t('compliance.create')
               )}
             </Button>
           </DialogFooter>
@@ -564,14 +566,13 @@ export function AuthoritiesManager() {
       <AlertDialog open={!!deletingAuthority} onOpenChange={() => setDeletingAuthority(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Authority</AlertDialogTitle>
+            <AlertDialogTitle>{t('compliance.auth.deleteTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{deletingAuthority?.name}"? This action cannot be undone
-              and may affect existing compliance requirements.
+              {t('compliance.auth.deleteDesc', { name: deletingAuthority?.name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('compliance.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={deleting}
@@ -580,10 +581,10 @@ export function AuthoritiesManager() {
               {deleting ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Deleting...
+                  {t('compliance.deleting')}
                 </>
               ) : (
-                'Delete'
+                t('compliance.delete')
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

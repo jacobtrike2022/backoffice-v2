@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
@@ -125,6 +126,7 @@ interface Certification {
 }
 
 export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfileProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('overview');
   const [showReminderDialog, setShowReminderDialog] = useState(false);
   const [reminderSMS, setReminderSMS] = useState(true);
@@ -1051,13 +1053,13 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
             className="hover:bg-accent"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to People
+            {t('people.backToPeople')}
           </Button>
           <Separator orientation="vertical" className="h-6" />
           <div>
-            <h1 className="text-foreground">Employee Profile</h1>
+            <h1 className="text-foreground">{t('people.employeeProfile')}</h1>
             <p className="text-muted-foreground mt-1">
-              View and manage employee information and performance
+              {t('people.employeeProfileSubtitle')}
             </p>
           </div>
         </div>
@@ -1068,7 +1070,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
             className="bg-brand-gradient hover:opacity-90 text-white shadow-brand"
           >
             <Pencil className="w-4 h-4 mr-2" />
-            Edit Employee
+            {t('people.editEmployee')}
           </Button>
         )}
       </div>
@@ -1100,26 +1102,26 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                         {currentRole === 'admin' && <span>{employee.district} District</span>}
                       </div>
                       <div className="flex items-center gap-8 text-muted-foreground">
-                        {employee.employeeId && <span>ID: {employee.employeeId}</span>}
+                        {employee.employeeId && <span>{t('people.idLabel')}: {employee.employeeId}</span>}
                         {employee.hireDate && (
                           <span>
-                            Hired {new Date(employee.hireDate).toLocaleDateString()}
+                            {t('people.hired')} {new Date(employee.hireDate).toLocaleDateString()}
                             {(() => {
                               const hireDate = new Date(employee.hireDate);
                               const now = new Date();
                               const years = Math.floor((now.getTime() - hireDate.getTime()) / (1000 * 60 * 60 * 24 * 365));
-                              return years > 0 ? ` (${years} ${years === 1 ? 'year' : 'years'})` : '';
+                              return years > 0 ? ` (${years} ${years === 1 ? t('people.year') : t('people.years')})` : '';
                             })()}
                           </span>
                         )}
                         {employee.terminationDate && employee.status === 'inactive' && (
-                          <span>Terminated {new Date(employee.terminationDate).toLocaleDateString()}</span>
+                          <span>{t('people.terminated')} {new Date(employee.terminationDate).toLocaleDateString()}</span>
                         )}
                         {employee.createdAt && (
-                          <span>Created {new Date(employee.createdAt).toLocaleDateString()}</span>
+                          <span>{t('people.created')} {new Date(employee.createdAt).toLocaleDateString()}</span>
                         )}
                         {employee.updatedAt && (
-                          <span>Updated {new Date(employee.updatedAt).toLocaleDateString()}</span>
+                          <span>{t('people.updated')} {new Date(employee.updatedAt).toLocaleDateString()}</span>
                         )}
                       </div>
                     </div>
@@ -1134,11 +1136,11 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                         {employee.status.toUpperCase()}
                       </Badge>
                       <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400">
-                        {assignments.length} Assignments
+                        {assignments.length} {t('people.assignments')}
                       </Badge>
                       {employee.lastActive && employee.lastActive !== 'Never' && (
                         <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400">
-                          Last active {employee.lastActive}
+                          {t('people.lastActiveLabel')} {employee.lastActive}
                         </Badge>
                       )}
                     </div>
@@ -1163,7 +1165,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                           className="h-6 px-2 text-xs"
                         >
                           <Plus className="h-3 w-3 mr-1" />
-                          Manage Tags
+                          {t('people.manageTags')}
                         </Button>
                       )}
                     </div>
@@ -1179,7 +1181,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                 onClick={handleSendReminder}
               >
                 <Send className="w-4 h-4 mr-2" />
-                Send Reminder
+                {t('people.sendReminder')}
               </Button>
               {currentRole === 'admin' && (
                 <Button
@@ -1188,7 +1190,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                   onClick={handleManagePin}
                 >
                   <Key className="w-4 h-4 mr-2" />
-                  Manage PIN
+                  {t('people.managePin')}
                 </Button>
               )}
             </div>
@@ -1198,7 +1200,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
           <Separator className="my-6" />
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div>
-              <p className="text-sm text-muted-foreground mb-2">Training Progress</p>
+              <p className="text-sm text-muted-foreground mb-2">{t('people.trainingProgress')}</p>
               <div className="flex items-center space-x-3">
                 <Progress 
                   value={Number(employee.progress) || 0} 
@@ -1210,17 +1212,17 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
             </div>
 
             <div className="text-center border-l border-border pl-6">
-              <p className="text-sm text-muted-foreground mb-1">Tracks Completed</p>
+              <p className="text-sm text-muted-foreground mb-1">{t('people.tracksCompleted')}</p>
               <p className="text-3xl font-bold text-foreground">{employee.completedTracks || 0}<span className="text-lg text-muted-foreground">/{employee.totalTracks || 0}</span></p>
             </div>
 
             <div className="text-center border-l border-border pl-6">
-              <p className="text-sm text-muted-foreground mb-1">Average Score</p>
+              <p className="text-sm text-muted-foreground mb-1">{t('people.averageScore')}</p>
               <p className="text-3xl font-bold text-green-600 dark:text-green-400">{Math.round(avgScore)}%</p>
             </div>
 
             <div className="text-center border-l border-border pl-6">
-              <p className="text-sm text-muted-foreground mb-1">Active Assignments</p>
+              <p className="text-sm text-muted-foreground mb-1">{t('people.activeAssignments')}</p>
               <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{assignments.filter(a => a.status !== 'completed').length}</p>
             </div>
           </div>
@@ -1232,23 +1234,23 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
         <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
           <TabsTrigger value="overview">
             <BarChart3 className="w-4 h-4 mr-2" />
-            Overview
+            {t('people.tabOverview')}
           </TabsTrigger>
           <TabsTrigger value="progress">
             <Target className="w-4 h-4 mr-2" />
-            Progress
+            {t('people.tabProgress')}
           </TabsTrigger>
           <TabsTrigger value="performance">
             <TrendingUp className="w-4 h-4 mr-2" />
-            Performance
+            {t('people.tabPerformance')}
           </TabsTrigger>
           <TabsTrigger value="activity">
             <Activity className="w-4 h-4 mr-2" />
-            Activity
+            {t('people.tabActivity')}
           </TabsTrigger>
           <TabsTrigger value="certifications">
             <Award className="w-4 h-4 mr-2" />
-            Certifications
+            {t('people.tabCertifications')}
             {certifications.length > 0 && (
               <Badge variant="secondary" className="ml-2 h-5 px-1.5 text-xs">
                 {certifications.length}
@@ -1284,7 +1286,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-muted-foreground mb-1">Assigned Tracks</p>
+                        <p className="text-sm text-muted-foreground mb-1">{t('people.assignedTracks')}</p>
                         <p className="text-3xl font-bold text-foreground">{overviewData.assignedCount}</p>
                       </div>
                       <div className="h-12 w-12 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
@@ -1298,7 +1300,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-muted-foreground mb-1">Completed Tracks</p>
+                        <p className="text-sm text-muted-foreground mb-1">{t('people.completedTracks')}</p>
                         <p className="text-3xl font-bold text-green-600 dark:text-green-400">{overviewData.completedCount}</p>
                       </div>
                       <div className="h-12 w-12 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
@@ -1312,7 +1314,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-muted-foreground mb-1">In Progress</p>
+                        <p className="text-sm text-muted-foreground mb-1">{t('people.inProgress')}</p>
                         <p className="text-3xl font-bold text-orange-600 dark:text-orange-400">{overviewData.inProgressCount}</p>
                       </div>
                       <div className="h-12 w-12 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center">
@@ -1326,7 +1328,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-muted-foreground mb-1">Average Score</p>
+                        <p className="text-sm text-muted-foreground mb-1">{t('people.averageScore')}</p>
                         <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">{overviewData.avgScore}%</p>
                       </div>
                       <div className="h-12 w-12 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
@@ -1343,7 +1345,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                   <CardHeader>
                     <CardTitle className="flex items-center">
                       <Activity className="w-5 h-5 mr-2 text-primary" />
-                      Recent Activity
+                      {t('people.recentActivity')}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -1371,7 +1373,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-foreground">
-                                {activity.action === 'completed' ? 'Completed' : activity.action === 'started' ? 'Started' : 'Updated'} {activity.trackTitle}
+                                {activity.action === 'completed' ? t('people.actionCompleted') : activity.action === 'started' ? t('people.actionStarted') : t('people.actionUpdated')} {activity.trackTitle}
                               </p>
                               <p className="text-xs text-muted-foreground mt-1">
                                 {formatTimestamp(activity.timestamp)}
@@ -1383,7 +1385,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                     ) : (
                       <div className="text-center py-8 text-muted-foreground">
                         <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p>No recent activity</p>
+                        <p>{t('people.noRecentActivity')}</p>
                       </div>
                     )}
                   </CardContent>
@@ -1394,7 +1396,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                   <CardHeader>
                     <CardTitle className="flex items-center">
                       <CalendarX className="w-5 h-5 mr-2 text-primary" />
-                      Upcoming Deadlines
+                      {t('people.upcomingDeadlines')}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -1405,7 +1407,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                             <div className="flex-1">
                               <p className="text-sm font-medium text-foreground">{deadline.trackTitle}</p>
                               <p className="text-xs text-muted-foreground mt-1">
-                                Due {new Date(deadline.dueDate).toLocaleDateString()}
+                                {t('people.due')} {new Date(deadline.dueDate).toLocaleDateString()}
                               </p>
                             </div>
                             <Badge 
@@ -1418,7 +1420,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                                   : 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400'
                               }
                             >
-                              {deadline.daysRemaining} {deadline.daysRemaining === 1 ? 'day' : 'days'} left
+                              {deadline.daysRemaining} {deadline.daysRemaining === 1 ? t('people.day') : t('people.days')} {t('people.left')}
                             </Badge>
                           </div>
                         ))}
@@ -1426,7 +1428,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                     ) : (
                       <div className="text-center py-8 text-muted-foreground">
                         <CalendarX className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p>No upcoming deadlines</p>
+                        <p>{t('people.noUpcomingDeadlines')}</p>
                       </div>
                     )}
                   </CardContent>
@@ -1443,7 +1445,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center">
                   <Target className="w-5 h-5 mr-2 text-primary" />
-                  Track Progress
+                  {t('people.trackProgress')}
                 </CardTitle>
                 <div className="flex items-center space-x-2">
                   <select
@@ -1451,20 +1453,20 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                     onChange={(e) => setProgressFilter(e.target.value as any)}
                     className="text-sm border border-border rounded-md px-3 py-1 bg-background"
                   >
-                    <option value="all">All</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="completed">Completed</option>
-                    <option value="overdue">Overdue</option>
+                    <option value="all">{t('common.all')}</option>
+                    <option value="in_progress">{t('people.inProgress')}</option>
+                    <option value="completed">{t('people.completed')}</option>
+                    <option value="overdue">{t('people.overdue')}</option>
                   </select>
                   <select
                     value={progressSort}
                     onChange={(e) => setProgressSort(e.target.value as any)}
                     className="text-sm border border-border rounded-md px-3 py-1 bg-background"
                   >
-                    <option value="progress">Progress</option>
-                    <option value="due_date">Due Date</option>
-                    <option value="last_activity">Last Activity</option>
-                    <option value="name">Track Name</option>
+                    <option value="progress">{t('people.progress')}</option>
+                    <option value="due_date">{t('people.dueDate')}</option>
+                    <option value="last_activity">{t('people.lastActivity')}</option>
+                    <option value="name">{t('people.trackName')}</option>
                   </select>
                 </div>
               </div>
@@ -1524,11 +1526,11 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                       
                       const getStatusBadge = () => {
                         if (progress.status === 'completed') {
-                          return <Badge className="bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400">Completed</Badge>;
+                          return <Badge className="bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400">{t('people.completed')}</Badge>;
                         } else if (progress.progress_percent > 0) {
-                          return <Badge className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400">In Progress</Badge>;
+                          return <Badge className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400">{t('people.inProgress')}</Badge>;
                         } else {
-                          return <Badge variant="outline">Not Started</Badge>;
+                          return <Badge variant="outline">{t('people.notStarted')}</Badge>;
                         }
                       };
                       
@@ -1549,13 +1551,13 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                                 {progress.updated_at && (
                                   <span className="flex items-center">
                                     <Clock className="h-3 w-3 mr-1" />
-                                    Last activity: {formatTimestamp(progress.updated_at)}
+                                    {t('people.lastActivityLabel')}: {formatTimestamp(progress.updated_at)}
                                   </span>
                                 )}
                                 {progress.assignment?.due_date && (
                                   <span className="flex items-center">
                                     <Calendar className="h-3 w-3 mr-1" />
-                                    Due: {new Date(progress.assignment.due_date).toLocaleDateString()}
+                                    {t('people.due')}: {new Date(progress.assignment.due_date).toLocaleDateString()}
                                   </span>
                                 )}
                               </div>
@@ -1576,7 +1578,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                 ) : (
                   <div className="text-center py-12 text-muted-foreground">
                     <Target className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No tracks found</p>
+                    <p>{t('people.noTracksFound')}</p>
                   </div>
                 );
               })()}
@@ -1611,7 +1613,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-muted-foreground mb-1">Overall Avg Score</p>
+                        <p className="text-sm text-muted-foreground mb-1">{t('people.overallAvgScore')}</p>
                         <p className="text-3xl font-bold text-foreground">{performanceTabData.overallAvgScore}%</p>
                       </div>
                       <div className="h-12 w-12 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
@@ -1625,7 +1627,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-muted-foreground mb-1">Quiz Completion</p>
+                        <p className="text-sm text-muted-foreground mb-1">{t('people.quizCompletion')}</p>
                         <p className="text-3xl font-bold text-green-600 dark:text-green-400">{performanceTabData.quizCompletionRate}%</p>
                       </div>
                       <div className="h-12 w-12 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
@@ -1639,7 +1641,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-muted-foreground mb-1">Avg Time to Complete</p>
+                        <p className="text-sm text-muted-foreground mb-1">{t('people.avgTimeToComplete')}</p>
                         <p className="text-3xl font-bold text-orange-600 dark:text-orange-400">{performanceTabData.timeToComplete}m</p>
                       </div>
                       <div className="h-12 w-12 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center">
@@ -1653,7 +1655,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-muted-foreground mb-1">Improvement Trend</p>
+                        <p className="text-sm text-muted-foreground mb-1">{t('people.improvementTrend')}</p>
                         <p className={`text-3xl font-bold ${performanceTabData.improvementTrend >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                           {performanceTabData.improvementTrend >= 0 ? '+' : ''}{performanceTabData.improvementTrend}%
                         </p>
@@ -1672,7 +1674,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                   <CardHeader>
                     <CardTitle className="flex items-center">
                       <TrendingUp className="w-5 h-5 mr-2 text-primary" />
-                      Score Trend
+                      {t('people.scoreTrend')}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -1707,7 +1709,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                     ) : (
                       <div className="text-center py-12 text-muted-foreground">
                         <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p>No quiz data available</p>
+                        <p>{t('people.noQuizData')}</p>
                       </div>
                     )}
                   </CardContent>
@@ -1718,7 +1720,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                   <CardHeader>
                     <CardTitle className="flex items-center">
                       <FileCheck className="w-5 h-5 mr-2 text-primary" />
-                      Recent Quiz Results
+                      {t('people.recentQuizResults')}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -1755,7 +1757,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                     ) : (
                       <div className="text-center py-12 text-muted-foreground">
                         <FileCheck className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p>No quiz attempts yet</p>
+                        <p>{t('people.noQuizAttempts')}</p>
                       </div>
                     )}
                   </CardContent>
@@ -1772,7 +1774,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center">
                   <Activity className="w-5 h-5 mr-2 text-primary" />
-                  Activity Timeline
+                  {t('people.activityTimeline')}
                 </CardTitle>
                 <div className="flex items-center space-x-2">
                   <select
@@ -1780,20 +1782,20 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                     onChange={(e) => setActivityDateRange(e.target.value as any)}
                     className="text-sm border border-border rounded-md px-3 py-1 bg-background"
                   >
-                    <option value="7">Last 7 days</option>
-                    <option value="30">Last 30 days</option>
-                    <option value="90">Last 90 days</option>
-                    <option value="all">All time</option>
+                    <option value="7">{t('people.last7Days')}</option>
+                    <option value="30">{t('people.last30Days')}</option>
+                    <option value="90">{t('people.last90Days')}</option>
+                    <option value="all">{t('people.allTime')}</option>
                   </select>
                   <select
                     value={activityTypeFilter}
                     onChange={(e) => setActivityTypeFilter(e.target.value as any)}
                     className="text-sm border border-border rounded-md px-3 py-1 bg-background"
                   >
-                    <option value="all">All</option>
-                    <option value="tracks">Tracks</option>
-                    <option value="quizzes">Quizzes</option>
-                    <option value="completions">Completions</option>
+                    <option value="all">{t('common.all')}</option>
+                    <option value="tracks">{t('people.tracks')}</option>
+                    <option value="quizzes">{t('people.quizzes')}</option>
+                    <option value="completions">{t('people.completions')}</option>
                   </select>
                 </div>
               </div>
@@ -1859,7 +1861,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                 ) : (
                   <div className="text-center py-12 text-muted-foreground">
                     <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No activity found</p>
+                    <p>{t('people.noActivityFound')}</p>
                   </div>
                 );
               })()}
@@ -1874,10 +1876,10 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center">
                   <BookOpen className="w-5 h-5 mr-2 text-primary" />
-                  Assignments
+                  {t('people.assignments')}
                 </div>
                 <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400">
-                  {assignments.filter(a => a.status !== 'completed').length} Active
+                  {assignments.filter(a => a.status !== 'completed').length} {t('common.active')}
                 </Badge>
               </CardTitle>
             </CardHeader>
@@ -1897,12 +1899,12 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                           <div className="flex items-center space-x-4 mt-3 text-xs text-muted-foreground">
                             <span className="flex items-center">
                               <Calendar className="h-3 w-3 mr-1" />
-                              Assigned {new Date(assignment.assigned_at).toLocaleDateString()}
+                              {t('people.assigned')} {new Date(assignment.assigned_at).toLocaleDateString()}
                             </span>
                             {assignment.due_date && (
                               <span className="flex items-center">
                                 <Clock className="h-3 w-3 mr-1" />
-                                Due {new Date(assignment.due_date).toLocaleDateString()}
+                                {t('people.due')} {new Date(assignment.due_date).toLocaleDateString()}
                               </span>
                             )}
                           </div>
@@ -1932,7 +1934,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
               ) : (
                 <div className="text-center py-12 text-muted-foreground">
                   <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No assignments found</p>
+                  <p>{t('people.noAssignmentsFound')}</p>
                 </div>
               )}
             </CardContent>
@@ -1946,10 +1948,10 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center">
                   <Award className="w-5 h-5 mr-2 text-primary" />
-                  Certifications
+                  {t('people.tabCertifications')}
                 </div>
                 <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400">
-                  {certifications.filter(c => c.status === 'active').length} Active
+                  {certifications.filter(c => c.status === 'active').length} {t('common.active')}
                 </Badge>
               </CardTitle>
             </CardHeader>
@@ -1970,13 +1972,13 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                               variant="outline"
                               className={getCertificationStatusColor(cert.status)}
                             >
-                              {cert.status === 'expiring-soon' ? 'Expiring Soon' : cert.status.toUpperCase()}
+                              {cert.status === 'expiring-soon' ? t('people.expiringSoon') : cert.status.toUpperCase()}
                             </Badge>
                           </div>
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mt-3">
                             {cert.issueDate && (
                               <div>
-                                <p className="text-xs text-muted-foreground mb-1">Issued</p>
+                                <p className="text-xs text-muted-foreground mb-1">{t('people.issued')}</p>
                                 <p className="font-medium text-foreground">
                                   {new Date(cert.issueDate).toLocaleDateString()}
                                 </p>
@@ -1984,7 +1986,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                             )}
                             {cert.expiryDate && (
                               <div>
-                                <p className="text-xs text-muted-foreground mb-1">Expires</p>
+                                <p className="text-xs text-muted-foreground mb-1">{t('people.expires')}</p>
                                 <p className="font-medium text-foreground">
                                   {new Date(cert.expiryDate).toLocaleDateString()}
                                   {cert.status === 'expiring-soon' && (
@@ -1997,13 +1999,13 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                             )}
                             {cert.certificateNumber && (
                               <div>
-                                <p className="text-xs text-muted-foreground mb-1">Certificate #</p>
+                                <p className="text-xs text-muted-foreground mb-1">{t('people.certificateNum')}</p>
                                 <p className="font-medium text-foreground">{cert.certificateNumber}</p>
                               </div>
                             )}
                             {cert.score !== undefined && cert.score !== null && (
                               <div>
-                                <p className="text-xs text-muted-foreground mb-1">Score</p>
+                                <p className="text-xs text-muted-foreground mb-1">{t('people.score')}</p>
                                 <p className="font-medium text-foreground">{cert.score}%</p>
                               </div>
                             )}
@@ -2017,7 +2019,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                             className="ml-4"
                           >
                             <ExternalLink className="h-4 w-4 mr-2" />
-                            View Certificate
+                            {t('people.viewCertificate')}
                           </Button>
                         )}
                       </div>
@@ -2027,7 +2029,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
               ) : (
                 <div className="text-center py-12 text-muted-foreground">
                   <Award className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No certifications found</p>
+                  <p>{t('people.noCertificationsFound')}</p>
                 </div>
               )}
             </CardContent>
@@ -2039,9 +2041,9 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
       <Dialog open={showReminderDialog} onOpenChange={setShowReminderDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Send Training Reminder</DialogTitle>
+            <DialogTitle>{t('people.sendTrainingReminder')}</DialogTitle>
             <DialogDescription>
-              Select notification methods to remind {employee.name} about pending training
+              {t('people.reminderDialogDesc', { name: employee.name })}
             </DialogDescription>
           </DialogHeader>
           
@@ -2054,7 +2056,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
               />
               <Label htmlFor="sms" className="flex items-center space-x-2 cursor-pointer">
                 <MessageSquare className="h-4 w-4" />
-                <span>Send SMS</span>
+                <span>{t('people.sendSms')}</span>
               </Label>
             </div>
             
@@ -2066,7 +2068,7 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
               />
               <Label htmlFor="push" className="flex items-center space-x-2 cursor-pointer">
                 <Bell className="h-4 w-4" />
-                <span>Send Push Notification</span>
+                <span>{t('people.sendPush')}</span>
               </Label>
             </div>
             
@@ -2078,21 +2080,21 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
               />
               <Label htmlFor="email-reminder" className="flex items-center space-x-2 cursor-pointer">
                 <Mail className="h-4 w-4" />
-                <span>Send Email</span>
+                <span>{t('people.sendEmail')}</span>
               </Label>
             </div>
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowReminderDialog(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
-            <Button 
+            <Button
               onClick={handleConfirmReminder}
               className="bg-brand-gradient hover:opacity-90 text-white"
             >
               <Send className="w-4 h-4 mr-2" />
-              Send Reminder
+              {t('people.sendReminder')}
             </Button>
           </DialogFooter>
         </DialogContent>

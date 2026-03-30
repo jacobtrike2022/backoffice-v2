@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { X, Send, Zap, Plus, Mic } from 'lucide-react';
 import { 
@@ -27,17 +28,20 @@ interface BrainChatDrawerProps {
   isPublicView?: boolean;
 }
 
-const LoadingDot = () => (
-  <div className="flex items-center gap-3">
-    <motion.div
-      className="w-3 h-3 rounded-full bg-orange-500"
-      style={{ boxShadow: '0 0 12px 4px rgba(255,107,0,0.5)' }}
-      animate={{ scale: [1, 1.2, 1], opacity: [0.7, 1, 0.7] }}
-      transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
-    />
-    <span className="text-sm text-white/60">Thinking...</span>
-  </div>
-);
+const LoadingDot = () => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-center gap-3">
+      <motion.div
+        className="w-3 h-3 rounded-full bg-orange-500"
+        style={{ boxShadow: '0 0 12px 4px rgba(255,107,0,0.5)' }}
+        animate={{ scale: [1, 1.2, 1], opacity: [0.7, 1, 0.7] }}
+        transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+      />
+      <span className="text-sm text-white/60">{t('knowledgeBase.brainThinking')}</span>
+    </div>
+  );
+};
 
 const InlineCitation: React.FC<{
   index: number;
@@ -76,6 +80,7 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
   onNavigateToTrack,
   isPublicView = false
 }) => {
+  const { t } = useTranslation();
   const [messages, setMessages] = useState<BrainMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -146,9 +151,9 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
         citations: data.citations || []
       }]);
     } catch (error: any) {
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: error.message || "Sorry, I encountered an error." 
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: error.message || t('knowledgeBase.brainError')
       }]);
     } finally {
       setIsLoading(false);
@@ -191,9 +196,9 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
     );
   };
 
-  const prompts = track?.type === 'video' 
-    ? ["Summarize this", "Key points", "Main steps"]
-    : ["Key takeaway", "Explain simply", "Summarize"];
+  const prompts = track?.type === 'video'
+    ? [t('knowledgeBase.brainPromptSummarize'), t('knowledgeBase.brainPromptKeyPoints'), t('knowledgeBase.brainPromptMainSteps')]
+    : [t('knowledgeBase.brainPromptKeyTakeaway'), t('knowledgeBase.brainPromptExplain'), t('knowledgeBase.brainPromptSummarize')];
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -222,7 +227,7 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
             `,
           }}
         >
-          <DialogTitle className="sr-only">Company Brain</DialogTitle>
+          <DialogTitle className="sr-only">{t('knowledgeBase.brainTitle')}</DialogTitle>
           
           {/* Header row - settings left, X right */}
           <div style={{
@@ -320,7 +325,7 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
                   margin: '0 0 8px 0',
                   textAlign: 'center',
                 }}>
-                  {track?.title || "Company Brain"}
+                  {track?.title || t('knowledgeBase.brainTitle')}
                 </h2>
                 
                 {/* Subtitle */}
@@ -330,7 +335,7 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
                   margin: '0 0 28px 0',
                   textAlign: 'center',
                 }}>
-                  How can I help you today?
+                  {t('knowledgeBase.brainHelpPrompt')}
                 </p>
                 
                 {/* Prompt chips */}
@@ -488,7 +493,7 @@ const BrainChatDrawer: React.FC<BrainChatDrawerProps> = ({
               {/* Input */}
               <input
                 type="text"
-                placeholder="Ask a question..."
+                placeholder={t('knowledgeBase.brainInputPlaceholder')}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !isLoading && input.trim() && handleSend()}

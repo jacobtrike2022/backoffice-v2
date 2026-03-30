@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -37,17 +38,18 @@ interface InteractiveTranscriptProps {
   contentUrl?: string; // Content URL to check if it's YouTube/Vimeo
 }
 
-export function InteractiveTranscript({ 
-  transcript, 
-  currentTime, 
-  onSeek, 
-  canTranscribe, 
-  onTranscribe, 
+export function InteractiveTranscript({
+  transcript,
+  currentTime,
+  onSeek,
+  canTranscribe,
+  onTranscribe,
   isTranscribing,
   isEditMode = false,
   onTranscriptEdit,
   contentUrl
 }: InteractiveTranscriptProps) {
+  const { t } = useTranslation();
   const [hoveredWord, setHoveredWord] = useState<number | null>(null);
   const [editedText, setEditedText] = useState<string>('');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -192,9 +194,9 @@ export function InteractiveTranscript({
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="font-bold">Add Transcript Manually</CardTitle>
+              <CardTitle className="font-bold">{t('trackDetail.transcriptAddManually')}</CardTitle>
               <Badge variant="secondary" className="text-xs">
-                Edit mode
+                {t('trackDetail.transcriptEditMode')}
               </Badge>
             </div>
           </CardHeader>
@@ -203,7 +205,7 @@ export function InteractiveTranscript({
               value={editedText}
               onChange={handleTextChange}
               className="w-full h-96 p-4 border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary"
-              placeholder="Type or paste transcript text here..."
+              placeholder={t('trackDetail.transcriptTypeOrPaste')}
             />
           </CardContent>
         </Card>
@@ -215,7 +217,7 @@ export function InteractiveTranscript({
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="font-bold">Transcript</CardTitle>
+            <CardTitle className="font-bold">{t('trackDetail.transcriptTitle')}</CardTitle>
             {canTranscribe && onTranscribe && (
               <Button
                 size="sm"
@@ -225,7 +227,7 @@ export function InteractiveTranscript({
                 className="gap-2"
               >
                 <Zap className="h-4 w-4 fill-current" />
-                {isTranscribing ? 'Transcribing...' : 'Generate Transcript'}
+                {isTranscribing ? t('trackDetail.transcriptGenerating') : t('trackDetail.transcriptGenerate')}
               </Button>
             )}
           </div>
@@ -235,21 +237,21 @@ export function InteractiveTranscript({
             {isTranscribing ? (
               <div>
                 <Zap className="h-8 w-8 mx-auto mb-2 animate-pulse text-primary fill-current" />
-                <p>Generating transcript... This may take 30-60 seconds.</p>
+                <p>{t('trackDetail.transcriptInProgress')}</p>
               </div>
             ) : canTranscribe ? (
               <div>
                 <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-20" />
-                <p>No transcript available yet.</p>
-                <p className="text-sm mt-1">Click "Generate Transcript" to create one.</p>
+                <p>{t('trackDetail.transcriptNotAvailableYet')}</p>
+                <p className="text-sm mt-1">{t('trackDetail.transcriptClickGenerate')}</p>
               </div>
             ) : (
               <div>
                 <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-20" />
-                <p>No transcript available.</p>
+                <p>{t('trackDetail.transcriptNotAvailable')}</p>
                 {isYouTubeOrVimeoUrl(contentUrl) && (
                   <p className="text-xs mt-2">
-                    Auto-transcription is not available for YouTube/Vimeo URLs. Upload the video file directly to enable transcription, or add a transcript manually in edit mode.
+                    {t('trackDetail.transcriptYouTubeNote')}
                   </p>
                 )}
               </div>
@@ -270,10 +272,10 @@ export function InteractiveTranscript({
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <MessageSquare className="h-5 w-5" />
-                Edit Transcript
+                {t('trackDetail.transcriptEdit')}
               </CardTitle>
               <Badge variant="secondary" className="text-xs">
-                Edit mode - Interactive features disabled
+                {t('trackDetail.transcriptEditModeDisabled')}
               </Badge>
             </div>
           </CardHeader>
@@ -282,10 +284,10 @@ export function InteractiveTranscript({
               value={editedText}
               onChange={handleTextChange}
               className="w-full h-96 p-4 border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary"
-              placeholder="Edit transcript text here..."
+              placeholder={t('trackDetail.transcriptEditPlaceholder')}
             />
             <p className="text-xs text-muted-foreground mt-2">
-              Note: Editing text will preserve word-level timestamps for highlighting. Minor mismatches between edited text and timestamps are expected.
+              {t('trackDetail.transcriptEditNote')}
             </p>
           </CardContent>
         </Card>
@@ -297,14 +299,14 @@ export function InteractiveTranscript({
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="font-bold">Transcript</CardTitle>
+            <CardTitle className="font-bold">{t('trackDetail.transcriptTitle')}</CardTitle>
             <Badge variant="outline" className="text-xs">
-              Click words to jump
+              {t('trackDetail.transcriptClickToJump')}
             </Badge>
           </div>
         </CardHeader>
         <CardContent>
-          <div 
+          <div
             ref={containerRef}
             className="space-y-4 max-h-96 overflow-y-auto pr-2"
           >
@@ -352,7 +354,7 @@ export function InteractiveTranscript({
                   <div className="flex items-center gap-2 mb-2">
                     <Badge className={getSpeakerColor(utterance.speaker)}>
                       <User className="h-3 w-3 mr-1" />
-                      Speaker {utterance.speaker}
+                      {t('trackDetail.transcriptSpeaker', { speaker: utterance.speaker })}
                     </Badge>
                     <Button
                       variant="ghost"
@@ -402,14 +404,14 @@ export function InteractiveTranscript({
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="font-bold">Transcript</CardTitle>
+            <CardTitle className="font-bold">{t('trackDetail.transcriptTitle')}</CardTitle>
             <Badge variant="outline" className="text-xs">
-              Click words to jump
+              {t('trackDetail.transcriptClickToJump')}
             </Badge>
           </div>
         </CardHeader>
         <CardContent>
-          <div 
+          <div
             ref={containerRef}
             className="flex flex-wrap gap-1 max-h-96 overflow-y-auto pr-2"
           >
@@ -444,11 +446,11 @@ export function InteractiveTranscript({
     <Card>
       <CardHeader>
         <CardTitle className="font-bold">
-          {isEditMode ? 'Edit Transcript' : 'Transcript'}
+          {isEditMode ? t('trackDetail.transcriptEdit') : t('trackDetail.transcriptTitle')}
         </CardTitle>
         {isEditMode && (
           <Badge variant="secondary" className="text-xs">
-            Edit mode
+            {t('trackDetail.transcriptEditMode')}
           </Badge>
         )}
       </CardHeader>
@@ -459,16 +461,16 @@ export function InteractiveTranscript({
               value={editedText}
               onChange={handleTextChange}
               className="w-full h-96 p-4 border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary"
-              placeholder="Edit transcript text here..."
+              placeholder={t('trackDetail.transcriptEditPlaceholder')}
             />
             <p className="text-xs text-muted-foreground mt-2">
-              Edit the transcript text as needed.
+              {t('trackDetail.transcriptEditSimpleNote')}
             </p>
           </>
         ) : (
           <div className="prose prose-sm dark:prose-invert max-w-none">
             <p className="leading-relaxed text-muted-foreground whitespace-pre-wrap">
-              {transcript?.text || 'No transcript available'}
+              {transcript?.text || t('trackDetail.transcriptNotAvailable')}
             </p>
           </div>
         )}

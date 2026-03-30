@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogTitle, DialogOverlay, DialogPortal } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { loginWithPin, getPinSession } from '../../lib/crud/pinAuth';
@@ -26,6 +27,7 @@ export function PinLoginModal({
   organizationId,
   allowGuestAccess = true
 }: PinLoginModalProps) {
+  const { t } = useTranslation();
   const [pin, setPin] = useState<string[]>(['', '', '', '']);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -107,7 +109,7 @@ export function PinLoginModal({
     const pinToSubmit = pinValue || pin.join('');
     
     if (pinToSubmit.length !== 4) {
-      setError('Please enter a 4-digit PIN');
+      setError(t('knowledgeBase.pinEnterFourDigit'));
       return;
     }
 
@@ -122,7 +124,7 @@ export function PinLoginModal({
         onLoginSuccess(result.user.id, userName);
         onClose();
       } else {
-        setError(result.error || 'Invalid PIN. Please try again.');
+        setError(result.error || t('knowledgeBase.pinInvalid'));
         // Clear PIN and refocus first input
         setPin(['', '', '', '']);
         setTimeout(() => {
@@ -130,7 +132,7 @@ export function PinLoginModal({
         }, 100);
       }
     } catch (err) {
-      setError('Login failed. Please try again.');
+      setError(t('knowledgeBase.pinLoginFailed'));
       setPin(['', '', '', '']);
       setTimeout(() => {
         inputRefs.current[0]?.focus();
@@ -141,7 +143,7 @@ export function PinLoginModal({
   };
 
   const handleForgotPin = () => {
-    alert('Please contact your manager to reset your PIN.');
+    alert(t('knowledgeBase.pinForgotAlert'));
   };
 
   if (!isOpen) return null;
@@ -164,7 +166,7 @@ export function PinLoginModal({
           onInteractOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(e) => e.preventDefault()}
         >
-          <DialogTitle className="sr-only">Enter PIN to Continue</DialogTitle>
+          <DialogTitle className="sr-only">{t('knowledgeBase.pinDialogTitle')}</DialogTitle>
           
           <div className="relative flex flex-col">
             {/* Close button removed - modal cannot be dismissed without action */}
@@ -177,10 +179,10 @@ export function PinLoginModal({
                   <Lock className="h-8 w-8 text-primary" />
                 </div>
                 <h2 className="text-2xl font-bold text-foreground mb-2">
-                  Enter Your PIN
+                  {t('knowledgeBase.pinTitle')}
                 </h2>
                 <p className="text-muted-foreground text-sm">
-                  Enter your 4-digit PIN to access this reference material
+                  {t('knowledgeBase.pinSubtitle')}
                 </p>
               </div>
 
@@ -208,7 +210,7 @@ export function PinLoginModal({
                           ? 'border-primary bg-primary/5'
                           : 'border-border hover:border-primary/50'
                       } disabled:opacity-50 disabled:cursor-not-allowed`}
-                      aria-label={`PIN digit ${index + 1}`}
+                      aria-label={t('knowledgeBase.pinDigitLabel', { index: index + 1 })}
                     />
                   ))}
                 </div>
@@ -228,7 +230,7 @@ export function PinLoginModal({
                 className="w-full hero-primary mb-4"
                 size="lg"
               >
-                {isSubmitting ? 'Verifying...' : 'Continue'}
+                {isSubmitting ? t('knowledgeBase.pinVerifying') : t('knowledgeBase.pinContinue')}
               </Button>
 
               {/* Continue as Guest - Only show if allowed */}
@@ -240,7 +242,7 @@ export function PinLoginModal({
                   size="lg"
                 >
                   <User className="h-4 w-4 mr-2" />
-                  Continue as Guest
+                  {t('knowledgeBase.pinContinueAsGuest')}
                 </Button>
               )}
 
@@ -250,7 +252,7 @@ export function PinLoginModal({
                   onClick={handleForgotPin}
                   className="text-sm text-muted-foreground hover:text-foreground underline"
                 >
-                  Forgot PIN?
+                  {t('knowledgeBase.pinForgot')}
                 </button>
               </div>
             </div>

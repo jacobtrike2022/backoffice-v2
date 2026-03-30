@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -80,6 +81,7 @@ export interface RequirementsManagerProps {
 }
 
 export function RequirementsManager({ useOrgScope = false }: RequirementsManagerProps) {
+  const { t } = useTranslation();
   const [requirements, setRequirements] = useState<ComplianceRequirement[]>([]);
   const [topics, setTopics] = useState<ComplianceTopic[]>([]);
   const [authorities, setAuthorities] = useState<ComplianceAuthority[]>([]);
@@ -367,7 +369,7 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search requirements..."
+                placeholder={t('compliance.req.searchPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -376,10 +378,10 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
             <Select value={topicFilter} onValueChange={setTopicFilter}>
               <SelectTrigger className="w-full md:w-48">
                 <Filter className="h-4 w-4 mr-2" />
-                <SelectValue placeholder="Filter by topic" />
+                <SelectValue placeholder={t('compliance.req.filterByTopic')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Topics</SelectItem>
+                <SelectItem value="all">{t('compliance.req.allTopics')}</SelectItem>
                 {topics.map((topic) => (
                   <SelectItem key={topic.id} value={topic.id}>
                     {topic.name}
@@ -390,10 +392,10 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
             {orgStates.length > 0 && (
               <Select value={stateFilter} onValueChange={setStateFilter}>
                 <SelectTrigger className="w-full md:w-40">
-                  <SelectValue placeholder="States" />
+                  <SelectValue placeholder={t('compliance.req.states')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All states ({orgStates.length})</SelectItem>
+                  <SelectItem value="all">{t('compliance.req.allStates', { count: orgStates.length })}</SelectItem>
                   {orgStates.map((code) => (
                     <SelectItem key={code} value={code}>
                       {code}
@@ -404,10 +406,10 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
             )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-full md:w-40">
-                <SelectValue placeholder="Status" />
+                <SelectValue placeholder={t('compliance.req.status')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="all">{t('compliance.req.allStatuses')}</SelectItem>
                 {REQUIREMENT_STATUSES.map((status) => (
                   <SelectItem key={status.value} value={status.value}>
                     {status.label}
@@ -425,18 +427,18 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
             <div>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5 text-primary" />
-                Compliance Requirements
+                {t('compliance.req.title')}
               </CardTitle>
               <CardDescription>
                 {useOrgScope
-                  ? "Requirements for your organization's states of operation"
-                  : 'Specific compliance requirements linked to topics and authorities'}
+                  ? t('compliance.req.descOrgScope')
+                  : t('compliance.req.descAdmin')}
               </CardDescription>
             </div>
             {!useOrgScope && (
               <Button onClick={openCreateDialog}>
                 <Plus className="h-4 w-4 mr-2" />
-                Add Requirement
+                {t('compliance.req.addRequirement')}
               </Button>
             )}
           </div>
@@ -445,20 +447,20 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Requirement</TableHead>
-                <TableHead>State</TableHead>
-                <TableHead>Topic</TableHead>
-                <TableHead>Authority</TableHead>
-                <TableHead>Recert</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
+                <TableHead>{t('compliance.req.colRequirement')}</TableHead>
+                <TableHead>{t('compliance.auth.colState')}</TableHead>
+                <TableHead>{t('compliance.topics.title')}</TableHead>
+                <TableHead>{t('compliance.authorities')}</TableHead>
+                <TableHead>{t('compliance.req.colRecert')}</TableHead>
+                <TableHead>{t('compliance.req.status')}</TableHead>
+                <TableHead className="w-24">{t('compliance.colActions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredRequirements.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                    No compliance requirements found
+                    {t('compliance.req.empty')}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -469,7 +471,7 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
                         <p className="font-medium">{requirement.requirement_name}</p>
                         {requirement.course_name && (
                           <p className="text-xs text-muted-foreground">
-                            Course: {requirement.course_name}
+                            {t('compliance.req.course')}: {requirement.course_name}
                           </p>
                         )}
                         {requirement.law_code_reference && (
@@ -549,36 +551,36 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
         <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
           <DialogHeader className="flex-shrink-0">
             <DialogTitle>
-              {editingRequirement ? 'Edit Requirement' : 'Create Requirement'}
+              {editingRequirement ? t('compliance.req.editRequirement') : t('compliance.req.createRequirement')}
             </DialogTitle>
             <DialogDescription>
               {editingRequirement
-                ? 'Update the compliance requirement details'
-                : 'Add a new compliance requirement'}
+                ? t('compliance.req.editRequirementDesc')
+                : t('compliance.req.createRequirementDesc')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4 overflow-y-auto flex-1">
             <div className="space-y-2">
-              <Label htmlFor="requirement_name">Requirement Name *</Label>
+              <Label htmlFor="requirement_name">{t('compliance.req.labelRequirementName')}</Label>
               <Input
                 id="requirement_name"
                 value={formData.requirement_name}
                 onChange={(e) => setFormData({ ...formData, requirement_name: e.target.value })}
-                placeholder="e.g., TABC Certification"
+                placeholder={t('compliance.req.requirementNamePlaceholder')}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="course_name">Course Name</Label>
+              <Label htmlFor="course_name">{t('compliance.req.labelCourseName')}</Label>
               <Input
                 id="course_name"
                 value={formData.course_name}
                 onChange={(e) => setFormData({ ...formData, course_name: e.target.value })}
-                placeholder="e.g., Seller/Server Training"
+                placeholder={t('compliance.req.courseNamePlaceholder')}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="state_code">State Code</Label>
+                <Label htmlFor="state_code">{t('compliance.req.labelStateCode')}</Label>
                 <Input
                   id="state_code"
                   value={formData.state_code}
@@ -588,7 +590,7 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
+                <Label htmlFor="status">{t('compliance.req.status')}</Label>
                 <Select
                   value={formData.status}
                   onValueChange={(value) => setFormData({ ...formData, status: value })}
@@ -607,7 +609,7 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Topics (select all that apply)</Label>
+              <Label>{t('compliance.req.labelTopics')}</Label>
               <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
                 {topics.map((topic) => (
                   <div key={topic.id} className="flex items-center space-x-2">
@@ -633,22 +635,22 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
               </div>
               {formData.topic_ids.length > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  {formData.topic_ids.length} topic{formData.topic_ids.length !== 1 ? 's' : ''} selected
+                  {t('compliance.req.topicsSelected', { count: formData.topic_ids.length })}
                 </p>
               )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="authority_id">Authority</Label>
+                <Label htmlFor="authority_id">{t('compliance.authorities')}</Label>
                 <Select
                   value={formData.authority_id || 'none'}
                   onValueChange={(value) => setFormData({ ...formData, authority_id: value === 'none' ? '' : value })}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select authority" />
+                    <SelectValue placeholder={t('compliance.req.selectAuthority')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
+                    <SelectItem value="none">{t('compliance.req.none')}</SelectItem>
                     {authorities.map((authority) => (
                       <SelectItem key={authority.id} value={authority.id}>
                         {authority.abbreviation || authority.name}
@@ -661,7 +663,7 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="recertification_years">Recertification (years)</Label>
+                <Label htmlFor="recertification_years">{t('compliance.req.labelRecertYears')}</Label>
                 <Input
                   id="recertification_years"
                   type="number"
@@ -670,7 +672,7 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="days_to_complete">Days to Complete</Label>
+                <Label htmlFor="days_to_complete">{t('compliance.req.labelDaysToComplete')}</Label>
                 <Input
                   id="days_to_complete"
                   type="number"
@@ -680,7 +682,7 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="law_code_reference">Law/Code Reference</Label>
+              <Label htmlFor="law_code_reference">{t('compliance.req.labelLawCode')}</Label>
               <Input
                 id="law_code_reference"
                 value={formData.law_code_reference}
@@ -689,7 +691,7 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cert_details_url">Details URL</Label>
+              <Label htmlFor="cert_details_url">{t('compliance.req.labelDetailsUrl')}</Label>
               <Input
                 id="cert_details_url"
                 type="url"
@@ -699,28 +701,28 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
+              <Label htmlFor="notes">{t('compliance.req.labelNotes')}</Label>
               <Textarea
                 id="notes"
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Additional notes about this requirement"
+                placeholder={t('compliance.req.notesPlaceholder')}
                 rows={2}
               />
             </div>
           </div>
           <DialogFooter className="flex-shrink-0 border-t pt-4">
             <Button variant="outline" onClick={() => setShowDialog(false)}>
-              Cancel
+              {t('compliance.cancel')}
             </Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
+                  {t('compliance.saving')}
                 </>
               ) : (
-                editingRequirement ? 'Update' : 'Create'
+                editingRequirement ? t('compliance.update') : t('compliance.create')
               )}
             </Button>
           </DialogFooter>
@@ -731,14 +733,13 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
       <AlertDialog open={!!deletingRequirement} onOpenChange={() => setDeletingRequirement(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Requirement</AlertDialogTitle>
+            <AlertDialogTitle>{t('compliance.req.deleteTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{deletingRequirement?.requirement_name}"? This action cannot be undone
-              and may affect stores and roles assigned to this requirement.
+              {t('compliance.req.deleteDesc', { name: deletingRequirement?.requirement_name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('compliance.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={deleting}
@@ -747,10 +748,10 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
               {deleting ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Deleting...
+                  {t('compliance.deleting')}
                 </>
               ) : (
-                'Delete'
+                t('compliance.delete')
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

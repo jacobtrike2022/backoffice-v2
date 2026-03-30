@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Check } from 'lucide-react';
@@ -27,6 +28,8 @@ export function SmartProfileCard({
   isApplied = false,
   showMatchBadge = true,
 }: SmartProfileCardProps) {
+  const { t } = useTranslation();
+
   const getMatchColor = (percentage: number) => {
     if (percentage >= 80) return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
     if (percentage >= 60) return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400';
@@ -56,7 +59,7 @@ export function SmartProfileCard({
               getMatchColor(matchPercentage)
             )}
           >
-            {matchPercentage}% Match
+            {t('people.smartProfileMatch', { percentage: matchPercentage })}
           </Badge>
         )}
 
@@ -75,7 +78,7 @@ export function SmartProfileCard({
         {/* Alternative Titles - hidden when applied */}
         {displayAlternatives && !isApplied && (
           <p className="text-xs text-muted-foreground line-clamp-1">
-            Also: {displayAlternatives}
+            {t('people.smartProfileAlso')}: {displayAlternatives}
             {alternativeTitles.length > 3 && '...'}
           </p>
         )}

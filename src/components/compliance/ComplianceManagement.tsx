@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
@@ -24,6 +25,7 @@ interface ComplianceManagementProps {
 }
 
 export function ComplianceManagement({ currentRole, onNavigate }: ComplianceManagementProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('topics');
 
   // Only Trike Super Admin can access this
@@ -33,9 +35,9 @@ export function ComplianceManagement({ currentRole, onNavigate }: ComplianceMana
         <Card className="max-w-md">
           <CardContent className="p-6 text-center">
             <ShieldCheck className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">Access Restricted</h3>
+            <h3 className="text-lg font-semibold mb-2">{t('compliance.mgmt.accessRestricted')}</h3>
             <p className="text-muted-foreground">
-              Only Trike Super Admins can access the Compliance Management area.
+              {t('compliance.mgmt.accessRestrictedDesc')}
             </p>
           </CardContent>
         </Card>
@@ -56,15 +58,15 @@ export function ComplianceManagement({ currentRole, onNavigate }: ComplianceMana
               className="gap-1"
             >
               <ChevronLeft className="h-4 w-4" />
-              Back to Compliance
+              {t('compliance.mgmt.backToCompliance')}
             </Button>
           </div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <ShieldCheck className="h-6 w-6 text-primary" />
-            Compliance Management
+            {t('compliance.mgmt.title')}
           </h1>
           <p className="text-muted-foreground mt-1">
-            Configure compliance topics, authorities, and requirements for all organizations
+            {t('compliance.mgmt.subtitle')}
           </p>
         </div>
       </div>
@@ -75,11 +77,9 @@ export function ComplianceManagement({ currentRole, onNavigate }: ComplianceMana
           <div className="flex items-start gap-3">
             <Settings className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
             <div className="text-sm text-blue-900 dark:text-blue-100">
-              <p className="font-semibold mb-1">System-Wide Configuration</p>
+              <p className="font-semibold mb-1">{t('compliance.mgmt.systemWideConfig')}</p>
               <p className="text-xs text-blue-800 dark:text-blue-200">
-                Changes made here affect the compliance framework for all organizations.
-                Topics define categories of compliance, Authorities are regulatory bodies,
-                and Requirements link specific compliance needs to topics and authorities.
+                {t('compliance.mgmt.systemWideConfigDesc')}
               </p>
             </div>
           </div>
@@ -91,15 +91,15 @@ export function ComplianceManagement({ currentRole, onNavigate }: ComplianceMana
         <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
           <TabsTrigger value="topics" className="gap-2">
             <Tag className="h-4 w-4" />
-            Topics
+            {t('compliance.topics')}
           </TabsTrigger>
           <TabsTrigger value="authorities" className="gap-2">
             <Building2 className="h-4 w-4" />
-            Authorities
+            {t('compliance.authorities')}
           </TabsTrigger>
           <TabsTrigger value="requirements" className="gap-2">
             <FileText className="h-4 w-4" />
-            Requirements
+            {t('compliance.requirements')}
           </TabsTrigger>
         </TabsList>
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -48,6 +49,7 @@ import {
 } from '../../lib/crud/compliance';
 
 export function TopicsManager() {
+  const { t } = useTranslation();
   const [topics, setTopics] = useState<ComplianceTopic[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -258,21 +260,21 @@ export function TopicsManager() {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Tag className="h-5 w-5 text-primary" />
-                Compliance Topics
+                {t('compliance.topics.title')}
               </CardTitle>
               <CardDescription>
-                Define categories for grouping compliance requirements. Drag rows to reorder.
+                {t('compliance.topics.description')}
                 {isReordering && (
                   <span className="ml-2 inline-flex items-center text-primary">
                     <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                    Saving order...
+                    {t('compliance.topics.savingOrder')}
                   </span>
                 )}
               </CardDescription>
             </div>
             <Button onClick={openCreateDialog}>
               <Plus className="h-4 w-4 mr-2" />
-              Add Topic
+              {t('compliance.topics.addTopic')}
             </Button>
           </div>
         </CardHeader>
@@ -281,17 +283,17 @@ export function TopicsManager() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12"></TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead className="w-24">Order</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
+                <TableHead>{t('compliance.topics.colName')}</TableHead>
+                <TableHead>{t('compliance.topics.colDescription')}</TableHead>
+                <TableHead className="w-24">{t('compliance.topics.colOrder')}</TableHead>
+                <TableHead className="w-24">{t('compliance.colActions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {topics.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                    No compliance topics defined yet
+                    {t('compliance.topics.empty')}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -353,36 +355,36 @@ export function TopicsManager() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {editingTopic ? 'Edit Topic' : 'Create Topic'}
+              {editingTopic ? t('compliance.topics.editTopic') : t('compliance.topics.createTopic')}
             </DialogTitle>
             <DialogDescription>
               {editingTopic
-                ? 'Update the compliance topic details'
-                : 'Add a new compliance topic category'}
+                ? t('compliance.topics.editTopicDesc')
+                : t('compliance.topics.createTopicDesc')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Name *</Label>
+              <Label htmlFor="name">{t('compliance.topics.labelName')}</Label>
               <Input
                 id="name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g., Food Safety, Alcohol Service"
+                placeholder={t('compliance.topics.namePlaceholder')}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description">{t('compliance.topics.labelDescription')}</Label>
               <Textarea
                 id="description"
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Brief description of this compliance category"
+                placeholder={t('compliance.topics.descriptionPlaceholder')}
                 rows={3}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="sort_order">Sort Order</Label>
+              <Label htmlFor="sort_order">{t('compliance.topics.labelSortOrder')}</Label>
               <Input
                 id="sort_order"
                 type="number"
@@ -394,16 +396,16 @@ export function TopicsManager() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDialog(false)}>
-              Cancel
+              {t('compliance.cancel')}
             </Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
+                  {t('compliance.saving')}
                 </>
               ) : (
-                editingTopic ? 'Update' : 'Create'
+                editingTopic ? t('compliance.update') : t('compliance.create')
               )}
             </Button>
           </DialogFooter>
@@ -414,14 +416,13 @@ export function TopicsManager() {
       <AlertDialog open={!!deletingTopic} onOpenChange={() => setDeletingTopic(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Topic</AlertDialogTitle>
+            <AlertDialogTitle>{t('compliance.topics.deleteTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{deletingTopic?.name}"? This action cannot be undone
-              and may affect existing compliance requirements.
+              {t('compliance.topics.deleteDesc', { name: deletingTopic?.name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('compliance.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={deleting}
@@ -430,10 +431,10 @@ export function TopicsManager() {
               {deleting ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Deleting...
+                  {t('compliance.deleting')}
                 </>
               ) : (
-                'Delete'
+                t('compliance.delete')
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

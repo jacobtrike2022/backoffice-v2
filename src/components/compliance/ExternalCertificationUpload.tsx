@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -100,6 +101,7 @@ export function ExternalCertificationUpload({
   onSuccess,
   onCancel
 }: ExternalCertificationUploadProps) {
+  const { t } = useTranslation();
   // Form state
   const [certificateType, setCertificateType] = useState('');
   const [customType, setCustomType] = useState('');
@@ -264,10 +266,10 @@ export function ExternalCertificationUpload({
           <div className="text-center py-8">
             <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-foreground mb-2">
-              Certification Submitted
+              {t('compliance.upload.successTitle')}
             </h3>
             <p className="text-muted-foreground">
-              Your certification has been submitted for review. You will be notified once it is approved.
+              {t('compliance.upload.successDesc')}
             </p>
           </div>
         </CardContent>
@@ -280,10 +282,10 @@ export function ExternalCertificationUpload({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Award className="h-5 w-5 text-primary" />
-          Upload External Certification
+          {t('compliance.upload.title')}
         </CardTitle>
         <CardDescription>
-          Submit your external certification for review and approval
+          {t('compliance.upload.subtitle')}
         </CardDescription>
       </CardHeader>
       <CardContent>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -38,6 +39,7 @@ interface CertificationTrackerProps {
 }
 
 export function CertificationTracker({ currentRole = 'admin' }: CertificationTrackerProps) {
+  const { t } = useTranslation();
   const [certifications, setCertifications] = useState<Certification[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -149,14 +151,14 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold text-foreground">Employee Certifications</h2>
+          <h2 className="text-2xl font-semibold text-foreground">{t('compliance.employeeCertifications')}</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Track certification status and auto-renewal settings
+            {t('compliance.trackCertStatus')}
           </p>
         </div>
         <Button variant="outline" size="sm">
           <Download className="h-4 w-4 mr-2" />
-          Export Report
+          {t('compliance.exportReport')}
         </Button>
       </div>
 
@@ -166,7 +168,7 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
           <CardContent className="p-4">
             <div className="text-center">
               <p className="text-2xl font-bold text-foreground">{stats.total}</p>
-              <p className="text-xs text-muted-foreground mt-1">Total Certifications</p>
+              <p className="text-xs text-muted-foreground mt-1">{t('compliance.totalCertifications')}</p>
             </div>
           </CardContent>
         </Card>
@@ -175,7 +177,7 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
           <CardContent className="p-4">
             <div className="text-center">
               <p className="text-2xl font-bold text-red-700 dark:text-red-400">{stats.expired}</p>
-              <p className="text-xs text-red-600 dark:text-red-400 mt-1">Expired</p>
+              <p className="text-xs text-red-600 dark:text-red-400 mt-1">{t('compliance.statusExpired')}</p>
             </div>
           </CardContent>
         </Card>
@@ -184,7 +186,7 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
           <CardContent className="p-4">
             <div className="text-center">
               <p className="text-2xl font-bold text-orange-700 dark:text-orange-400">{stats.critical}</p>
-              <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">Critical {'(<30d)'}</p>
+              <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">{t('compliance.statusCritical30d')}</p>
             </div>
           </CardContent>
         </Card>
@@ -193,7 +195,7 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
           <CardContent className="p-4">
             <div className="text-center">
               <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-400">{stats.warning}</p>
-              <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">Warning (30-60d)</p>
+              <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">{t('compliance.statusWarning3060d')}</p>
             </div>
           </CardContent>
         </Card>
@@ -202,7 +204,7 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
           <CardContent className="p-4">
             <div className="text-center">
               <p className="text-2xl font-bold text-green-700 dark:text-green-400">{stats.active}</p>
-              <p className="text-xs text-green-600 dark:text-green-400 mt-1">Active {`(>60d)`}</p>
+              <p className="text-xs text-green-600 dark:text-green-400 mt-1">{t('compliance.statusActive60d')}</p>
             </div>
           </CardContent>
         </Card>
@@ -211,7 +213,7 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
           <CardContent className="p-4">
             <div className="text-center">
               <p className="text-2xl font-bold text-primary">{stats.autoReassignEnabled}</p>
-              <p className="text-xs text-primary mt-1">Auto-Reassign On</p>
+              <p className="text-xs text-primary mt-1">{t('compliance.autoReassignOn')}</p>
             </div>
           </CardContent>
         </Card>
@@ -224,7 +226,7 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by employee, certification, or location..."
+                placeholder={t('compliance.searchByEmployee')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -236,10 +238,10 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="critical">Critical & Expired</SelectItem>
-                <SelectItem value="warning">Warning</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="all">{t('compliance.allStatuses')}</SelectItem>
+                <SelectItem value="critical">{t('compliance.criticalAndExpired')}</SelectItem>
+                <SelectItem value="warning">{t('compliance.statusWarningLabel')}</SelectItem>
+                <SelectItem value="active">{t('common.active')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -251,7 +253,7 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
         <CardHeader>
           <CardTitle className="flex items-center">
             <Award className="h-5 w-5 mr-2 text-primary" />
-            Certification Details ({filteredCertifications.length})
+            {t('compliance.certificationDetails', { count: filteredCertifications.length })}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
@@ -259,20 +261,20 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
             <table className="w-full">
               <thead className="bg-accent/50 border-b border-border">
                 <tr>
-                  <th className="text-left p-4 text-sm font-semibold text-foreground">Employee</th>
-                  <th className="text-left p-4 text-sm font-semibold text-foreground">Location</th>
-                  <th className="text-left p-4 text-sm font-semibold text-foreground">Certification</th>
-                  <th className="text-left p-4 text-sm font-semibold text-foreground">Earned Date</th>
-                  <th className="text-left p-4 text-sm font-semibold text-foreground">Expiration</th>
-                  <th className="text-left p-4 text-sm font-semibold text-foreground">Days Left</th>
-                  <th className="text-left p-4 text-sm font-semibold text-foreground">Auto-Reassign</th>
+                  <th className="text-left p-4 text-sm font-semibold text-foreground">{t('compliance.colEmployee')}</th>
+                  <th className="text-left p-4 text-sm font-semibold text-foreground">{t('compliance.colLocation')}</th>
+                  <th className="text-left p-4 text-sm font-semibold text-foreground">{t('compliance.colCertification')}</th>
+                  <th className="text-left p-4 text-sm font-semibold text-foreground">{t('compliance.colEarnedDate')}</th>
+                  <th className="text-left p-4 text-sm font-semibold text-foreground">{t('compliance.colExpiration')}</th>
+                  <th className="text-left p-4 text-sm font-semibold text-foreground">{t('compliance.colDaysLeft')}</th>
+                  <th className="text-left p-4 text-sm font-semibold text-foreground">{t('compliance.colAutoReassign')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {filteredCertifications.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                      No certifications found matching your criteria
+                      {t('compliance.noCertificationsFound')}
                     </td>
                   </tr>
                 ) : (
@@ -344,7 +346,7 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
                             {cert.daysUntilExpiration < 0 ? (
                               <>
                                 <AlertTriangle className="h-3 w-3 mr-1" />
-                                Expired
+                                {t('compliance.statusExpired')}
                               </>
                             ) : (
                               <>
@@ -372,16 +374,16 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
                               {cert.autoReassign ? (
                                 <span className="text-green-600 dark:text-green-400 flex items-center">
                                   <CheckCircle className="h-3 w-3 mr-1" />
-                                  Enabled
+                                  {t('compliance.autoReassignEnabled')}
                                 </span>
                               ) : (
-                                <span>Disabled</span>
+                                <span>{t('compliance.autoReassignDisabled')}</span>
                               )}
                             </label>
                           </div>
                           {cert.autoReassign && (
                             <p className="text-xs text-muted-foreground mt-1">
-                              Reassign at 30 days
+                              {t('compliance.reassignAt30Days')}
                             </p>
                           )}
                         </td>
@@ -401,10 +403,9 @@ export function CertificationTracker({ currentRole = 'admin' }: CertificationTra
           <div className="flex items-start space-x-3">
             <Award className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
             <div className="text-sm text-blue-900 dark:text-blue-100">
-              <p className="font-semibold mb-1">Auto-Reassignment Feature</p>
+              <p className="font-semibold mb-1">{t('compliance.autoReassignFeatureTitle')}</p>
               <p className="text-xs text-blue-800 dark:text-blue-200">
-                When enabled, employees will automatically be reassigned their certification course 30 days before expiration. 
-                This ensures continuous compliance and prevents certification lapses.
+                {t('compliance.autoReassignFeatureDesc')}
               </p>
             </div>
           </div>

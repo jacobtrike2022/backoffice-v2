@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -141,6 +142,7 @@ const mockEmployees: Employee[] = [
 ];
 
 export function EmployeePerformance() {
+  const { t } = useTranslation();
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [notificationDialog, setNotificationDialog] = useState(false);
   const [sendEmail, setSendEmail] = useState(true);
@@ -225,10 +227,10 @@ export function EmployeePerformance() {
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <Users className="h-4 w-4 text-primary" />
-                Team Performance
+                {t('people.teamPerformance')}
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Individual employee training status
+                {t('people.teamPerformanceSubtitle')}
               </p>
             </div>
             
@@ -236,16 +238,16 @@ export function EmployeePerformance() {
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 text-xs px-2 py-0.5">
                 <CheckCircle className="h-3 w-3 mr-1" />
-                {completedCount} Complete
+                {completedCount} {t('people.complete')}
               </Badge>
               <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs px-2 py-0.5">
                 <Clock className="h-3 w-3 mr-1" />
-                {onTrackCount} On Track
+                {onTrackCount} {t('people.onTrack')}
               </Badge>
               {(atRiskCount > 0 || overdueCount > 0) && (
                 <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 text-xs px-2 py-0.5">
                   <AlertTriangle className="h-3 w-3 mr-1" />
-                  {atRiskCount + overdueCount} Need Action
+                  {atRiskCount + overdueCount} {t('people.needAction')}
                 </Badge>
               )}
             </div>
@@ -277,18 +279,18 @@ export function EmployeePerformance() {
                     <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1 whitespace-nowrap">
                         <CheckCircle className="h-3 w-3 text-green-600" />
-                        {employee.completed} completed
+                        {employee.completed} {t('people.completed')}
                       </span>
                       {employee.pending > 0 && (
                         <span className="flex items-center gap-1 whitespace-nowrap">
                           <Clock className="h-3 w-3 text-blue-600" />
-                          {employee.pending} pending
+                          {employee.pending} {t('people.pending')}
                         </span>
                       )}
                       {employee.overdue > 0 && (
                         <span className="flex items-center gap-1 whitespace-nowrap text-red-600 font-medium">
                           <AlertTriangle className="h-3 w-3" />
-                          {employee.overdue} overdue
+                          {employee.overdue} {t('people.overdue')}
                         </span>
                       )}
                     </div>
@@ -317,9 +319,9 @@ export function EmployeePerformance() {
                     onClick={() => handleNotifyClick(employee)}
                     disabled={employee.pending === 0 && employee.overdue === 0}
                     title={
-                      employee.pending === 0 && employee.overdue === 0 
-                        ? 'No pending assignments' 
-                        : 'Send reminder notification'
+                      employee.pending === 0 && employee.overdue === 0
+                        ? t('people.noPendingAssignments')
+                        : t('people.sendReminderNotification')
                     }
                   >
                     <Bell className="h-4 w-4" />

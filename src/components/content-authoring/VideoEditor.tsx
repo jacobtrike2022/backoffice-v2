@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -6,9 +7,9 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Separator } from '../ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { 
-  ArrowLeft, 
-  Save, 
+import {
+  ArrowLeft,
+  Save,
   Eye,
   Upload,
   Video as VideoIcon,
@@ -27,6 +28,7 @@ interface VideoEditorProps {
 }
 
 export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }: VideoEditorProps) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState(initialData?.title || '');
   const [description, setDescription] = useState('');
   const [videoSource, setVideoSource] = useState<'upload' | 'url'>('upload');
@@ -46,7 +48,7 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
         setVideoFile(reader.result as string);
       };
       reader.readAsDataURL(file);
-      toast.success('Video uploaded successfully');
+      toast.success(t('contentAuthoring.videoUploadedSuccess'));
     }
   };
 
@@ -58,7 +60,7 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
         setThumbnail(reader.result as string);
       };
       reader.readAsDataURL(file);
-      toast.success('Thumbnail uploaded successfully');
+      toast.success(t('contentAuthoring.thumbnailUploadedSuccess'));
     }
   };
 
@@ -75,16 +77,16 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
       notes
     };
     onSave(videoData, false);
-    toast.success('Video saved as draft');
+    toast.success(t('contentAuthoring.videoSavedAsDraft'));
   };
 
   const handlePublishAndAssign = () => {
     if (!title.trim()) {
-      toast.error('Please add a title before publishing');
+      toast.error(t('contentAuthoring.titleRequiredError'));
       return;
     }
     if (!videoFile && !videoUrl) {
-      toast.error('Please upload a video or provide a URL');
+      toast.error(t('contentAuthoring.videoSourceRequired'));
       return;
     }
 
@@ -101,7 +103,7 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
       type: 'video'
     };
     onPublishAndAssign(videoData);
-    toast.success('Video published! Redirecting to assignment...');
+    toast.success(t('contentAuthoring.videoPublishedRedirecting'));
   };
 
   const addObjective = () => {
@@ -125,18 +127,18 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
         <div className="flex items-center space-x-4">
           <Button variant="outline" size="sm" onClick={onClose}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
+            {t('common.back')}
           </Button>
-          <h1 className="text-foreground">Video Editor</h1>
+          <h1 className="text-foreground">{t('contentAuthoring.videoEditor')}</h1>
         </div>
         <div className="flex items-center space-x-2">
           <Button variant="outline" onClick={handleSaveDraft}>
             <Save className="h-4 w-4 mr-2" />
-            Save Draft
+            {t('contentAuthoring.saveDraft')}
           </Button>
           <Button className="bg-brand-gradient text-white shadow-brand" onClick={handlePublishAndAssign}>
             <Send className="h-4 w-4 mr-2" />
-            Publish & Assign
+            {t('contentAuthoring.publishAndAssign')}
           </Button>
         </div>
       </div>
@@ -147,15 +149,15 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
         <div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Video Details</CardTitle>
+              <CardTitle>{t('contentAuthoring.videoDetails')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Title */}
               <div>
-                <Label htmlFor="title">Title *</Label>
+                <Label htmlFor="title">{t('contentAuthoring.titleLabel')}</Label>
                 <Input
                   id="title"
-                  placeholder="Enter video title..."
+                  placeholder={t('contentAuthoring.videoTitlePlaceholder')}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="mt-2"
@@ -164,10 +166,10 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
 
               {/* Description */}
               <div>
-                <Label htmlFor="description">Description</Label>
+                <Label htmlFor="description">{t('common.description')}</Label>
                 <Textarea
                   id="description"
-                  placeholder="Enter video description..."
+                  placeholder={t('contentAuthoring.videoDescriptionPlaceholder')}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="mt-2"
@@ -179,16 +181,16 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
 
               {/* Video Source */}
               <div>
-                <Label>Video Source *</Label>
+                <Label>{t('contentAuthoring.videoSourceLabel')}</Label>
                 <Tabs value={videoSource} onValueChange={(v) => setVideoSource(v as any)} className="mt-2">
                   <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="upload">
                       <Upload className="h-4 w-4 mr-2" />
-                      Upload
+                      {t('contentAuthoring.upload')}
                     </TabsTrigger>
                     <TabsTrigger value="url">
                       <LinkIcon className="h-4 w-4 mr-2" />
-                      URL
+                      {t('contentAuthoring.url')}
                     </TabsTrigger>
                   </TabsList>
 
@@ -198,9 +200,9 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
                         <div className="w-full aspect-video bg-accent rounded-lg flex items-center justify-center">
                           <div className="text-center">
                             <VideoIcon className="h-16 w-16 text-primary mx-auto mb-2" />
-                            <p className="text-sm text-muted-foreground">Video uploaded</p>
+                            <p className="text-sm text-muted-foreground">{t('contentAuthoring.videoUploaded')}</p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              Click to replace or remove
+                              {t('contentAuthoring.clickToReplaceOrRemove')}
                             </p>
                           </div>
                         </div>
@@ -218,9 +220,9 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
                         <div className="flex flex-col items-center justify-center pt-5 pb-6">
                           <Upload className="w-12 h-12 mb-3 text-muted-foreground" />
                           <p className="mb-2 text-sm text-muted-foreground">
-                            <span className="font-semibold">Click to upload video</span> or drag and drop
+                            <span className="font-semibold">{t('contentAuthoring.clickToUploadVideo')}</span> {t('contentAuthoring.orDragAndDrop')}
                           </p>
-                          <p className="text-xs text-muted-foreground">MP4, MOV, or AVI (MAX. 500MB)</p>
+                          <p className="text-xs text-muted-foreground">{t('contentAuthoring.videoFileTypes')}</p>
                         </div>
                         <input 
                           type="file" 
@@ -243,7 +245,7 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
                         <div className="w-full aspect-video bg-accent rounded-lg flex items-center justify-center">
                           <div className="text-center">
                             <Play className="h-16 w-16 text-primary mx-auto mb-2" />
-                            <p className="text-sm text-muted-foreground">Video URL set</p>
+                            <p className="text-sm text-muted-foreground">{t('contentAuthoring.videoUrlSet')}</p>
                             <p className="text-xs text-muted-foreground mt-1 px-4 truncate max-w-md">
                               {videoUrl}
                             </p>
@@ -251,7 +253,7 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
                         </div>
                       )}
                       <p className="text-xs text-muted-foreground">
-                        Supports YouTube, Vimeo, and direct video URLs
+                        {t('contentAuthoring.videoUrlSupports')}
                       </p>
                     </div>
                   </TabsContent>
@@ -262,7 +264,7 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
 
               {/* Thumbnail */}
               <div>
-                <Label>Custom Thumbnail (Optional)</Label>
+                <Label>{t('contentAuthoring.customThumbnailOptional')}</Label>
                 <div className="mt-2">
                   {thumbnail ? (
                     <div className="relative">
@@ -284,7 +286,7 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
                     <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-border rounded-lg cursor-pointer hover:bg-accent/50 transition-colors">
                       <div className="flex flex-col items-center justify-center">
                         <Upload className="w-8 h-8 mb-2 text-muted-foreground" />
-                        <p className="text-xs text-muted-foreground">Upload thumbnail image</p>
+                        <p className="text-xs text-muted-foreground">{t('contentAuthoring.uploadThumbnailImage')}</p>
                       </div>
                       <input 
                         type="file" 
@@ -299,10 +301,10 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
 
               {/* Duration */}
               <div>
-                <Label htmlFor="duration">Duration (Optional)</Label>
+                <Label htmlFor="duration">{t('contentAuthoring.durationOptional')}</Label>
                 <Input
                   id="duration"
-                  placeholder="e.g., 5:30 or 5 minutes"
+                  placeholder={t('contentAuthoring.durationPlaceholder')}
                   value={duration}
                   onChange={(e) => setDuration(e.target.value)}
                   className="mt-2"
@@ -314,11 +316,11 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
           {/* Notes */}
           <Card>
             <CardHeader>
-              <CardTitle>Additional Notes</CardTitle>
+              <CardTitle>{t('contentAuthoring.additionalNotes')}</CardTitle>
             </CardHeader>
             <CardContent>
               <Textarea
-                placeholder="Add any additional notes or instructions for learners..."
+                placeholder={t('contentAuthoring.notesForLearnersPlaceholder')}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={4}
@@ -331,13 +333,13 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Learning Objectives</CardTitle>
+              <CardTitle>{t('contentAuthoring.learningObjectives')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {objectives.map((objective, index) => (
                 <div key={index} className="flex items-start space-x-2">
                   <Input
-                    placeholder={`Objective ${index + 1}`}
+                    placeholder={t('contentAuthoring.objectivePlaceholder', { number: index + 1 })}
                     value={objective}
                     onChange={(e) => updateObjective(index, e.target.value)}
                     className="flex-1"
@@ -361,43 +363,43 @@ export function VideoEditor({ onClose, onSave, onPublishAndAssign, initialData }
                 className="w-full"
               >
                 <Upload className="h-4 w-4 mr-2" />
-                Add Objective
+                {t('contentAuthoring.addObjective')}
               </Button>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Publishing Info</CardTitle>
+              <CardTitle>{t('contentAuthoring.publishingInfo')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div>
-                <p className="text-muted-foreground">Status</p>
-                <p className="font-medium text-foreground">Draft</p>
+                <p className="text-muted-foreground">{t('common.status')}</p>
+                <p className="font-medium text-foreground">{t('common.draft')}</p>
               </div>
               <Separator />
               <div>
-                <p className="text-muted-foreground">Content Type</p>
-                <p className="font-medium text-foreground">Video</p>
+                <p className="text-muted-foreground">{t('contentAuthoring.contentType')}</p>
+                <p className="font-medium text-foreground">{t('contentAuthoring.typeVideoName')}</p>
               </div>
               <Separator />
               <div>
-                <p className="text-muted-foreground mb-2">Quick Actions</p>
+                <p className="text-muted-foreground mb-2">{t('contentAuthoring.quickActions')}</p>
                 <div className="space-y-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     className="w-full"
                     onClick={() => onSave({ title, description, videoFile, videoUrl, thumbnail, duration, objectives, notes }, true)}
                   >
-                    Publish Now
+                    {t('contentAuthoring.publishNow')}
                   </Button>
-                  <Button 
-                    size="sm" 
+                  <Button
+                    size="sm"
                     className="w-full bg-brand-gradient text-white shadow-brand"
                     onClick={handlePublishAndAssign}
                   >
-                    Publish & Assign to Users
+                    {t('contentAuthoring.publishAndAssignToUsers')}
                   </Button>
                 </div>
               </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -100,6 +101,7 @@ const Sparkline = ({ data }: { data: { week: number; value: number }[] }) => (
 );
 
 export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigateToStore }: UnitPerformanceTableProps) {
+  const { t } = useTranslation();
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [sortField, setSortField] = useState<keyof UnitData>('completion');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -152,9 +154,9 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
     <Card className="chart-container hover-lift mt-8">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
         <div>
-          <CardTitle className="text-lg font-bold">Unit Performance</CardTitle>
+          <CardTitle className="text-lg font-bold">{t('units.unitPerformance')}</CardTitle>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Store completion rates by location
+            {t('units.storeCompletionRates')}
           </p>
         </div>
         <div className="flex items-center space-x-2">
@@ -178,7 +180,7 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
           </div>
           <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onNavigateToUnits}>
             <Eye className="h-3.5 w-3.5 mr-1" />
-            Details
+            {t('common.details')}
           </Button>
         </div>
       </CardHeader>
@@ -193,7 +195,7 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
                     onClick={() => handleSort('unit')}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Unit</span>
+                      <span>{t('units.unit')}</span>
                       <ArrowUpDown className="h-3 w-3" />
                     </div>
                   </TableHead>
@@ -202,7 +204,7 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
                     onClick={() => handleSort('district')}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>District</span>
+                      <span>{t('units.district')}</span>
                       <ArrowUpDown className="h-3 w-3" />
                     </div>
                   </TableHead>
@@ -212,7 +214,7 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
                   >
                     <div className="flex items-center space-x-1">
                       <Users className="h-3 w-3" />
-                      <span>Staff</span>
+                      <span>{t('units.staff')}</span>
                       <ArrowUpDown className="h-3 w-3" />
                     </div>
                   </TableHead>
@@ -221,7 +223,7 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
                     onClick={() => handleSort('assignments')}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Tasks</span>
+                      <span>{t('units.tasks')}</span>
                       <ArrowUpDown className="h-3 w-3" />
                     </div>
                   </TableHead>
@@ -230,12 +232,12 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
                     onClick={() => handleSort('completion')}
                   >
                     <div className="flex items-center space-x-1">
-                      <span>Progress</span>
+                      <span>{t('units.progress')}</span>
                       <ArrowUpDown className="h-3 w-3" />
                     </div>
                   </TableHead>
-                  <TableHead className="py-2">Trend</TableHead>
-                  <TableHead className="py-2">Status</TableHead>
+                  <TableHead className="py-2">{t('units.trend')}</TableHead>
+                  <TableHead className="py-2">{t('common.status')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -311,14 +313,14 @@ export function UnitPerformanceTable({ currentRole, onNavigateToUnits, onNavigat
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
-                      <span>Completion</span>
+                      <span>{t('units.completion')}</span>
                       <span className="font-bold text-primary">{unit.completion}%</span>
                     </div>
                     <Progress value={unit.completion} className="h-2" />
                   </div>
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
-                    <span>{unit.employees} staff</span>
-                    <span>{unit.assignments} tasks</span>
+                    <span>{unit.employees} {t('units.staffLabel')}</span>
+                    <span>{unit.assignments} {t('units.tasksLabel')}</span>
                   </div>
                 </div>
               </Card>

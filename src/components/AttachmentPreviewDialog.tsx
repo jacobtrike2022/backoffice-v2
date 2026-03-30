@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
 import { Download, X } from 'lucide-react';
@@ -15,6 +16,8 @@ interface AttachmentPreviewDialogProps {
 }
 
 export function AttachmentPreviewDialog({ isOpen, onClose, attachment }: AttachmentPreviewDialogProps) {
+  const { t } = useTranslation();
+
   if (!attachment) return null;
 
   // Validate URL before using it
@@ -35,9 +38,9 @@ export function AttachmentPreviewDialog({ isOpen, onClose, attachment }: Attachm
     if (!isValidUrl) {
       return (
         <div className="flex flex-col items-center justify-center bg-gray-100 rounded-lg p-12 text-center">
-          <p className="text-lg font-medium mb-2">Invalid attachment URL</p>
+          <p className="text-lg font-medium mb-2">{t('common.invalidAttachmentUrl')}</p>
           <p className="text-sm text-muted-foreground mb-6">
-            The attachment URL is missing or invalid. Please try refreshing the page.
+            {t('common.invalidAttachmentUrlDesc')}
           </p>
           <p className="text-xs text-muted-foreground font-mono break-all">
             URL: {attachment.url || '(empty)'}
@@ -106,13 +109,13 @@ export function AttachmentPreviewDialog({ isOpen, onClose, attachment }: Attachm
     // Fallback for unsupported file types
     return (
       <div className="flex flex-col items-center justify-center bg-gray-100 rounded-lg p-12 text-center">
-        <p className="text-lg font-medium mb-2">Preview not available</p>
+        <p className="text-lg font-medium mb-2">{t('common.previewNotAvailable')}</p>
         <p className="text-sm text-muted-foreground mb-6">
-          This file type cannot be previewed in the browser.
+          {t('common.previewNotAvailableDesc')}
         </p>
         <Button onClick={handleDownload} className="hero-primary">
           <Download className="h-4 w-4 mr-2" />
-          Download to View
+          {t('common.downloadToView')}
         </Button>
       </div>
     );

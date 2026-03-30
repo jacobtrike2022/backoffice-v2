@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '../../lib/supabase';
 import { 
   AlertCircle, 
@@ -53,6 +54,7 @@ interface Organization {
 }
 
 export function KBPublicView() {
+  const { t } = useTranslation();
   // Get slug from URL path (e.g., /kb/article-slug-abc123)
   const slug = window.location.pathname.split('/kb/')[1] || '';
 
@@ -74,7 +76,7 @@ export function KBPublicView() {
 
   async function loadArticle() {
     if (!slug) {
-      setError('Invalid article link');
+      setError(t('knowledgeBase.publicViewInvalidLink'));
       setLoading(false);
       return;
     }
@@ -135,7 +137,7 @@ export function KBPublicView() {
 
     } catch (err: any) {
       console.error('Error loading KB article:', err);
-      setError('Failed to load article');
+      setError(t('knowledgeBase.publicViewLoadFailed'));
       setLoading(false);
     }
   }
@@ -160,7 +162,7 @@ export function KBPublicView() {
     setPasswordError(null);
 
     if (!organization?.kb_shared_password) {
-      setPasswordError('Password not configured');
+      setPasswordError(t('knowledgeBase.publicViewPasswordNotConfigured'));
       return;
     }
 
@@ -168,7 +170,7 @@ export function KBPublicView() {
       setIsAuthenticated(true);
       setNeedsPassword(false);
     } else {
-      setPasswordError('Incorrect password');
+      setPasswordError(t('knowledgeBase.publicPasswordIncorrect'));
     }
   }
 
@@ -178,7 +180,7 @@ export function KBPublicView() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#F64A05] mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading article...</p>
+          <p className="text-muted-foreground">{t('knowledgeBase.publicLoading')}</p>
         </div>
       </div>
     );
@@ -192,20 +194,19 @@ export function KBPublicView() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-orange-500">
               <AlertCircle className="h-5 w-5" />
-              Reference Not Available
+              {t('knowledgeBase.publicErrorTitle')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground mb-4">
-              This reference material is no longer available. Please contact your manager 
-              for the most up-to-date information.
+              {t('knowledgeBase.publicNotFound')}
             </p>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => window.close()}
               className="w-full"
             >
-              Close
+              {t('knowledgeBase.close')}
             </Button>
           </CardContent>
         </Card>
@@ -221,17 +222,17 @@ export function KBPublicView() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-destructive">
               <AlertCircle className="h-5 w-5" />
-              Error
+              {t('knowledgeBase.publicViewErrorHeading')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground mb-4">{error}</p>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={loadArticle}
               className="w-full"
             >
-              Try Again
+              {t('knowledgeBase.publicViewTryAgain')}
             </Button>
           </CardContent>
         </Card>
@@ -247,12 +248,12 @@ export function KBPublicView() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Lock className="h-5 w-5 text-[#F64A05]" />
-              Password Required
+              {t('knowledgeBase.publicPasswordRequired')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              This reference material is password protected. Please enter the password to continue.
+              {t('knowledgeBase.publicPasswordDesc')}
             </p>
 
             <form onSubmit={handlePasswordSubmit} className="space-y-4">
@@ -261,7 +262,7 @@ export function KBPublicView() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter password"
+                  placeholder={t('knowledgeBase.publicPasswordPlaceholder')}
                   className="pr-10"
                   autoFocus
                 />
@@ -281,7 +282,7 @@ export function KBPublicView() {
               )}
 
               <Button type="submit" className="w-full">
-                Submit
+                {t('knowledgeBase.publicPasswordSubmit')}
               </Button>
             </form>
           </CardContent>
@@ -323,7 +324,7 @@ export function KBPublicView() {
               <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
                 {track.type === 'video' && <Video className="h-4 w-4" />}
                 {track.type === 'article' && <FileText className="h-4 w-4" />}
-                <span className="capitalize">{track.type}</span>
+                <span className="capitalize">{t(`knowledgeBase.publicViewType_${track.type}`, { defaultValue: track.type })}</span>
               </div>
               <h1 className="text-3xl md:text-4xl">{track.title}</h1>
             </div>
@@ -344,7 +345,7 @@ export function KBPublicView() {
                   className="w-full h-full"
                   playsInline
                 >
-                  Your browser does not support video playback.
+                  {t('knowledgeBase.publicVideoNotSupported')}
                 </video>
               </div>
             )}
@@ -361,7 +362,7 @@ export function KBPublicView() {
 
         {/* Footer */}
         <div className="text-center mt-8 text-sm text-muted-foreground">
-          <p>Powered by Trike</p>
+          <p>{t('knowledgeBase.publicViewPoweredBy')}</p>
         </div>
       </div>
     </div>

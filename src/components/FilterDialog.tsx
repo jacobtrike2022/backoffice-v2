@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -60,6 +61,7 @@ export function FilterDialog({
 }: FilterDialogProps) {
   if (!property) return null;
 
+  const { t } = useTranslation();
   const Icon = property.icon;
   
   return (
@@ -80,7 +82,7 @@ export function FilterDialog({
           {property.type === 'range' && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="min">Min</Label>
+                <Label htmlFor="min">{t('common.filterMin')}</Label>
                 <Input
                   id="min"
                   type="number"
@@ -90,7 +92,7 @@ export function FilterDialog({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="max">Max</Label>
+                <Label htmlFor="max">{t('common.filterMax')}</Label>
                 <Input
                   id="max"
                   type="number"
@@ -113,7 +115,7 @@ export function FilterDialog({
                     {filters.dateRange.start ? (
                       format(filters.dateRange.start, 'MMM dd')
                     ) : (
-                      <span>Pick a date</span>
+                      <span>{t('common.pickADate')}</span>
                     )}
                   </Button>
                 </PopoverTrigger>
@@ -130,7 +132,7 @@ export function FilterDialog({
           )}
           {property.type === 'checkbox' && (
             <div className="space-y-2">
-              <Label htmlFor="checkbox">Select {property.label}</Label>
+              <Label htmlFor="checkbox">{t('common.select')} {property.label}</Label>
               <div className="grid grid-cols-2 gap-4">
                 {property.options?.map((option) => (
                   <Checkbox
@@ -170,7 +172,7 @@ export function FilterDialog({
                   })
                 ) : (
                   <p className="text-sm text-muted-foreground text-center py-4">
-                    No options available
+                    {t('common.noOptionsAvailable')}
                   </p>
                 )}
               </div>
@@ -182,7 +184,7 @@ export function FilterDialog({
           className="w-full"
           onClick={onClose}
         >
-          Apply
+          {t('common.apply')}
         </Button>
       </DialogContent>
     </Dialog>

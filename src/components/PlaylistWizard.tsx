@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -73,13 +74,13 @@ interface PlaylistWizardProps {
   registerUnsavedChangesCheck?: (checkFn: (() => boolean) | null) => void; // Register unsaved changes check
 }
 
-const WIZARD_STEPS = [
-  { id: 'trigger', label: 'Assignment Logic', icon: Zap },
-  { id: 'details', label: 'Playlist Details', icon: ListChecks },
-  { id: 'content-stages', label: 'Content & Stages', icon: Library },
-  { id: 'stage-config', label: 'Stage Delivery', icon: Lock },
-  { id: 'completion', label: 'Completion Actions', icon: Award },
-  { id: 'review', label: 'Review & Publish', icon: CheckCircle2 }
+const WIZARD_STEP_IDS = [
+  { id: 'trigger', labelKey: 'playlists.wizard.stepAssignmentLogic', icon: Zap },
+  { id: 'details', labelKey: 'playlists.wizard.stepPlaylistDetails', icon: ListChecks },
+  { id: 'content-stages', labelKey: 'playlists.wizard.stepContentStages', icon: Library },
+  { id: 'stage-config', labelKey: 'playlists.wizard.stepStageDelivery', icon: Lock },
+  { id: 'completion', labelKey: 'playlists.wizard.stepCompletionActions', icon: Award },
+  { id: 'review', labelKey: 'playlists.wizard.stepReviewPublish', icon: CheckCircle2 },
 ];
 
 // Fallback data for dropdowns (used if database fetch fails)
@@ -136,6 +137,8 @@ const AVAILABLE_TRACKS = [
 // const AVAILABLE_TAGS = ['onboarding', 'compliance', 'safety', 'customer-service', 'leadership', 'technology', 'operations', 'policy'];
 
 export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, isFullPage = false, registerUnsavedChangesCheck }: PlaylistWizardProps) {
+  const { t } = useTranslation();
+  const WIZARD_STEPS = WIZARD_STEP_IDS.map(s => ({ ...s, label: t(s.labelKey) }));
   const [currentStep, setCurrentStep] = useState(0);
   const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
   
@@ -454,10 +457,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
       link.download = `matching-employees-${new Date().toISOString().split('T')[0]}.csv`;
       link.click();
 
-      toast.success(`Exported ${users.length} employees to CSV`);
+      toast.success(t('playlists.wizard.exportedEmployeesCsv', { count: users.length }));
     } catch (error) {
       console.error('Error exporting CSV:', error);
-      toast.error('Failed to export CSV');
+      toast.error(t('playlists.failedExportCsv'));
     }
   };
 
@@ -470,7 +473,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
       try {
         const playlist = await crud.getPlaylistById(existingPlaylistId);
         if (!playlist) {
-          toast.error('Playlist not found');
+          toast.error(t('playlists.failedLoadPlaylistDetails'));
           return;
         }
 
@@ -587,10 +590,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
           completionActions: []
         });
         
-        toast.success('Playlist loaded for editing');
+        toast.success(t('playlists.wizard.playlistLoadedForEditing'));
       } catch (error) {
         console.error('Error loading playlist:', error);
-        toast.error('Failed to load playlist');
+        toast.error(t('playlists.failedLoadPlaylistDetails'));
       } finally {
         setIsLoadingPlaylist(false);
       }
@@ -907,12 +910,12 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
       // Build success message
       let successDescription = '';
       if (assignmentType === 'manual') {
-        successDescription = `Assigned to ${selectedEmployees.length} employees`;
+        successDescription = t('playlists.wizard.assignedToEmployees', { count: selectedEmployees.length });
       } else if (assignmentType === 'auto') {
-        successDescription = 'Auto-assigned to matching employees. New hires matching criteria will be assigned automatically.';
+        successDescription = t('playlists.wizard.autoAssignedDesc');
       }
 
-      toast.success(`Playlist "${playlistName}" ${mode === 'edit' ? 'updated' : 'published'} successfully!`, {
+      toast.success(t(mode === 'edit' ? 'playlists.wizard.playlistUpdatedSuccess' : 'playlists.wizard.playlistPublishedSuccess', { name: playlistName }), {
         description: successDescription,
       });
 
@@ -925,8 +928,8 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
       onClose();
     } catch (error) {
       console.error('❌ Error publishing playlist:', error);
-      toast.error('Failed to publish playlist', {
-        description: error instanceof Error ? error.message : 'Please try again',
+      toast.error(t('playlists.wizard.failedPublishPlaylist'), {
+        description: error instanceof Error ? error.message : t('playlists.wizard.pleaseTryAgain'),
       });
     } finally {
       setIsSubmitting(false);
@@ -1080,10 +1083,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
   const getTriggerSummary = () => {
     if (assignmentType === 'manual') {
-      return `Manually assigned to ${selectedEmployees.length} employee${selectedEmployees.length !== 1 ? 's' : ''}`;
+      return t('playlists.wizard.manuallyAssigned', { count: selectedEmployees.length });
     }
     const validConditions = triggerConditions.filter(c => c.value !== '');
-    if (validConditions.length === 0) return 'No trigger conditions set';
+    if (validConditions.length === 0) return t('playlists.noTriggerConditions');
     return validConditions.map(c => `${c.field} ${c.operator} "${c.value}"`).join(' AND ');
   };
 
@@ -1093,16 +1096,16 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         return (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-semibold mb-2">Assignment Logic</h2>
+              <h2 className="text-2xl font-semibold mb-2">{t('playlists.wizard.stepAssignmentLogic')}</h2>
               <p className="text-muted-foreground">
-                Define how this playlist will be assigned to learners
+                {t('playlists.wizard.assignmentLogicDesc')}
               </p>
             </div>
 
             <Card>
               <CardHeader>
-                <CardTitle>Assignment Type</CardTitle>
-                <CardDescription>Choose how learners receive this playlist</CardDescription>
+                <CardTitle>{t('playlists.wizard.assignmentType')}</CardTitle>
+                <CardDescription>{t('playlists.wizard.assignmentTypeDesc')}</CardDescription>
               </CardHeader>
               <CardContent>
                 <RadioGroup 
@@ -1119,10 +1122,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     <Label htmlFor="auto-type" className="cursor-pointer flex-1">
                       <div className="flex items-center">
                         <Zap className="h-4 w-4 mr-2 text-primary" />
-                        <span className="font-semibold">Auto-Assign</span>
+                        <span className="font-semibold">{t('playlists.wizard.autoAssign')}</span>
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Automatically assign this playlist when conditions are met
+                        {t('playlists.wizard.autoAssignDesc')}
                       </p>
                     </Label>
                   </div>
@@ -1135,10 +1138,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     <Label htmlFor="manual-type" className="cursor-pointer flex-1">
                       <div className="flex items-center">
                         <Users className="h-4 w-4 mr-2 text-blue-500" />
-                        <span className="font-semibold">Manual Assignment</span>
+                        <span className="font-semibold">{t('playlists.manualAssignment')}</span>
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Manually select specific learners or groups
+                        {t('playlists.wizard.manualAssignDesc')}
                       </p>
                     </Label>
                   </div>
@@ -1149,8 +1152,8 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
             {assignmentType === 'manual' && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Select Employees</CardTitle>
-                  <CardDescription>Choose who will receive this playlist</CardDescription>
+                  <CardTitle>{t('playlists.wizard.selectEmployees')}</CardTitle>
+                  <CardDescription>{t('playlists.wizard.selectEmployeesDesc')}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {/* Search and Filters */}
@@ -1158,7 +1161,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
-                        placeholder="Search by name..."
+                        placeholder={t('playlists.wizard.searchByName')}
                         value={employeeSearchTerm}
                         onChange={(e) => setEmployeeSearchTerm(e.target.value)}
                         className="pl-9"
@@ -1166,7 +1169,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     </div>
                     <Select value={employeeFilterRole} onValueChange={setEmployeeFilterRole}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Filter by role" />
+                        <SelectValue placeholder={t('playlists.wizard.filterByRole')} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Roles</SelectItem>

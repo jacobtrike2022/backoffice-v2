@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
@@ -25,6 +26,8 @@ export function MetricCard({
   children, 
   className = "" 
 }: MetricCardProps) {
+  const { t } = useTranslation();
+
   const getTrendIcon = () => {
     if (!trend) return null;
     
@@ -73,7 +76,7 @@ export function MetricCard({
               {trend.value > 0 ? '+' : ''}{trend.value}%
             </span>
             <span className="text-muted-foreground">
-              from {trend.period}
+              {t('dashboard.metricFrom', { period: trend.period })}
             </span>
           </div>
         )}

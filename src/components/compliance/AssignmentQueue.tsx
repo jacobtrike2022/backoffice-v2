@@ -6,6 +6,7 @@
 // ============================================================================
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -219,6 +220,7 @@ interface AssignPlaylistDialogProps {
 }
 
 function AssignPlaylistDialog({ assignment, open, onOpenChange, onAssign }: AssignPlaylistDialogProps) {
+  const { t } = useTranslation();
   const [playlists, setPlaylists] = useState<Album[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -266,10 +268,13 @@ function AssignPlaylistDialog({ assignment, open, onOpenChange, onAssign }: Assi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Assign Compliance Playlist</DialogTitle>
+          <DialogTitle>{t('compliance.queue.assignPlaylistTitle')}</DialogTitle>
           <DialogDescription>
-            Select a playlist to fulfill the {assignment?.requirement?.requirement_name} requirement
-            for {assignment?.employee?.first_name} {assignment?.employee?.last_name}.
+            {t('compliance.queue.assignPlaylistDesc', {
+              requirement: assignment?.requirement?.requirement_name,
+              firstName: assignment?.employee?.first_name,
+              lastName: assignment?.employee?.last_name
+            })}
           </DialogDescription>
         </DialogHeader>
 
@@ -281,17 +286,17 @@ function AssignPlaylistDialog({ assignment, open, onOpenChange, onAssign }: Assi
             </div>
           ) : playlists.length === 0 ? (
             <div className="text-center py-6 text-muted-foreground">
-              <p>No playlists are linked to this compliance requirement.</p>
+              <p>{t('compliance.queue.noPlaylistsLinked')}</p>
               <p className="text-sm mt-2">
-                Create a playlist and link it to this requirement first.
+                {t('compliance.queue.noPlaylistsLinkedHint')}
               </p>
             </div>
           ) : (
             <div className="space-y-2">
-              <Label>Select Playlist</Label>
+              <Label>{t('compliance.queue.selectPlaylist')}</Label>
               <Select value={selectedPlaylist} onValueChange={setSelectedPlaylist}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose a playlist..." />
+                  <SelectValue placeholder={t('compliance.queue.choosePlaylist')} />
                 </SelectTrigger>
                 <SelectContent>
                   {playlists.map((playlist) => (
@@ -308,18 +313,18 @@ function AssignPlaylistDialog({ assignment, open, onOpenChange, onAssign }: Assi
             <Card className="bg-muted/50">
               <CardContent className="p-4 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Requirement:</span>
+                  <span className="text-muted-foreground">{t('compliance.queue.requirement')}:</span>
                   <span className="font-medium">{assignment.requirement.requirement_name}</span>
                 </div>
                 <div className="flex items-center justify-between mt-2">
-                  <span className="text-muted-foreground">State:</span>
+                  <span className="text-muted-foreground">{t('compliance.auth.colState')}:</span>
                   <Badge variant="outline" className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-0 text-xs font-medium">
                     {assignment.requirement.state_code}
                   </Badge>
                 </div>
                 {assignment.due_date && (
                   <div className="flex items-center justify-between mt-2">
-                    <span className="text-muted-foreground">Due Date:</span>
+                    <span className="text-muted-foreground">{t('compliance.queue.dueDate')}:</span>
                     <span>{formatDate(assignment.due_date)}</span>
                   </div>
                 )}
@@ -330,14 +335,14 @@ function AssignPlaylistDialog({ assignment, open, onOpenChange, onAssign }: Assi
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t('compliance.cancel')}
           </Button>
           <Button
             className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
             onClick={handleAssign}
             disabled={!selectedPlaylist || submitting}
           >
-            {submitting ? 'Assigning...' : 'Assign Playlist'}
+            {submitting ? t('compliance.queue.assigning') : t('compliance.queue.assignPlaylist')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -357,6 +362,7 @@ interface SuppressDialogProps {
 }
 
 function SuppressDialog({ assignment, open, onOpenChange, onSuppress }: SuppressDialogProps) {
+  const { t } = useTranslation();
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -378,18 +384,17 @@ function SuppressDialog({ assignment, open, onOpenChange, onSuppress }: Suppress
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Suppress Assignment</DialogTitle>
+          <DialogTitle>{t('compliance.queue.suppressTitle')}</DialogTitle>
           <DialogDescription>
-            Suppressing this assignment will remove it from the queue. This is typically used when
-            an employee has an external certification that satisfies this requirement.
+            {t('compliance.queue.suppressDesc')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label>Reason for Suppression</Label>
+            <Label>{t('compliance.queue.suppressReason')}</Label>
             <Textarea
-              placeholder="e.g., Employee has valid external certification, expires 12/2025"
+              placeholder={t('compliance.queue.suppressReasonPlaceholder')}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               rows={3}
@@ -400,13 +405,13 @@ function SuppressDialog({ assignment, open, onOpenChange, onSuppress }: Suppress
             <Card className="bg-muted/50">
               <CardContent className="p-4 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Employee:</span>
+                  <span className="text-muted-foreground">{t('compliance.queue.employee')}:</span>
                   <span className="font-medium">
                     {assignment.employee?.first_name} {assignment.employee?.last_name}
                   </span>
                 </div>
                 <div className="flex items-center justify-between mt-2">
-                  <span className="text-muted-foreground">Requirement:</span>
+                  <span className="text-muted-foreground">{t('compliance.queue.requirement')}:</span>
                   <span>{assignment.requirement?.requirement_name}</span>
                 </div>
               </CardContent>
@@ -416,14 +421,14 @@ function SuppressDialog({ assignment, open, onOpenChange, onSuppress }: Suppress
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t('compliance.cancel')}
           </Button>
           <Button
             variant="destructive"
             onClick={handleSuppress}
             disabled={!reason.trim() || submitting}
           >
-            {submitting ? 'Suppressing...' : 'Suppress Assignment'}
+            {submitting ? t('compliance.queue.suppressing') : t('compliance.queue.suppressAssignment')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -436,6 +441,7 @@ function SuppressDialog({ assignment, open, onOpenChange, onSuppress }: Suppress
 // ============================================================================
 
 export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: AssignmentQueueProps) {
+  const { t } = useTranslation();
   // State
   const [assignments, setAssignments] = useState<ComplianceAssignment[]>([]);
   const [stats, setStats] = useState<ComplianceAssignmentStats | null>(null);
@@ -561,9 +567,9 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">Compliance Assignment Queue</h2>
+          <h2 className="text-xl font-semibold">{t('compliance.queue.title')}</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage pending compliance training assignments
+            {t('compliance.queue.subtitle')}
           </p>
         </div>
         <Button
@@ -573,7 +579,7 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
           disabled={refreshing}
         >
           <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-          Refresh
+          {t('compliance.queue.refresh')}
         </Button>
       </div>
 
@@ -581,7 +587,7 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <StatCard
-            title="Pending"
+            title={t('compliance.pending')}
             value={stats.pending}
             icon={<Clock />}
             iconBgClass="bg-yellow-100 dark:bg-yellow-900/30"
@@ -590,7 +596,7 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
             isActive={activeTab === 'pending'}
           />
           <StatCard
-            title="Assigned"
+            title={t('compliance.queue.assigned')}
             value={stats.assigned}
             icon={<PlayCircle />}
             iconBgClass="bg-blue-100 dark:bg-blue-900/30"
@@ -599,7 +605,7 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
             isActive={activeTab === 'assigned'}
           />
           <StatCard
-            title="Completed"
+            title={t('compliance.completed')}
             value={stats.completed}
             icon={<CheckCircle2 />}
             iconBgClass="bg-green-100 dark:bg-green-900/30"
@@ -607,7 +613,7 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
             onClick={() => setActiveTab('all')}
           />
           <StatCard
-            title="Suppressed"
+            title={t('compliance.queue.suppressed')}
             value={stats.suppressed}
             icon={<Ban />}
             iconBgClass="bg-gray-100 dark:bg-gray-900/30"
@@ -615,7 +621,7 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
             onClick={() => setActiveTab('all')}
           />
           <StatCard
-            title="Overdue"
+            title={t('compliance.queue.overdue')}
             value={stats.overdue}
             icon={<AlertTriangle />}
             iconBgClass="bg-red-100 dark:bg-red-900/30"
@@ -630,7 +636,7 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="pending">
-              Pending
+              {t('compliance.pending')}
               {stats && stats.pending > 0 && (
                 <Badge variant="secondary" className="ml-2 text-xs">
                   {stats.pending}
@@ -638,14 +644,14 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
               )}
             </TabsTrigger>
             <TabsTrigger value="assigned">
-              Assigned
+              {t('compliance.queue.assigned')}
               {stats && stats.assigned > 0 && (
                 <Badge variant="secondary" className="ml-2 text-xs">
                   {stats.assigned}
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="all">All</TabsTrigger>
+            <TabsTrigger value="all">{t('compliance.queue.all')}</TabsTrigger>
           </TabsList>
         </Tabs>
 
@@ -653,7 +659,7 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search employee or requirement..."
+              placeholder={t('compliance.queue.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9 w-64"
@@ -662,15 +668,15 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
           <Select value={triggerFilter} onValueChange={setTriggerFilter}>
             <SelectTrigger className="w-40">
               <Filter className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Trigger" />
+              <SelectValue placeholder={t('compliance.queue.trigger')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Triggers</SelectItem>
-              <SelectItem value="onboarding">Onboarding</SelectItem>
-              <SelectItem value="transfer">Transfer</SelectItem>
-              <SelectItem value="promotion">Promotion</SelectItem>
-              <SelectItem value="expiration">Expiration</SelectItem>
-              <SelectItem value="manual">Manual</SelectItem>
+              <SelectItem value="all">{t('compliance.queue.allTriggers')}</SelectItem>
+              <SelectItem value="onboarding">{t('compliance.queue.triggerOnboarding')}</SelectItem>
+              <SelectItem value="transfer">{t('compliance.queue.triggerTransfer')}</SelectItem>
+              <SelectItem value="promotion">{t('compliance.queue.triggerPromotion')}</SelectItem>
+              <SelectItem value="expiration">{t('compliance.queue.triggerExpiration')}</SelectItem>
+              <SelectItem value="manual">{t('compliance.queue.triggerManual')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -682,12 +688,12 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Employee</TableHead>
-                <TableHead>Requirement</TableHead>
-                <TableHead>Trigger</TableHead>
-                <TableHead>Due Date</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t('compliance.queue.employee')}</TableHead>
+                <TableHead>{t('compliance.queue.requirement')}</TableHead>
+                <TableHead>{t('compliance.queue.trigger')}</TableHead>
+                <TableHead>{t('compliance.queue.dueDate')}</TableHead>
+                <TableHead>{t('compliance.req.status')}</TableHead>
+                <TableHead className="text-right">{t('compliance.colActions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -695,8 +701,8 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
                     {searchQuery || triggerFilter !== 'all'
-                      ? 'No assignments match your filters'
-                      : 'No compliance assignments in queue'}
+                      ? t('compliance.queue.noMatchFilters')
+                      : t('compliance.queue.empty')}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -759,13 +765,13 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => openSuppressDialog(assignment)}>
                                 <Ban className="h-4 w-4 mr-2" />
-                                Suppress
+                                {t('compliance.queue.suppress')}
                               </DropdownMenuItem>
                               {onAssignmentClick && (
                                 <>
                                   <DropdownMenuSeparator />
                                   <DropdownMenuItem onClick={() => onAssignmentClick(assignment)}>
-                                    View Details
+                                    {t('compliance.queue.viewDetails')}
                                   </DropdownMenuItem>
                                 </>
                               )}
@@ -783,12 +789,12 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
                             {assignment.status === 'assigned' && (
                               <DropdownMenuItem onClick={() => openSuppressDialog(assignment)}>
                                 <Ban className="h-4 w-4 mr-2" />
-                                Suppress
+                                {t('compliance.queue.suppress')}
                               </DropdownMenuItem>
                             )}
                             {onAssignmentClick && (
                               <DropdownMenuItem onClick={() => onAssignmentClick(assignment)}>
-                                View Details
+                                {t('compliance.queue.viewDetails')}
                               </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -31,6 +32,7 @@ interface ArticleEditorProps {
 }
 
 export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData }: ArticleEditorProps) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState(initialData?.title || '');
   const [subtitle, setSubtitle] = useState('');
   const [headerImage, setHeaderImage] = useState<string>('');
@@ -47,7 +49,7 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
         setHeaderImage(reader.result as string);
       };
       reader.readAsDataURL(file);
-      toast.success('Image uploaded successfully');
+      toast.success(t('contentAuthoring.imageUploadedSuccess'));
     }
   };
 
@@ -60,16 +62,16 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
       objectives: objectives.filter(o => o.trim() !== '')
     };
     onSave(articleData, false);
-    toast.success('Article saved as draft');
+    toast.success(t('contentAuthoring.articleSavedAsDraft'));
   };
 
   const handlePublish = () => {
     if (!title.trim()) {
-      toast.error('Please add a title before publishing');
+      toast.error(t('contentAuthoring.titleRequiredError'));
       return;
     }
     if (!content.trim()) {
-      toast.error('Please add content before publishing');
+      toast.error(t('contentAuthoring.contentRequiredError'));
       return;
     }
 
@@ -81,12 +83,12 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
       objectives: objectives.filter(o => o.trim() !== '')
     };
     onSave(articleData, true);
-    toast.success('Article published successfully');
+    toast.success(t('contentAuthoring.articlePublishedSuccess'));
   };
 
   const handlePublishAndAssign = () => {
     if (!title.trim() || !content.trim()) {
-      toast.error('Please complete the required fields');
+      toast.error(t('contentAuthoring.completeRequiredFields'));
       return;
     }
 
@@ -99,7 +101,7 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
       type: 'article'
     };
     onPublishAndAssign(articleData);
-    toast.success('Article published! Redirecting to assignment...');
+    toast.success(t('contentAuthoring.articlePublishedRedirecting'));
   };
 
   const addObjective = () => {
@@ -137,18 +139,18 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
           <div className="flex items-center space-x-4">
             <Button variant="outline" size="sm" onClick={() => setShowPreview(false)}>
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Editor
+              {t('contentAuthoring.backToEditor')}
             </Button>
-            <h1 className="text-foreground">Article Preview</h1>
+            <h1 className="text-foreground">{t('contentAuthoring.articlePreview')}</h1>
           </div>
           <div className="flex items-center space-x-2">
             <Button variant="outline" onClick={handleSaveDraft}>
               <Save className="h-4 w-4 mr-2" />
-              Save Draft
+              {t('contentAuthoring.saveDraft')}
             </Button>
             <Button className="bg-brand-gradient text-white shadow-brand" onClick={handlePublishAndAssign}>
               <Send className="h-4 w-4 mr-2" />
-              Publish & Assign
+              {t('contentAuthoring.publishAndAssign')}
             </Button>
           </div>
         </div>
@@ -178,7 +180,7 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
                 <>
                   <Separator className="my-6" />
                   <div>
-                    <h3 className="font-semibold text-foreground mb-3">Key Facts</h3>
+                    <h3 className="font-semibold text-foreground mb-3">{t('contentAuthoring.keyFacts')}</h3>
                     <ul className="space-y-2">
                       {objectives.filter(o => o.trim()).map((obj, idx) => (
                         <li key={idx} className="text-sm text-muted-foreground flex items-start">
@@ -204,22 +206,22 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
         <div className="flex items-center space-x-4">
           <Button variant="outline" size="sm" onClick={onClose}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
+            {t('common.back')}
           </Button>
-          <h1 className="text-foreground">Article Editor</h1>
+          <h1 className="text-foreground">{t('contentAuthoring.articleEditor')}</h1>
         </div>
         <div className="flex items-center space-x-2">
           <Button variant="outline" onClick={() => setShowPreview(true)}>
             <Eye className="h-4 w-4 mr-2" />
-            Preview
+            {t('contentAuthoring.preview')}
           </Button>
           <Button variant="outline" onClick={handleSaveDraft}>
             <Save className="h-4 w-4 mr-2" />
-            Save Draft
+            {t('contentAuthoring.saveDraft')}
           </Button>
           <Button className="bg-brand-gradient text-white shadow-brand" onClick={handlePublishAndAssign}>
             <Send className="h-4 w-4 mr-2" />
-            Publish & Assign
+            {t('contentAuthoring.publishAndAssign')}
           </Button>
         </div>
       </div>
@@ -230,12 +232,12 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
         <div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Article Content</CardTitle>
+              <CardTitle>{t('contentAuthoring.articleContent')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Header Image */}
               <div>
-                <Label>Header Image</Label>
+                <Label>{t('contentAuthoring.headerImage')}</Label>
                 <div className="mt-2">
                   {headerImage ? (
                     <div className="relative">
@@ -258,9 +260,9 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         <Upload className="w-10 h-10 mb-3 text-muted-foreground" />
                         <p className="mb-2 text-sm text-muted-foreground">
-                          <span className="font-semibold">Click to upload</span> or drag and drop
+                          <span className="font-semibold">{t('contentAuthoring.clickToUpload')}</span> {t('contentAuthoring.orDragAndDrop')}
                         </p>
-                        <p className="text-xs text-muted-foreground">PNG, JPG or GIF (MAX. 5MB)</p>
+                        <p className="text-xs text-muted-foreground">{t('contentAuthoring.imageFileTypes')}</p>
                       </div>
                       <input 
                         type="file" 
@@ -275,10 +277,10 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
 
               {/* Title */}
               <div>
-                <Label htmlFor="title">Title *</Label>
+                <Label htmlFor="title">{t('contentAuthoring.titleLabel')}</Label>
                 <Input
                   id="title"
-                  placeholder="Enter article title..."
+                  placeholder={t('contentAuthoring.articleTitlePlaceholder')}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="mt-2"
@@ -287,10 +289,10 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
 
               {/* Subtitle */}
               <div>
-                <Label htmlFor="subtitle">Subtitle</Label>
+                <Label htmlFor="subtitle">{t('contentAuthoring.subtitleLabel')}</Label>
                 <Input
                   id="subtitle"
-                  placeholder="Enter article subtitle (optional)..."
+                  placeholder={t('contentAuthoring.subtitlePlaceholder')}
                   value={subtitle}
                   onChange={(e) => setSubtitle(e.target.value)}
                   className="mt-2"
@@ -355,16 +357,16 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
 
               {/* Content */}
               <div>
-                <Label htmlFor="content">Article Content *</Label>
+                <Label htmlFor="content">{t('contentAuthoring.articleContentLabel')}</Label>
                 <Textarea
                   id="content"
-                  placeholder="Write your article content here... You can use markdown formatting."
+                  placeholder={t('contentAuthoring.articleContentPlaceholder')}
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   className="mt-2 min-h-[400px] font-mono text-sm"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Supports markdown formatting: **bold**, *italic*, # headings, - lists
+                  {t('contentAuthoring.markdownHint')}
                 </p>
               </div>
             </CardContent>
@@ -375,13 +377,13 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Key Facts</CardTitle>
+              <CardTitle>{t('contentAuthoring.keyFacts')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {objectives.map((objective, index) => (
                 <div key={index} className="flex items-start space-x-2">
                   <Input
-                    placeholder={`Objective ${index + 1}`}
+                    placeholder={t('contentAuthoring.objectivePlaceholder', { number: index + 1 })}
                     value={objective}
                     onChange={(e) => updateObjective(index, e.target.value)}
                     className="flex-1"
