@@ -574,19 +574,19 @@ export function ExtractedEntityProcessor({
                   {editedData.is_manager && (
                     <Badge variant="outline" className="px-3 py-1.5 text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-blue-200">
                       <UserCheck className="h-3.5 w-3.5 mr-1.5" />
-                      Manager Role
+                      {t('contentAuthoring.badgeManagerRole')}
                     </Badge>
                   )}
                   {editedData.is_frontline && (
                     <Badge variant="outline" className="px-3 py-1.5 text-sm bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border-green-200">
                       <HardHat className="h-3.5 w-3.5 mr-1.5" />
-                      Frontline
+                      {t('contentAuthoring.badgeFrontline')}
                     </Badge>
                   )}
                   {editedData.permission_level && (
                     <Badge variant="outline" className="px-3 py-1.5 text-sm bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border-purple-200">
                       <Shield className="h-3.5 w-3.5 mr-1.5" />
-                      Level {editedData.permission_level}
+                      {t('contentAuthoring.badgeLevel', { level: editedData.permission_level })}
                     </Badge>
                   )}
                 </div>

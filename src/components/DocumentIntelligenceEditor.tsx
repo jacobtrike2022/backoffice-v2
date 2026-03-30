@@ -1103,7 +1103,7 @@ export function DocumentIntelligenceEditor({
       return next;
     });
 
-    toast.success('Chunk split!', { icon: '✂️' });
+    toast.success(t('contentAuthoring.toastChunkSplit'), { icon: '✂️' });
     console.log('[Blade Split] Optimistic UI updated');
 
     // BACKGROUND DB SYNC - fire and forget, don't block UI
@@ -1213,7 +1213,7 @@ export function DocumentIntelligenceEditor({
         // Log error but don't refresh - UI state is still valid
         console.error('[Blade Split] DB sync error:', error);
         // Only show toast, don't reload - optimistic UI is fine
-        toast.error('Background sync had issues', {
+        toast.error(t('contentAuthoring.toastSyncIssues'), {
           description: 'Your changes are saved locally. Refresh if you see issues.',
           duration: 3000
         });
@@ -1231,7 +1231,7 @@ export function DocumentIntelligenceEditor({
     // If no entity exists, extract JD data first
     if (!entityId) {
       setProcessing(true);
-      setProcessingStep('Extracting job description data...');
+      setProcessingStep(t('contentAuthoring.stepExtractingJd'));
 
       try {
         const session = await getSessionForFetch();
@@ -1265,7 +1265,7 @@ export function DocumentIntelligenceEditor({
 
       } catch (error: any) {
         console.error('JD extraction error:', error);
-        toast.error('Failed to extract job description', { description: error.message });
+        toast.error(t('contentAuthoring.toastExtractJdFailed'), { description: error.message });
         setProcessing(false);
         setProcessingStep('');
         return;
@@ -1287,7 +1287,7 @@ export function DocumentIntelligenceEditor({
     if (onViewRole) {
       onViewRole(roleId);
     } else {
-      toast.info('Role view not available in this context');
+      toast.info(t('contentAuthoring.toastRoleViewNotAvailable'));
     }
   }
 
@@ -1305,7 +1305,7 @@ export function DocumentIntelligenceEditor({
     loadChunks();
 
     const trackName = tracks?.[0]?.title || 'Training content';
-    toast.success('Track created', {
+    toast.success(t('contentAuthoring.toastTrackCreated'), {
       description: trackName,
       action: tracks?.[0] ? {
         label: 'View',

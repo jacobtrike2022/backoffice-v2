@@ -1741,7 +1741,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                     }
                   >
                     <SelectTrigger id="edit-flsa_status">
-                      <SelectValue placeholder="Select FLSA status" />
+                      <SelectValue placeholder={t('roles.detail.flsaNotSet')} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="not_set">{t('roles.detail.flsaNotSet')}</SelectItem>
