@@ -1472,7 +1472,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           <CardHeader>
             <CardTitle>{roleId === 'new' ? t('roles.detail.createRoleCardTitle') : t('roles.detail.editRoleCardTitle')}</CardTitle>
             <CardDescription>
-              {roleId === 'new' ? 'Enter core role information, then select a Smart Role Profile below' : 'Update core role information'}
+              {roleId === 'new' ? t('roles.detail.createRoleCardTitle') : t('roles.detail.editRoleCardTitle')}
             </CardDescription>
           </CardHeader>
           <CardContent>

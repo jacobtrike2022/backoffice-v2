@@ -1050,7 +1050,7 @@ export function DocumentIntelligenceEditor({
 
     // Validate we have content on both sides
     if (beforeText.length < 20 || afterText.length < 20) {
-      toast.error('Split would create chunks that are too small');
+      toast.error(t('contentAuthoring.toastSplitTooSmall'));
       console.log('[Blade Split] Validation failed - chunks too small');
       return;
     }
