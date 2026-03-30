@@ -658,7 +658,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       setWorkContextExpanded((prev) => ({ ...expanded, ...prev }));
     } catch (error: any) {
       console.error('Error loading work context:', error);
-      toast.error('Failed to load work context', {
+      toast.error(t('roles.detail.toastLoadRoleFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -707,7 +707,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       return details;
     } catch (error: any) {
       console.error('Error loading profile details:', error);
-      toast.error('Failed to load profile details', {
+      toast.error(t('roles.detail.toastLoadRoleFailed'), {
         description:
           error?.message ||
           'Could not load O*NET data. In demo mode, O*NET tables must allow read access (see migrations).',
@@ -846,7 +846,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       if (details) {
         setPreviewProfile(details);
       } else {
-        toast.error('Could not load O*NET profile details', {
+        toast.error(t('roles.detail.toastSearchProfilesFailed'), {
           description:
             'This match is from search, but full occupation data is missing for this code. If you are in demo mode, ensure database migrations are applied.',
         });
@@ -854,7 +854,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       }
     } catch (error) {
       console.error('Error loading profile details for preview:', error);
-      toast.error('Failed to load profile details');
+      toast.error(t('roles.detail.toastLoadRoleFailed'));
       setIsPreviewOpen(false);
     }
   }
@@ -902,7 +902,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       await loadMergedData();
     } catch (error: any) {
       console.error('Error toggling task:', error);
-      toast.error('Failed to update task', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -920,7 +920,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       await loadMergedData();
     } catch (error: any) {
       console.error('Error toggling ability:', error);
-      toast.error('Failed to update ability', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -938,7 +938,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       await loadMergedData();
     } catch (error: any) {
       console.error('Error toggling work style:', error);
-      toast.error('Failed to update work style', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -956,7 +956,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       await loadMergedData();
     } catch (error: any) {
       console.error('Error toggling skill:', error);
-      toast.error('Failed to update skill', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -1075,7 +1075,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       toast.success('Task updated');
     } catch (error: any) {
       console.error('Error editing task:', error);
-      toast.error('Failed to update task', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
       throw error;
@@ -1091,7 +1091,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       toast.success('Ability updated');
     } catch (error: any) {
       console.error('Error editing ability:', error);
-      toast.error('Failed to update ability', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
       throw error;
@@ -1107,7 +1107,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       toast.success('Work style updated');
     } catch (error: any) {
       console.error('Error editing work style:', error);
-      toast.error('Failed to update work style', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
       throw error;
@@ -1123,7 +1123,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       toast.success('Skill updated');
     } catch (error: any) {
       console.error('Error editing skill:', error);
-      toast.error('Failed to update skill', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
       throw error;

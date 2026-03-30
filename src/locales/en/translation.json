@@ -1191,7 +1191,8 @@
     "signatureCaptured": "Signature captured",
     "drawSignatureHint": "Draw your signature above using mouse or touch",
     "noSignature": "No signature",
-    "captureLocation": "Capture Location"
+    "captureLocation": "Capture Location",
+    "builderBackToLibrary": "Forms Library"
   },
   "organization": {
     "title": "Organization",
@@ -3916,7 +3917,9 @@
     "readingTimeMinutes": "Reading Time (minutes)",
     "markdownSupport": "Supports markdown formatting: **bold**, *italic*, # headings, - lists",
     "lastUpdated": "Last Updated",
-    "currentVersion": "Current"
+    "currentVersion": "Current",
+    "enterArticleTitle": "Enter article title...",
+    "articleDescriptionPlaceholder": "Brief description of the article..."
   },
   "assignments": {
     "title": "Content Assignments",

@@ -1191,7 +1191,8 @@
     "signatureCaptured": "Firma capturada",
     "drawSignatureHint": "Dibuje su firma arriba usando el mouse o táctil",
     "noSignature": "Sin firma",
-    "captureLocation": "Capturar Ubicación"
+    "captureLocation": "Capturar Ubicación",
+    "builderBackToLibrary": "Biblioteca de formularios"
   },
   "organization": {
     "title": "Organización",
@@ -1688,7 +1689,9 @@
       "unlockTitle": "Desbloquear Lista",
       "unlocking": "Desbloqueando...",
       "current": "Actual",
-      "noVersionHistory": "Sin historial de versiones disponible"
+      "noVersionHistory": "Sin historial de versiones disponible",
+      "versionHistoryFor": "Historial de versiones para {{title}}",
+      "unlockDesc": "¿Está seguro de que desea desbloquear \"{{title}}\"? Esta lista ya no estará fijada a una versión específica. Requisito vinculado: {{requirement}}"
     },
     "configureReqRulesTitle": "Configurar Reglas del Requisito",
     "configureReqRulesDesc": "Establezca a qué roles y estados aplica este requisito",
@@ -4126,7 +4129,9 @@
     "readingTimeMinutes": "Tiempo de lectura (minutos)",
     "markdownSupport": "Acepta formato markdown: **negrita**, *cursiva*, # encabezados, - listas",
     "lastUpdated": "Última actualización",
-    "currentVersion": "Actual"
+    "currentVersion": "Actual",
+    "enterArticleTitle": "Ingrese el título del artículo...",
+    "articleDescriptionPlaceholder": "Breve descripción del artículo..."
   },
   "articleDetail": {
     "backToLibrary": "Volver a la Biblioteca",

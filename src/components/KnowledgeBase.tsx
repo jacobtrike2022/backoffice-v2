@@ -1189,16 +1189,16 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
                 )}
                 <Button variant="outline" size="sm" className="w-full justify-start">
                   <Share2 className="h-4 w-4 mr-2" />
-                  Share Link
+                  {t('knowledgeBase.shareLink')}
                 </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+                <Button
+                  variant="outline"
+                  size="sm"
                   className="w-full justify-start"
                   onClick={() => setShowMobilePreview(true)}
                 >
                   <Smartphone className="h-4 w-4 mr-2" />
-                  Mobile Preview
+                  {t('knowledgeBase.mobilePreview')}
                 </Button>
               </CardContent>
             </Card>
@@ -1213,33 +1213,33 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
     <Sheet open={showAssignPanel} onOpenChange={setShowAssignPanel}>
       <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>Assign Content</SheetTitle>
+          <SheetTitle>{t('knowledgeBase.assignContent')}</SheetTitle>
           <SheetDescription>
-            Assign "{selectedArticle?.title}" to employees or groups
+            {t('knowledgeBase.assignContentDesc', { title: selectedArticle?.title })}
           </SheetDescription>
         </SheetHeader>
 
         <div className="space-y-6 mt-6">
           {/* Assignment Type */}
           <div>
-            <Label>Assignment Type</Label>
+            <Label>{t('knowledgeBase.assignmentType')}</Label>
             <Select defaultValue="playlist">
               <SelectTrigger className="mt-2">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="playlist">Add to Playlist</SelectItem>
-                <SelectItem value="direct">Direct Assignment</SelectItem>
+                <SelectItem value="playlist">{t('knowledgeBase.addToPlaylist')}</SelectItem>
+                <SelectItem value="direct">{t('knowledgeBase.directAssignment')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {/* Select Playlist */}
           <div>
-            <Label>Select Playlist</Label>
+            <Label>{t('knowledgeBase.selectPlaylist')}</Label>
             <Select>
               <SelectTrigger className="mt-2">
-                <SelectValue placeholder="Choose a playlist..." />
+                <SelectValue placeholder={t('knowledgeBase.choosePlaylistPlaceholder')} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="onboarding">New Employee Onboarding</SelectItem>
@@ -1248,7 +1248,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
               </SelectContent>
             </Select>
             <Button variant="link" size="sm" className="mt-2 p-0 h-auto">
-              + Create New Playlist
+              + {t('knowledgeBase.createNewPlaylist')}
             </Button>
           </div>
 
@@ -1256,24 +1256,24 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
 
           {/* Target Audience */}
           <div>
-            <Label>Target Audience</Label>
+            <Label>{t('knowledgeBase.targetAudience')}</Label>
             <div className="space-y-3 mt-2">
               <div className="flex items-center space-x-2">
                 <Checkbox id="all-stores" />
                 <label htmlFor="all-stores" className="text-sm cursor-pointer">
-                  All Stores
+                  {t('knowledgeBase.allStores')}
                 </label>
               </div>
               <div className="flex items-center space-x-2">
                 <Checkbox id="specific-stores" />
                 <label htmlFor="specific-stores" className="text-sm cursor-pointer">
-                  Specific Stores
+                  {t('knowledgeBase.specificStores')}
                 </label>
               </div>
               <div className="flex items-center space-x-2">
                 <Checkbox id="specific-roles" />
                 <label htmlFor="specific-roles" className="text-sm cursor-pointer">
-                  Specific Roles
+                  {t('knowledgeBase.specificRoles')}
                 </label>
               </div>
             </div>
@@ -1282,7 +1282,7 @@ export function KnowledgeBase({ onNavigateToAssignment, onEditArticle, currentRo
           {/* Store Selection */}
           <Card className="bg-accent/50">
             <CardContent className="p-4">
-              <Label className="text-xs text-muted-foreground">Selected Stores</Label>
+              <Label className="text-xs text-muted-foreground">{t('knowledgeBase.selectedStores')}</Label>
               <div className="space-y-2 mt-2">
                 <div className="flex items-center justify-between p-2 bg-card rounded">
                   <span className="text-sm">Downtown Store #001</span>
