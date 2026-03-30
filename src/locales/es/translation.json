@@ -672,7 +672,20 @@
     "store": "Tienda",
     "creating": "Creando...",
     "roleIdLabel": "Rol",
-    "storeIdLabel": "Tienda Principal"
+    "storeIdLabel": "Tienda Principal",
+    "districtLabel": "Distrito",
+    "toastFailedLoadDetails": "Error al cargar los detalles del empleado",
+    "toastFailedLoadOverview": "Error al cargar el resumen",
+    "toastFailedLoadProgress": "Error al cargar el progreso",
+    "toastFailedLoadPerformance": "Error al cargar el rendimiento",
+    "toastFailedLoadTimeline": "Error al cargar la línea de tiempo de actividad",
+    "toastTagsUpdated": "Etiquetas actualizadas exitosamente",
+    "toastFailedUpdateTags": "Error al actualizar las etiquetas",
+    "toastReminderSent": "Recordatorio enviado exitosamente",
+    "toastReminderSentDesc": "Recordatorio de capacitación enviado a {{name}}{{channels}}",
+    "toastFailedSendReminder": "Error al enviar el recordatorio",
+    "toastTryAgainLater": "Por favor intente de nuevo más tarde",
+    "notificationReminderMessage": "Tienes asignaciones de capacitación pendientes que requieren tu atención."
   },
   "content": {
     "title": "Biblioteca de Contenido",
@@ -874,7 +887,9 @@
     "tagCreatedAndSelected": "Nueva etiqueta «{{name}}» creada y seleccionada",
     "tagCreatedSimple": "Nueva etiqueta creada",
     "tagUpdated": "Etiqueta actualizada",
-    "usingPendingAISuggestions": "Usando sugerencias de IA pendientes encontradas para este contenido."
+    "usingPendingAISuggestions": "Usando sugerencias de IA pendientes encontradas para este contenido.",
+    "deleteSystemTagWarning": "⚠️ ADVERTENCIA: «{{name}}» es una etiqueta global del sistema. Eliminarla puede afectar a todas las organizaciones. ¿Está seguro?",
+    "deleteTagConfirm": "¿Eliminar la etiqueta «{{name}}»?"
   },
   "forms": {
     "title": "Gestión de Formularios",
@@ -1267,11 +1282,6 @@
     "signOffDesc": "Reconocimiento de políticas y firma de capacitaciones",
     "ojtDesc": "Evaluación de entrenamiento en el trabajo",
     "surveyDesc": "Retroalimentación de empleados y encuestas",
-    "newInspection": "Nueva Inspección",
-    "newAudit": "Nueva Auditoría",
-    "newSignOff": "Nueva Firma",
-    "newOJTChecklist": "Nueva Lista OJT",
-    "newSurvey": "Nueva Encuesta",
     "notifToStoreManager": "Gerente de Tienda",
     "notifToDistrictManager": "Gerente de Distrito",
     "notifToAdmin": "Administrador",
@@ -2122,7 +2132,12 @@
     "tooltipCompleted": "Completados",
     "tooltipInProgress": "En Progreso",
     "tooltipNotStarted": "No Iniciados",
-    "tooltipAvgDaysOverdue": "Promedio días vencidos"
+    "tooltipAvgDaysOverdue": "Promedio días vencidos",
+    "issueHighPerformer": "{{compliance}}% tasa de cumplimiento",
+    "issueStalledLearners": "{{count}} empleado(s) sin actividad en 14+ días",
+    "issueOverdueSpike": "{{count}} asignación(es) vencida(s)",
+    "issueLowCompletion": "Solo {{compliance}}% tasa de finalización",
+    "issueNoActivity": "{{count}} sin comenzar"
   },
   "settings": {
     "title": "Configuración",
@@ -3226,7 +3241,9 @@
     "badgeLevel": "Nivel {{level}}",
     "preparingPdf": "Preparando PDF...",
     "pdfDownloadSuccess": "¡PDF descargado exitosamente!",
-    "pdfDownloadFailed": "No se pudo generar el PDF. Por favor intente de nuevo."
+    "pdfDownloadFailed": "No se pudo generar el PDF. Por favor intente de nuevo.",
+    "audioNotSupported": "Su navegador no admite el elemento de audio.",
+    "defaultTrackType": "Artículo"
   },
   "trackDetail": {
     "backToLibrary": "Volver a la Biblioteca",
@@ -3522,7 +3539,8 @@
       "contentTypeJobDescription": "Descripción de Puesto",
       "contentTypeTraining": "Capacitación",
       "contentTypeOther": "Otro"
-    }
+    },
+    "notAvailable": "N/A"
   },
   "assignments": {
     "title": "Asignaciones de Contenido",

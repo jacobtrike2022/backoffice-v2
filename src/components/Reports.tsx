@@ -95,6 +95,17 @@ interface FilterState {
   playlistStatus: string[]; // 'active' | 'archived'
 }
 
+function formatTopIssueDetail(row: { topIssue: string; stalledCount: number; overdueCount: number; notStartedCount: number; compliance: number; topIssueDetail: string }, t: (key: string, opts?: Record<string, unknown>) => string): string {
+  switch (row.topIssue) {
+    case 'high-performer': return t('reports.issueHighPerformer', { compliance: row.compliance });
+    case 'stalled-learners': return t('reports.issueStalledLearners', { count: row.stalledCount });
+    case 'overdue-spike': return t('reports.issueOverdueSpike', { count: row.overdueCount });
+    case 'low-completion': return t('reports.issueLowCompletion', { compliance: row.compliance });
+    case 'no-activity': return t('reports.issueNoActivity', { count: row.notStartedCount });
+    default: return row.topIssueDetail;
+  }
+}
+
 export function Reports({ currentRole, onBackToDashboard, storeFilter }: ReportsProps) {
   const { t } = useTranslation();
   // Report type controls the "grain" of the data
@@ -1539,7 +1550,7 @@ export function Reports({ currentRole, onBackToDashboard, storeFilter }: Reports
                                 row.topIssue === 'stalled-learners' ? 'text-orange-600 dark:text-orange-400' :
                                 'text-muted-foreground'
                               }`}>
-                                {row.topIssueDetail}
+                                {formatTopIssueDetail(row, t)}
                               </div>
                             </TooltipTrigger>
                             <TooltipContent>

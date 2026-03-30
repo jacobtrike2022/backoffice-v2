@@ -672,7 +672,20 @@
     "store": "Store",
     "creating": "Creating...",
     "roleIdLabel": "Role",
-    "storeIdLabel": "Home Store"
+    "storeIdLabel": "Home Store",
+    "districtLabel": "District",
+    "toastFailedLoadDetails": "Failed to load employee details",
+    "toastFailedLoadOverview": "Failed to load overview data",
+    "toastFailedLoadProgress": "Failed to load progress data",
+    "toastFailedLoadPerformance": "Failed to load performance data",
+    "toastFailedLoadTimeline": "Failed to load activity timeline",
+    "toastTagsUpdated": "Tags updated successfully",
+    "toastFailedUpdateTags": "Failed to update tags",
+    "toastReminderSent": "Reminder sent successfully",
+    "toastReminderSentDesc": "Training reminder sent to {{name}}{{channels}}",
+    "toastFailedSendReminder": "Failed to send reminder",
+    "toastTryAgainLater": "Please try again later",
+    "notificationReminderMessage": "You have pending training assignments that require your attention."
   },
   "content": {
     "title": "Content Library",
@@ -874,7 +887,9 @@
     "charCountOf200": "{{count}}/200 characters",
     "clickToOpenColorPicker": "Click to open color picker",
     "invalidHexColor": "Invalid hex color (e.g., #FF5733)",
-    "hexColorHint": "Paste or type a hex color code, or use the picker. Current: {{color}}"
+    "hexColorHint": "Paste or type a hex color code, or use the picker. Current: {{color}}",
+    "deleteSystemTagWarning": "⚠️ WARNING: \"{{name}}\" is a system-wide tag. Deleting it may affect all organizations. Are you sure?",
+    "deleteTagConfirm": "Delete tag \"{{name}}\"?"
   },
   "forms": {
     "title": "Forms Management",
@@ -1267,11 +1282,6 @@
     "signOffDesc": "Policy acknowledgement and training sign-offs",
     "ojtDesc": "On-the-job training evaluation",
     "surveyDesc": "Employee feedback and surveys",
-    "newInspection": "New Inspection",
-    "newAudit": "New Audit",
-    "newSignOff": "New Sign-off",
-    "newOJTChecklist": "New OJT Checklist",
-    "newSurvey": "New Survey",
     "notifToStoreManager": "Store Manager",
     "notifToDistrictManager": "District Manager",
     "notifToAdmin": "Admin",
@@ -2122,7 +2132,12 @@
     "tooltipCompleted": "Completed",
     "tooltipInProgress": "In Progress",
     "tooltipNotStarted": "Not Started",
-    "tooltipAvgDaysOverdue": "Avg days overdue"
+    "tooltipAvgDaysOverdue": "Avg days overdue",
+    "issueHighPerformer": "{{compliance}}% compliance rate",
+    "issueStalledLearners": "{{count}} employee(s) with no activity in 14+ days",
+    "issueOverdueSpike": "{{count}} overdue assignment(s)",
+    "issueLowCompletion": "Only {{compliance}}% completion rate",
+    "issueNoActivity": "{{count}} not started"
   },
   "settings": {
     "title": "Settings",
@@ -3225,7 +3240,9 @@
     "failedDeleteFile": "Failed to delete file",
     "preparingPdf": "Preparing PDF...",
     "pdfDownloadSuccess": "PDF downloaded successfully!",
-    "pdfDownloadFailed": "Failed to generate PDF. Please try again."
+    "pdfDownloadFailed": "Failed to generate PDF. Please try again.",
+    "audioNotSupported": "Your browser does not support the audio element.",
+    "defaultTrackType": "Article"
   },
   "trackDetail": {
     "backToLibrary": "Back to Library",
@@ -3357,7 +3374,8 @@
     "transcriptTypeOrPaste": "Type or paste transcript text here...",
     "transcriptEditPlaceholder": "Edit transcript text here...",
     "transcriptEditNote": "Note: Editing text will preserve word-level timestamps for highlighting. Minor mismatches between edited text and timestamps are expected.",
-    "transcriptEditSimpleNote": "Edit the transcript text as needed."
+    "transcriptEditSimpleNote": "Edit the transcript text as needed.",
+    "notAvailable": "N/A"
   },
   "rolesManagement": {
     "newRole": "New Role",
