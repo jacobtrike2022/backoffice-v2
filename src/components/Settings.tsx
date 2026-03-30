@@ -184,7 +184,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
   const handleSaveCompanyInfo = async () => {
     try {
       if (!organizationId) {
-        toast.error('Organization not found');
+        toast.error(t('settingsPage.orgNotFound'));
         return;
       }
 
@@ -217,17 +217,17 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
   };
 
   const handleUpdatePaymentMethod = () => {
-    toast.success('Payment method updated successfully');
+    toast.success(t('settingsPage.paymentMethodUpdated'));
   };
 
   const handleSaveDefaultPassword = () => {
     if (!useUniquePasswords && companyPassword) {
-      toast.success('Default password configuration saved', {
-        description: `All new users will now be created with the company-wide password. This setting is now live.`
+      toast.success(t('settingsPage.defaultPasswordSaved'), {
+        description: t('settingsPage.defaultPasswordSavedCompanyDesc')
       });
     } else {
-      toast.success('Default password configuration saved', {
-        description: 'All new users will receive unique random passwords at account creation.'
+      toast.success(t('settingsPage.defaultPasswordSaved'), {
+        description: t('settingsPage.defaultPasswordSavedUniqueDesc')
       });
     }
   };
@@ -308,13 +308,13 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
 
     // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
-      toast.error('File too large', { description: 'Maximum file size is 5MB' });
+      toast.error(t('settingsPage.fileTooLarge'), { description: t('settingsPage.fileTooLargeDesc') });
       return;
     }
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      toast.error('Invalid file type', { description: 'Please upload an image file' });
+      toast.error(t('settingsPage.invalidFileType'), { description: t('settingsPage.invalidFileTypeDesc') });
       return;
     }
 
@@ -331,13 +331,13 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
 
     // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
-      toast.error('File too large', { description: 'Maximum file size is 5MB' });
+      toast.error(t('settingsPage.fileTooLarge'), { description: t('settingsPage.fileTooLargeDesc') });
       return;
     }
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      toast.error('Invalid file type', { description: 'Please upload an image file' });
+      toast.error(t('settingsPage.invalidFileType'), { description: t('settingsPage.invalidFileTypeDesc') });
       return;
     }
 
@@ -368,9 +368,9 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
       } else {
         setLogoLightFile(null);
       }
-      toast.success(`${mode === 'dark' ? 'Dark' : 'Light'} mode logo removed`);
+      toast.success(mode === 'dark' ? t('settingsPage.darkLogoRemoved') : t('settingsPage.lightLogoRemoved'));
     } catch (error: any) {
-      toast.error('Failed to remove logo', { description: error.message });
+      toast.error(t('settingsPage.failedRemoveLogo'), { description: error.message });
     }
   };
 
@@ -605,14 +605,14 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                     <div className="flex items-center space-x-4">
                       <div className="text-right">
                         <p className="font-semibold">{invoice.amount}</p>
-                        <Badge 
+                        <Badge
                           variant="outline"
-                          className={invoice.status === 'paid' 
-                            ? 'bg-green-100 text-green-700 border-green-200' 
+                          className={invoice.status === 'paid'
+                            ? 'bg-green-100 text-green-700 border-green-200'
                             : 'bg-yellow-100 text-yellow-700 border-yellow-200'
                           }
                         >
-                          {invoice.status}
+                          {invoice.status === 'paid' ? t('settingsPage.invoiceStatusPaid') : t('settingsPage.invoiceStatusPending')}
                         </Badge>
                       </div>
                       <Button variant="outline" size="sm">

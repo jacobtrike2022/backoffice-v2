@@ -609,7 +609,7 @@ export function PlaybookBuildView({
           <div className="px-2 py-3">
             <Button variant="outline" size="sm" className="w-full" disabled>
               <Plus className="h-4 w-4 mr-2" />
-              Add Track
+              {t('playbook.addTrack')}
             </Button>
           </div>
         </div>
@@ -627,7 +627,7 @@ export function PlaybookBuildView({
             />
           ) : (
             <div className="flex items-center justify-center h-full text-muted-foreground">
-              Select a track to view details
+              {t('playbook.selectTrackPrompt')}
             </div>
           )}
         </div>
@@ -637,23 +637,23 @@ export function PlaybookBuildView({
       <AlertDialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen}>
         <AlertDialogContent className="bg-[#1e1e2f] border-gray-800">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Publish Album</AlertDialogTitle>
+            <AlertDialogTitle className="text-white">{t('playbook.publishAlbumTitle')}</AlertDialogTitle>
             <AlertDialogDescription className="text-gray-400">
-              This will create an album with {approvedCount} approved tracks and publish them to your content library.
+              {t('playbook.publishAlbumDesc', { count: approvedCount })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-4">
-            <label className="text-sm text-gray-400">Album Title</label>
+            <label className="text-sm text-gray-400">{t('playbook.albumTitleLabel')}</label>
             <Input
               value={albumTitle}
               onChange={(e) => setAlbumTitle(e.target.value)}
-              placeholder="Enter album title"
+              placeholder={t('playbook.albumTitlePlaceholder')}
               className="mt-1"
             />
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel className="bg-transparent border-gray-700 text-gray-300">
-              Cancel
+              {t('playbook.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handlePublish}
@@ -663,12 +663,12 @@ export function PlaybookBuildView({
               {publishing ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Publishing...
+                  {t('playbook.publishing')}
                 </>
               ) : (
                 <>
                   <Package className="h-4 w-4 mr-2" />
-                  Publish Album
+                  {t('playbook.publishAlbum')}
                 </>
               )}
             </AlertDialogAction>

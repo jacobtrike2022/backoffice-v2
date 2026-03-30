@@ -150,7 +150,7 @@ export function TagSelectorDialog({
 
           if (enriched.length > 0) {
             setAiRecommendations(enriched);
-            setAnalysisSummary('Using pending AI suggestions found for this content.');
+            setAnalysisSummary(t('content.usingPendingAISuggestions'));
             setIsLoadingAI(false);
             return;
           }
@@ -200,9 +200,9 @@ export function TagSelectorDialog({
 
       if (autoSelectTags.length > 0) {
         setLocalSelectedTags(prev => [...new Set([...prev, ...autoSelectTags])]);
-        toast.success(`✨ Auto-selected ${autoSelectTags.length} high-confidence tag${autoSelectTags.length > 1 ? 's' : ''}`);
+        toast.success(t('content.autoSelectedTags', { count: autoSelectTags.length }));
       } else if (data.recommendations?.length > 0) {
-        toast.success(`Found ${data.recommendations.length} relevant tags`);
+        toast.success(t('content.foundRelevantTags', { count: data.recommendations.length }));
       }
 
     } catch (error: any) {
@@ -260,9 +260,9 @@ export function TagSelectorDialog({
         .eq('suggested_tag_name', tagName);
         
       if (feedback === 'negative') {
-        toast.info('Feedback received. We will use this to improve recommendations.');
+        toast.info(t('content.aiFeedbackReceived'));
       } else {
-        toast.success('Glad that was helpful!');
+        toast.success(t('content.aiFeedbackGladHelpful'));
       }
     } catch (err) {
       console.error('Error saving AI feedback:', err);
@@ -351,9 +351,9 @@ export function TagSelectorDialog({
     // If a new tag was created (not edited) and we have the name, auto-select it
     if (!tagToEdit && createdTagName && !localSelectedTags.includes(createdTagName)) {
       setLocalSelectedTags(prev => [...prev, createdTagName]);
-      toast.success(`New tag "${createdTagName}" created and selected`);
+      toast.success(t('content.tagCreatedAndSelected', { name: createdTagName }));
     } else {
-      toast.success(tagToEdit ? 'Tag updated' : 'New tag created');
+      toast.success(tagToEdit ? t('content.tagUpdated') : t('content.tagCreatedSimple'));
     }
 
     setTagToEdit(null);
@@ -368,7 +368,7 @@ export function TagSelectorDialog({
 
   const handleDeleteTag = async (e: React.MouseEvent, tag: Tag) => {
     e.stopPropagation();
-    if (!confirm(`Are you sure you want to delete tag "${tag.name}"?`)) return;
+    if (!confirm(t('content.confirmDeleteTag', { name: tag.name }))) return;
     
     try {
       await deleteTag(tag.id);
