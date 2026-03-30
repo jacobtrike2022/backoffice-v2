@@ -1209,7 +1209,7 @@ export function PublicKBViewer() {
         {/* Footer */}
         <footer className="mt-8 pb-8 border-t border-gray-200 dark:border-gray-800 pt-6">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
-            <p className="text-gray-400 dark:text-gray-500">© 2025 Trike.co</p>
+            <p className="text-gray-400 dark:text-gray-500">© {new Date().getFullYear()} Trike.co</p>
             <p className="text-[#FF6B35] flex items-center gap-2">
               <span className="inline-block w-4 h-4 border border-[#FF6B35] rounded-full flex items-center justify-center text-xs">ⓘ</span>
               BETA PREVIEW — Some features may have limited functionality

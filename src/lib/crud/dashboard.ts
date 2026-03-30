@@ -41,7 +41,7 @@ export async function getOrganizationStats(organizationId: string) {
       return {
         employeeCount: employeeCount || 0,
         storeCount: storeCount || 0,
-        activeAssignments: activeAssignments || 0,
+        activeAssignments: 0,
         completedTracks: 0,
         avgCompletion: 0,
         certificationCount: 0,

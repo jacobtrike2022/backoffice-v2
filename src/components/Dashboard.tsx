@@ -7,6 +7,7 @@ import { ActivityFeed } from './ActivityFeed';
 import { DistrictSummary } from './DistrictSummary';
 import { EmployeePerformance } from './EmployeePerformance';
 import { ComplianceDashboard } from './ComplianceDashboard';
+import { MyFormsWidget } from './forms/MyFormsWidget';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -434,6 +435,9 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
               </CardContent>
             </Card>
 
+            {/* My Forms Widget - Full Width */}
+            <MyFormsWidget orgId={effectiveOrgId} onNavigate={onNavigate} />
+
             {/* Top Performers - Full Width */}
             <Card className="border-border/50 shadow-sm w-full">
               <CardHeader className="pb-3">
@@ -506,6 +510,9 @@ export function Dashboard({ currentRole, onOpenAssignmentWizard, onViewReports, 
           {currentRole === 'store-manager' && (
             <EmployeePerformance />
           )}
+
+          {/* My Forms Widget - Full Width */}
+          <MyFormsWidget orgId={effectiveOrgId} onNavigate={onNavigate} />
 
           {/* Activity Feed - Full Width */}
           <ActivityFeed currentRole={currentRole} />

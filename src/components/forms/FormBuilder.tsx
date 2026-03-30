@@ -62,6 +62,7 @@ import {
   Check,
   AlertCircle,
   Trash2,
+  FileText,
 } from 'lucide-react';
 import { useFormBuilder, type LocalBlock } from '../../hooks/useFormBuilder';
 import { FormRenderer } from './shared/FormRenderer';
@@ -1145,10 +1146,27 @@ export function FormBuilder({
 
   if (hook.error && !hook.form) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3">
-        <AlertCircle className="h-8 w-8 text-destructive" />
-        <p className="text-sm text-destructive">{hook.error}</p>
-        <Button variant="outline" size="sm" onClick={onCancel}>Go back</Button>
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <FileText className="h-10 w-10 text-muted-foreground opacity-60" />
+        <div className="text-center">
+          <p className="font-semibold text-lg">No form selected</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Select a form from the Form Library to edit, or create a new one.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={onCancel}>
+            Go to Form Library
+          </Button>
+          <Button
+            className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
+            size="sm"
+            onClick={onCancel}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Create New Form
+          </Button>
+        </div>
       </div>
     );
   }

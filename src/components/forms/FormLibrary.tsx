@@ -403,11 +403,16 @@ export function FormLibrary({
   async function loadRecurringFormIds() {
     if (!orgId) return;
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('form_assignments')
         .select('form_id, recurrence_rule')
         .eq('status', 'active')
         .neq('recurrence_rule', 'once');
+      if (error && error.message.includes('recurrence_rule')) {
+        // Column doesn't exist yet — no recurring assignments possible
+        setRecurringFormIds(new Set());
+        return;
+      }
       if (data && data.length > 0) {
         setRecurringFormIds(new Set(data.map((r: any) => r.form_id as string)));
       } else {

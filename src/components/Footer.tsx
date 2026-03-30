@@ -8,7 +8,7 @@ export function Footer() {
     <footer className="mt-12 pt-8 pb-6 border-t border-border">
       <div className="flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="text-sm text-muted-foreground">
-          © 2025 Trike.co
+          © {new Date().getFullYear()} Trike.co
         </div>
         
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">

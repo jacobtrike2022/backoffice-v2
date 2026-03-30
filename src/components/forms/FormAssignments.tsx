@@ -149,7 +149,11 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
     setLoading(true);
     setFetchError(null);
 
-    const { data, error } = await supabase
+    // Try query with recurrence columns first; fall back if columns don't exist yet
+    let data: any[] | null = null;
+    let error: any = null;
+
+    const fullQuery = await supabase
       .from('form_assignments')
       .select(`
         id,
@@ -164,6 +168,33 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
       `)
       .order('created_at', { ascending: false })
       .limit(100);
+
+    if (fullQuery.error && fullQuery.error.message.includes('recurrence_rule')) {
+      // Columns not yet migrated — retry without them
+      const fallback = await supabase
+        .from('form_assignments')
+        .select(`
+          id,
+          assignment_type,
+          target_id,
+          due_date,
+          status,
+          created_at,
+          form:forms!form_assignments_form_id_fkey(id, title, type, organization_id)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      data = (fallback.data || []).map((row: any) => ({
+        ...row,
+        recurrence_rule: 'once',
+        next_due_at: null,
+      }));
+      error = fallback.error;
+    } else {
+      data = fullQuery.data;
+      error = fullQuery.error;
+    }
 
     if (error) {
       setFetchError(error.message);

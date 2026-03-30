@@ -598,15 +598,16 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
           </div>
         )}
 
-        {/* Submission list */}
+        {/* Submission list — hidden when no form is selected */}
+        {selectedFormId === 'none' ? (
+          <div className="flex flex-col items-center justify-center py-16 px-4 text-center text-muted-foreground">
+            <ChevronDown className="h-8 w-8 mb-2 opacity-30" />
+            <p className="text-sm">Select a form to view submissions</p>
+          </div>
+        ) : (
         <Card className="flex-1 min-h-0 overflow-hidden">
           <CardContent className="p-0 h-full overflow-y-auto">
-            {selectedFormId === 'none' ? (
-              <div className="flex flex-col items-center justify-center py-16 px-4 text-center text-muted-foreground">
-                <ChevronDown className="h-8 w-8 mb-2 opacity-30" />
-                <p className="text-sm">Select a form to view submissions</p>
-              </div>
-            ) : submissionsLoading ? (
+            {submissionsLoading ? (
               <div className="p-3 space-y-1">
                 {[...Array(5)].map((_, i) => (
                   <SkeletonRow key={i} />
@@ -710,9 +711,11 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
             )}
           </CardContent>
         </Card>
+        )}
       </div>
 
-      {/* ── Right pane: submission detail ── */}
+      {/* ── Right pane: submission detail (hidden when no form is selected) ── */}
+      {selectedFormId !== 'none' && (
       <div className="flex-1 min-w-0">
         {!selectedSubmission ? (
           <Card className="min-h-[400px] flex items-center justify-center">
@@ -870,6 +873,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
           </Card>
         )}
       </div>
+      )}
     </div>
   );
 }
