@@ -5,6 +5,7 @@ import ListItem from '@tiptap/extension-list-item';
 import { EditorProvider, useCurrentEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import React, { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Bold,
   Italic,
@@ -40,6 +41,7 @@ interface MenuBarProps {
 
 const MenuBar = ({ availableVariables }: MenuBarProps) => {
   const { editor } = useCurrentEditor();
+  const { t } = useTranslation();
 
   const insertVariable = useCallback(
     (variable: string) => {
@@ -59,7 +61,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
         onClick={() => editor.chain().focus().undo().run()}
         disabled={!editor.can().chain().focus().undo().run()}
         className="toolbar-button"
-        title="Undo"
+        title={t('contentAuthoring.toolbar.undo')}
         type="button"
       >
         <Undo className="w-4 h-4" />
@@ -68,7 +70,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
         onClick={() => editor.chain().focus().redo().run()}
         disabled={!editor.can().chain().focus().redo().run()}
         className="toolbar-button"
-        title="Redo"
+        title={t('contentAuthoring.toolbar.redo')}
         type="button"
       >
         <Redo className="w-4 h-4" />
@@ -83,7 +85,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
             ? 'toolbar-button is-active'
             : 'toolbar-button'
         }
-        title="Heading 1"
+        title={t('contentAuthoring.toolbar.heading1')}
         type="button"
       >
         <Heading1 className="w-4 h-4" />
@@ -95,7 +97,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
             ? 'toolbar-button is-active'
             : 'toolbar-button'
         }
-        title="Heading 2"
+        title={t('contentAuthoring.toolbar.heading2')}
         type="button"
       >
         <Heading2 className="w-4 h-4" />
@@ -107,7 +109,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
             ? 'toolbar-button is-active'
             : 'toolbar-button'
         }
-        title="Heading 3"
+        title={t('contentAuthoring.toolbar.heading3')}
         type="button"
       >
         <Heading3 className="w-4 h-4" />
@@ -121,7 +123,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
         className={
           editor.isActive('bold') ? 'toolbar-button is-active' : 'toolbar-button'
         }
-        title="Bold"
+        title={t('contentAuthoring.toolbar.bold')}
         type="button"
       >
         <Bold className="w-4 h-4" />
@@ -134,7 +136,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
             ? 'toolbar-button is-active'
             : 'toolbar-button'
         }
-        title="Italic"
+        title={t('contentAuthoring.toolbar.italic')}
         type="button"
       >
         <Italic className="w-4 h-4" />
@@ -147,7 +149,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
             ? 'toolbar-button is-active'
             : 'toolbar-button'
         }
-        title="Strikethrough"
+        title={t('contentAuthoring.toolbar.strikethrough')}
         type="button"
       >
         <Strikethrough className="w-4 h-4" />
@@ -158,7 +160,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
         className={
           editor.isActive('code') ? 'toolbar-button is-active' : 'toolbar-button'
         }
-        title="Code"
+        title={t('contentAuthoring.toolbar.code')}
         type="button"
       >
         <Code className="w-4 h-4" />
@@ -173,7 +175,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
             ? 'toolbar-button is-active'
             : 'toolbar-button'
         }
-        title="Bullet List"
+        title={t('contentAuthoring.toolbar.bulletList')}
         type="button"
       >
         <List className="w-4 h-4" />
@@ -185,7 +187,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
             ? 'toolbar-button is-active'
             : 'toolbar-button'
         }
-        title="Numbered List"
+        title={t('contentAuthoring.toolbar.numberedList')}
         type="button"
       >
         <ListOrdered className="w-4 h-4" />
@@ -200,7 +202,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
             ? 'toolbar-button is-active'
             : 'toolbar-button'
         }
-        title="Blockquote"
+        title={t('contentAuthoring.toolbar.blockquote')}
         type="button"
       >
         <Quote className="w-4 h-4" />
@@ -208,7 +210,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
       <button
         onClick={() => editor.chain().focus().setHorizontalRule().run()}
         className="toolbar-button"
-        title="Horizontal Rule"
+        title={t('contentAuthoring.toolbar.horizontalRule')}
         type="button"
       >
         <Minus className="w-4 h-4" />
@@ -219,7 +221,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
       <button
         onClick={() => editor.chain().focus().unsetAllMarks().run()}
         className="toolbar-button"
-        title="Clear Formatting"
+        title={t('contentAuthoring.toolbar.clearFormatting')}
         type="button"
       >
         <RemoveFormatting className="w-4 h-4" />
@@ -231,7 +233,7 @@ const MenuBar = ({ availableVariables }: MenuBarProps) => {
           <div className="toolbar-divider" />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="toolbar-button" title="Insert Variable" type="button">
+              <button className="toolbar-button" title={t('emailSettings.insertVariable')} type="button">
                 <Variable className="w-4 h-4" />
               </button>
             </DropdownMenuTrigger>

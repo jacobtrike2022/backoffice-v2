@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -47,6 +48,7 @@ export function VersionDecisionModal({
   onVersionCreated,
   pendingChanges
 }: VersionDecisionModalProps) {
+  const { t } = useTranslation();
   const [completedStrategy, setCompletedStrategy] = useState<CompletedStrategy>('keep');
   const [inProgressStrategy, setInProgressStrategy] = useState<InProgressStrategy>('move-to-v2');
   const [versionNotes, setVersionNotes] = useState('');
@@ -98,7 +100,7 @@ export function VersionDecisionModal({
 
   const handleSave = async () => {
     if (!versionNotes.trim()) {
-      alert('Please add version notes to document this change');
+      alert(t('contentAuthoring.versionNotesMissing'));
       return;
     }
 
@@ -145,7 +147,7 @@ export function VersionDecisionModal({
     } catch (error: any) {
       console.error('❌ Error creating version:', error);
       console.error('Error stack:', error.stack);
-      alert(`Failed to create version: ${error.message}`);
+      alert(t('contentAuthoring.versionCreationFailed', { message: error.message }));
       setIsSaving(false); // Reset saving state on error
     }
   };
@@ -162,14 +164,14 @@ export function VersionDecisionModal({
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl">
-            Who should get Version {nextVersion}?
+            {t('contentAuthoring.versionDecisionTitle', { version: nextVersion })}
           </DialogTitle>
           <DialogDescription className="space-y-1.5 pt-2" asChild>
             <div>
-              <div>You're publishing Version {nextVersion} of "{trackTitle}".</div>
+              <div>{t('contentAuthoring.publishingVersion', { version: nextVersion, title: trackTitle })}</div>
               <div className="flex items-center text-primary">
                 <Info className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
-                <span>We'll keep a record of everything learners completed on Version {currentVersion}.</span>
+                <span>{t('contentAuthoring.keepRecordNote', { version: currentVersion })}</span>
               </div>
             </div>
           </DialogDescription>

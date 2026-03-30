@@ -347,13 +347,13 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
                               <div className="flex items-center gap-1.5 cursor-help">
                                 <LinkIcon className="w-3.5 h-3.5 text-blue-500" />
                                 <span className="text-xs text-blue-500 font-medium">
-                                  {track.relationshipCount} related
+                                  {track.relationshipCount} {t('contentAuthoring.related')}
                                 </span>
                               </div>
                               {hoveredTrackId === track.id && track.relatedTracks && track.relatedTracks.length > 0 && (
                                 <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-popover border border-border rounded-lg shadow-lg p-3">
                                   <p className="text-xs font-semibold text-foreground mb-2">
-                                    This {track.type} is already a source for:
+                                    {t('contentAuthoring.alreadySourceFor', { type: track.type })}
                                   </p>
                                   <div className="space-y-2">
                                     {track.relatedTracks.map((relTrack) => (
@@ -454,7 +454,7 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
                       </svg>
                     )}
                   </div>
-                  <span className="text-sm">default</span>
+                  <span className="text-sm">{t('contentAuthoring.defaultLabel')}</span>
                 </button>
               </div>
 
@@ -470,7 +470,7 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
                       disabled={isGenerating}
                       className="w-14 px-2 py-1 text-sm border border-border rounded bg-background text-foreground text-center focus:outline-none focus:ring-1 focus:ring-orange-500"
                     />
-                    <span className="text-sm text-muted-foreground">minimum</span>
+                    <span className="text-sm text-muted-foreground">{t('contentAuthoring.minimum')}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <input
@@ -486,7 +486,7 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
                           : 'border-border text-foreground focus:ring-orange-500'
                       }`}
                     />
-                    <span className="text-sm text-muted-foreground">maximum</span>
+                    <span className="text-sm text-muted-foreground">{t('contentAuthoring.maximum')}</span>
                   </div>
                 </div>
               )}
@@ -494,7 +494,7 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
               {!useDefaultQuestions && !isQuestionCountValid && (
                 <div className="flex items-center gap-2 pl-4 text-red-500 text-xs">
                   <AlertTriangle className="w-3 h-3" />
-                  <span>Maximum must be equal to or greater than minimum</span>
+                  <span>{t('contentAuthoring.maxMustBeGteMin')}</span>
                 </div>
               )}
             </div>
@@ -508,14 +508,14 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
                 <div className="flex-1">
                   <p className="text-blue-400">
                     {selectedTracks.length === 1
-                      ? 'Will generate 3-15 questions based on key facts and content length'
-                      : `Will generate a combined quiz from ${selectedTracks.length} tracks, creating questions that span all selected content`
+                      ? t('contentAuthoring.willGenerate115')
+                      : t('contentAuthoring.willGenerateCombined', { count: selectedTracks.length })
                     }
                   </p>
                   {totalWordCount < 300 && (
                     <p className="text-yellow-400 mt-2 flex items-start gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                      <span>Combined content is quite short ({totalWordCount} words). Questions may be limited.</span>
+                      <span>{t('contentAuthoring.contentTooShort', { count: totalWordCount })}</span>
                     </p>
                   )}
                 </div>
@@ -531,7 +531,7 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
             onClick={onClose}
             disabled={isGenerating}
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             onClick={handleGenerate}
@@ -541,12 +541,12 @@ export function AIGenerateCheckpointModal({ isOpen, onClose, onGenerate }: AIGen
             {isGenerating ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Generating...
+                {t('contentAuthoring.generating')}
               </>
             ) : (
               <>
                 <Zap className="w-4 h-4 mr-2" />
-                Generate Questions
+                {t('contentAuthoring.generateQuestions')}
                 {selectedTrackIds.length > 1 && (
                   <span className="ml-1">({selectedTrackIds.length} tracks)</span>
                 )}

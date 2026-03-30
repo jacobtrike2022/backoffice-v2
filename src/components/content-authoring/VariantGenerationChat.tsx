@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   MessageSquare,
   Zap,
@@ -60,6 +61,7 @@ export function VariantGenerationChat({
   onGenerated,
   onCancel
 }: VariantGenerationChatProps) {
+  const { t } = useTranslation();
   const [state, setState] = useState<ChatState>('RESEARCHING');
   const [needsReview, setNeedsReview] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -391,15 +393,15 @@ export function VariantGenerationChat({
     return (
       <div className="flex flex-col h-full space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">AI-Generated Variant Preview</h3>
+          <h3 className="text-lg font-semibold">{t('contentAuthoring.aiVariantPreview')}</h3>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setState('READY_TO_GENERATE')}>
               <RefreshCw className="w-4 h-4 mr-2" />
-              Regenerate
+              {t('contentAuthoring.regenerate')}
             </Button>
             <Button size="sm" onClick={() => onGenerated(generatedData.generatedContent, generatedData.generatedTitle)}>
               <Check className="w-4 h-4 mr-2" />
-              Use This Content
+              {t('contentAuthoring.useThisContent')}
             </Button>
           </div>
         </div>

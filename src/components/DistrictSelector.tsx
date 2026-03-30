@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -20,6 +21,7 @@ interface DistrictSelectorProps {
 }
 
 export function DistrictSelector({ districts, selectedId, onSelect, onClose, onDistrictCreated }: DistrictSelectorProps) {
+  const { t } = useTranslation();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newDistrictName, setNewDistrictName] = useState('');
   const [newDistrictCode, setNewDistrictCode] = useState('');
@@ -65,7 +67,7 @@ export function DistrictSelector({ districts, selectedId, onSelect, onClose, onD
       <div className="bg-card rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col border border-border">
         {/* Header */}
         <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-          <h2 className="text-foreground">Select District</h2>
+          <h2 className="text-foreground">{t('units.selectDistrict')}</h2>
           <button
             onClick={onClose}
             className="text-muted-foreground hover:text-foreground transition-colors"

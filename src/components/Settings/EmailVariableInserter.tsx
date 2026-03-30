@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,6 +27,8 @@ export function EmailVariableInserter({
   disabled = false,
   size = 'sm',
 }: EmailVariableInserterProps) {
+  const { t } = useTranslation();
+
   if (variables.length === 0) {
     return null;
   }
@@ -40,7 +43,7 @@ export function EmailVariableInserter({
           className="gap-1"
         >
           <Variable className="h-4 w-4" />
-          Insert Variable
+          {t('emailSettings.insertVariable')}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-64 overflow-y-auto">

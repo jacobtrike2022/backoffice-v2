@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Checkbox } from './ui/checkbox';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -40,6 +41,7 @@ export function CompetencyItem({
   dwas,
   weightedPriority,
 }: CompetencyItemProps) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(true);
   const hasDWAs = dwas && dwas.length > 0;
   const getSourceBadge = () => {
@@ -55,9 +57,9 @@ export function CompetencyItem({
     if (!config) return null; // Safety check for unexpected source values
     
     const labels: Record<string, string> = {
-      modified: 'Modified',
-      custom: 'Custom',
-      excluded: 'Excluded',
+      modified: t('compliance.competencyModified'),
+      custom: t('compliance.competencyCustom'),
+      excluded: t('compliance.competencyExcluded'),
     };
 
     return (
@@ -102,7 +104,7 @@ export function CompetencyItem({
                   setExpanded(!expanded);
                 }}
                 className="h-6 w-6 p-0 flex-shrink-0 mt-0.5"
-                title={expanded ? 'Collapse DWAs' : 'Expand DWAs'}
+                title={expanded ? t('compliance.collapseDWAs') : t('compliance.expandDWAs')}
               >
                 {expanded ? (
                   <ChevronDown className="h-3.5 w-3.5" />
@@ -166,7 +168,7 @@ export function CompetencyItem({
             size="sm"
             onClick={onRevert}
             className="h-7 w-7 p-0"
-            title="Revert to standard"
+            title={t('compliance.revertToStandard')}
           >
             <RotateCcw className="h-3.5 w-3.5" />
           </Button>
@@ -176,7 +178,7 @@ export function CompetencyItem({
           size="sm"
           onClick={onEdit}
           className="h-7 w-7 p-0"
-          title="Edit"
+          title={t('common.edit')}
         >
           <Edit2 className="h-3.5 w-3.5" />
         </Button>
@@ -186,7 +188,7 @@ export function CompetencyItem({
             size="sm"
             onClick={onDelete}
             className="h-7 w-7 p-0 text-red-600 hover:text-red-700"
-            title="Delete"
+            title={t('common.delete')}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </Button>

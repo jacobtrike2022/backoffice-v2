@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -112,6 +113,7 @@ interface SourcesManagementProps {
 }
 
 export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
+  const { t } = useTranslation();
   const [sourceFiles, setSourceFiles] = useState<SourceFile[]>([]);
   const [contentSummaries, setContentSummaries] = useState<Record<string, ChunkContentSummary[]>>({});
   const [loading, setLoading] = useState(true);
@@ -512,7 +514,7 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-10 w-10 text-primary animate-spin" />
             <p className="text-sm text-muted-foreground">
-              Uploading... {uploadProgress}%
+              {t('knowledgeBase.uploadingProgress', { progress: uploadProgress })}
             </p>
             <div className="w-48 h-2 bg-muted rounded-full overflow-hidden">
               <div
@@ -527,12 +529,12 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
               <Upload className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <p className="font-medium">Import Source Files</p>
+              <p className="font-medium">{t('knowledgeBase.importSourceFiles')}</p>
               <p className="text-sm text-muted-foreground mt-1">
-                Drag and drop files here, or click to browse
+                {t('knowledgeBase.dragDropOrBrowse')}
               </p>
               <p className="text-xs text-muted-foreground mt-2">
-                Supports PDF, Word, Excel, PowerPoint, Text, CSV (max 50MB)
+                {t('knowledgeBase.supportsFormats')}
               </p>
             </div>
           </div>
@@ -544,14 +546,14 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
           <Input
-            placeholder="Search files..."
+            placeholder={t('knowledgeBase.searchFiles')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
           />
         </div>
         <span className="text-sm text-muted-foreground">
-          {filteredFiles.length} file{filteredFiles.length !== 1 ? 's' : ''}
+          {t('knowledgeBase.fileCount', { count: filteredFiles.length })}
         </span>
       </div>
 
@@ -561,9 +563,9 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
           <CardContent className="py-12 text-center">
             <div className="flex flex-col items-center gap-2">
               <FileText className="h-12 w-12 text-muted-foreground/50" />
-              <h3 className="font-semibold">No source files yet</h3>
+              <h3 className="font-semibold">{t('knowledgeBase.noSourceFilesYet')}</h3>
               <p className="text-sm text-muted-foreground">
-                Upload documents to get started
+                {t('knowledgeBase.uploadToGetStarted')}
               </p>
             </div>
           </CardContent>
@@ -573,13 +575,13 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[300px]">File Name</TableHead>
-                <TableHead>Attachment</TableHead>
-                <TableHead className="w-[200px]">Detected Content</TableHead>
-                <TableHead className="w-[100px]">Extracted?</TableHead>
-                <TableHead className="w-[120px]">Status</TableHead>
-                <TableHead className="w-[100px]">Size</TableHead>
-                <TableHead className="w-[120px]">Uploaded</TableHead>
+                <TableHead className="w-[300px]">{t('knowledgeBase.colFileName')}</TableHead>
+                <TableHead>{t('knowledgeBase.colAttachment')}</TableHead>
+                <TableHead className="w-[200px]">{t('knowledgeBase.colDetectedContent')}</TableHead>
+                <TableHead className="w-[100px]">{t('knowledgeBase.colExtracted')}</TableHead>
+                <TableHead className="w-[120px]">{t('knowledgeBase.colStatus')}</TableHead>
+                <TableHead className="w-[100px]">{t('knowledgeBase.colSize')}</TableHead>
+                <TableHead className="w-[120px]">{t('knowledgeBase.colUploaded')}</TableHead>
                 <TableHead className="w-[60px]"></TableHead>
               </TableRow>
             </TableHeader>
@@ -604,7 +606,7 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
                         size="sm"
                         className="h-8 px-2 text-muted-foreground hover:text-foreground"
                         onClick={() => handleViewFile(file)}
-                        title="Open original file"
+                        title={t('knowledgeBase.openOriginalFile')}
                       >
                         <ExternalLink className="h-4 w-4" />
                       </Button>
@@ -614,7 +616,7 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
                         className="h-8 px-2 text-muted-foreground hover:text-foreground"
                         onClick={() => handleExtractSource(file)}
                         disabled={extracting === file.id}
-                        title="Re-extract text"
+                        title={t('knowledgeBase.reExtractText')}
                       >
                         {extracting === file.id ? (
                           <Zap className="h-4 w-4 text-[#F74A05] animate-pulse" />
@@ -648,7 +650,7 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
                       </div>
                     ) : file.is_chunked ? (
                       <Badge variant="secondary" className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs">
-                        Unclassified
+                        {t('knowledgeBase.unclassified')}
                       </Badge>
                     ) : (
                       <span className="text-muted-foreground text-xs">—</span>
@@ -658,12 +660,12 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
                     {file.is_processed ? (
                       <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
                         <Check className="h-3 w-3 mr-1" />
-                        Yes
+                        {t('common.yes')}
                       </Badge>
                     ) : (
                       <Badge variant="secondary" className="bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
                         <X className="h-3 w-3 mr-1" />
-                        No
+                        {t('common.no')}
                       </Badge>
                     )}
                   </TableCell>
@@ -678,7 +680,7 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
                           className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 cursor-pointer transition-colors"
                         >
                           <Layers className="h-3 w-3 mr-1" />
-                          {file.chunk_count || 0} chunks
+                          {t('knowledgeBase.chunkCount', { count: file.chunk_count || 0 })}
                         </Badge>
                       </button>
                     ) : file.extracted_text ? (
@@ -691,13 +693,13 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
                           className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 hover:bg-orange-200 dark:hover:bg-orange-900/50 cursor-pointer transition-colors"
                         >
                           <Sparkles className="h-3 w-3 mr-1" />
-                          Process
+                          {t('knowledgeBase.process')}
                         </Badge>
                       </button>
                     ) : (
                       <Badge variant="secondary" className="bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
                         <X className="h-3 w-3 mr-1" />
-                        No
+                        {t('common.no')}
                       </Badge>
                     )}
                   </TableCell>
@@ -718,19 +720,19 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
                         {onOpenEditor && (
                           <DropdownMenuItem onClick={() => onOpenEditor(file.id)}>
                             <Sparkles className="h-4 w-4 mr-2" />
-                            Process Document
+                            {t('knowledgeBase.processDocument')}
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuItem onClick={() => handleViewFile(file)}>
                           <Download className="h-4 w-4 mr-2" />
-                          Download
+                          {t('common.download')}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
                           onClick={() => handleDeleteFile(file)}
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
-                          Delete
+                          {t('common.delete')}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>

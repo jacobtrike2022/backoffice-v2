@@ -429,7 +429,7 @@ placeholder={t('compliance.searchStates')}
       )}
       {selectedCodes.length > 10 && (
         <p className="text-xs text-muted-foreground">
-          {selectedCodes.length} states selected
+          {t('compliance.statesSelected', { count: selectedCodes.length })}
         </p>
       )}
     </div>
@@ -534,20 +534,20 @@ export function RequirementRulesModal({
     const roleCount = selectedRoleIds.length;
 
     if (roleCount === 0) {
-      return 'No roles selected - this requirement will not trigger any assignments';
+      return t('compliance.summaryNoRoles');
     }
 
     const roleText = roleCount === roles.length
-      ? 'all roles'
+      ? t('compliance.summaryAllRoles')
       : roleCount === 1
-        ? roles.find(r => r.id === selectedRoleIds[0])?.name || '1 role'
-        : `${roleCount} roles`;
+        ? roles.find(r => r.id === selectedRoleIds[0])?.name || t('compliance.summary1Role')
+        : t('compliance.summaryNRoles', { count: roleCount });
 
     const stateText = requirement?.state_code
       ? US_STATES.find(s => s.code === requirement.state_code)?.name || requirement.state_code
-      : 'all states';
+      : t('compliance.summaryAllStates');
 
-    return `People with ${roleText} in ${stateText} need ${requirement?.requirement_name}`;
+    return t('compliance.summaryText', { roleText, stateText, requirement: requirement?.requirement_name });
   };
 
   return (
@@ -611,7 +611,7 @@ export function RequirementRulesModal({
                 loading={loading}
               />
               <p className="text-xs text-muted-foreground">
-                {selectedRoleIds.length} of {roles.length} roles selected
+                {t('compliance.rolesSelectedCount', { selected: selectedRoleIds.length, total: roles.length })}
               </p>
             </div>
 
@@ -642,7 +642,7 @@ export function RequirementRulesModal({
               <Alert>
                 <Info className="h-4 w-4" />
                 <AlertDescription>
-                  The state is set on the requirement itself. To apply this training in additional states, create a separate requirement for each state.
+                  {t('compliance.stateSetOnRequirementNote')}
                 </AlertDescription>
               </Alert>
             </div>
@@ -657,26 +657,26 @@ export function RequirementRulesModal({
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-green-500" />
                     <span className="text-sm">
-                      {selectedRoleIds.length} role{selectedRoleIds.length !== 1 ? 's' : ''} will be required to complete this training
+                      {t('compliance.summaryRolesRequired', { count: selectedRoleIds.length })}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-green-500" />
                     <span className="text-sm">
-                      Applies to employees in {requirement?.state_code || 'all states'}
+                      {t('compliance.summaryAppliesToState', { state: requirement?.state_code || t('compliance.summaryAllStates') })}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check className="h-4 w-4 text-green-500" />
                     <span className="text-sm">
-                      Must complete within {requirement?.days_to_complete || 30} days of trigger
+                      {t('compliance.summaryDaysToComplete', { days: requirement?.days_to_complete || 30 })}
                     </span>
                   </div>
                   {requirement?.recertification_years && (
                     <div className="flex items-center gap-2">
                       <Check className="h-4 w-4 text-green-500" />
                       <span className="text-sm">
-                        Recertification required every {requirement.recertification_years} year{requirement.recertification_years !== 1 ? 's' : ''}
+                        {t('compliance.summaryRecertification', { years: requirement.recertification_years })}
                       </span>
                     </div>
                   )}

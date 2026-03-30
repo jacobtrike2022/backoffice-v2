@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
@@ -46,6 +47,7 @@ interface PeopleProps {
 }
 
 export function People({ currentRole, onBackToDashboard }: PeopleProps) {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<any | null>(null);
@@ -189,9 +191,9 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
   if (error) {
     return (
       <div className="p-8 bg-red-50 border border-red-200 rounded-lg">
-        <h2 className="text-xl font-semibold text-red-700 mb-2">Error Loading Users</h2>
+        <h2 className="text-xl font-semibold text-red-700 mb-2">{t('people.errorLoadingUsers')}</h2>
         <p className="text-red-600 mb-4">{error.message}</p>
-        <Button onClick={() => refetch()}>Retry</Button>
+        <Button onClick={() => refetch()}>{t('common.retry')}</Button>
       </div>
     );
   }
@@ -205,24 +207,24 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-foreground">People Management</h1>
+          <h1 className="text-foreground">{t('people.peopleManagement')}</h1>
           <p className="text-muted-foreground mt-1">
-            Manage and monitor employee training and performance
+            {t('people.peopleManagementDesc')}
           </p>
         </div>
         <div className="flex items-center space-x-3">
           <Button variant="outline" size="sm">
             <Download className="w-4 h-4 mr-2" />
-            Export
+            {t('common.export')}
           </Button>
           {currentRole === 'admin' && (
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               className="hero-primary"
               onClick={() => setShowCreateDialog(true)}
             >
               <UserPlus className="w-4 h-4 mr-2" />
-              Add Employee
+              {t('people.addEmployee')}
             </Button>
           )}
         </div>
@@ -234,7 +236,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Users className="h-4 w-4" />
-              Total Employees
+              {t('people.totalEmployees')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -246,7 +248,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />
-              Active
+              {t('common.active')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -258,7 +260,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Building className="h-4 w-4" />
-              {currentRole === 'admin' ? 'Organizations' : 'Locations'}
+              {currentRole === 'admin' ? t('people.organizations') : t('people.locations')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -276,7 +278,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by name, email, or role..."
+                placeholder={t('people.searchPlaceholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -288,7 +290,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
               className="relative"
             >
               <Filter className="h-4 w-4 mr-2" />
-              Filters
+              {t('common.filters')}
               {activeFiltersCount > 0 && (
                 <Badge className="ml-2 bg-primary text-primary-foreground">
                   {activeFiltersCount}
@@ -300,11 +302,11 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
           {showFilters && (
             <div className="mt-4 p-4 border rounded-lg bg-muted/30">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-medium">Filters</h3>
+                <h3 className="font-medium">{t('common.filters')}</h3>
                 {activeFiltersCount > 0 && (
                   <Button variant="ghost" size="sm" onClick={clearAllFilters}>
                     <X className="h-3 w-3 mr-1" />
-                    Clear All
+                    {t('common.clearAll')}
                   </Button>
                 )}
               </div>
@@ -312,7 +314,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Status Filter */}
                 <div>
-                  <Label className="text-sm font-medium mb-2 block">Status</Label>
+                  <Label className="text-sm font-medium mb-2 block">{t('common.status')}</Label>
                   <div className="space-y-2">
                     {['active', 'inactive', 'on-leave'].map((status) => (
                       <div key={status} className="flex items-center space-x-2">
@@ -338,7 +340,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
 
       {/* Results Count */}
       <div className="text-sm text-muted-foreground">
-        {users?.length || 0} {users?.length === 1 ? 'employee' : 'employees'} found
+        {t('people.employeesFound', { count: users?.length || 0 })}
       </div>
 
       {/* Employee List */}
@@ -346,16 +348,16 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
         <Card>
           <CardContent className="py-12 text-center">
             <Users className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
-            <h3 className="font-semibold mb-2">No employees found</h3>
+            <h3 className="font-semibold mb-2">{t('people.noEmployeesFound')}</h3>
             <p className="text-sm text-muted-foreground">
               {searchQuery || activeFiltersCount > 0
-                ? 'Try adjusting your search or filters'
-                : 'Get started by adding your first employee'}
+                ? t('people.tryAdjustingFilters')
+                : t('people.getStartedAddingEmployee')}
             </p>
             {currentRole === 'admin' && (
               <Button className="mt-4" onClick={() => setShowCreateDialog(true)}>
                 <UserPlus className="h-4 w-4 mr-2" />
-                Add Employee
+                {t('people.addEmployee')}
               </Button>
             )}
           </CardContent>
@@ -403,7 +405,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground flex items-center gap-1">
                         <Building className="h-3 w-3" />
-                        Store
+                        {t('people.store')}
                       </span>
                       <span className="font-medium">{employee.store?.name || 'N/A'}</span>
                     </div>
@@ -412,7 +414,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground flex items-center gap-1">
                           <Phone className="h-3 w-3" />
-                          Phone
+                          {t('common.phone')}
                         </span>
                         <span className="font-medium text-xs">{employee.phone}</span>
                       </div>
@@ -420,7 +422,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
 
                     {employee.hire_date && (
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Hire Date</span>
+                        <span className="text-muted-foreground">{t('people.hireDateLabel')}</span>
                         <span className="font-medium text-xs">
                           {new Date(employee.hire_date).toLocaleDateString()}
                         </span>
@@ -438,16 +440,16 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Add New Employee</DialogTitle>
+            <DialogTitle>{t('people.addNewEmployee')}</DialogTitle>
             <DialogDescription>
-              Enter the employee's details to create a new account.
+              {t('people.addNewEmployeeDesc')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="first_name">First Name *</Label>
+                <Label htmlFor="first_name">{t('people.firstNameLabel')}</Label>
                 <Input
                   id="first_name"
                   value={newUser.first_name}
@@ -456,7 +458,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
                 />
               </div>
               <div>
-                <Label htmlFor="last_name">Last Name *</Label>
+                <Label htmlFor="last_name">{t('people.lastNameLabel')}</Label>
                 <Input
                   id="last_name"
                   value={newUser.last_name}
@@ -467,7 +469,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
             </div>
 
             <div>
-              <Label htmlFor="email">Email *</Label>
+              <Label htmlFor="email">{t('people.emailAddressLabel')}</Label>
               <Input
                 id="email"
                 type="email"
@@ -478,7 +480,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
             </div>
 
             <div>
-              <Label htmlFor="phone">Phone</Label>
+              <Label htmlFor="phone">{t('people.phoneNumberLabel')}</Label>
               <Input
                 id="phone"
                 type="tel"
@@ -489,7 +491,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
             </div>
 
             <div>
-              <Label htmlFor="hire_date">Hire Date *</Label>
+              <Label htmlFor="hire_date">{t('people.hireDateLabel')}</Label>
               <Input
                 id="hire_date"
                 type="date"
@@ -499,7 +501,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
             </div>
 
             <div>
-              <Label htmlFor="role_id">Role * (Enter Role ID)</Label>
+              <Label htmlFor="role_id">{t('people.roleIdLabel')}</Label>
               <Input
                 id="role_id"
                 value={newUser.role_id}
@@ -509,7 +511,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
             </div>
 
             <div>
-              <Label htmlFor="store_id">Store * (Enter Store ID)</Label>
+              <Label htmlFor="store_id">{t('people.storeIdLabel')}</Label>
               <Input
                 id="store_id"
                 value={newUser.store_id}
@@ -521,10 +523,10 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)} disabled={creating}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button onClick={handleCreateUser} disabled={creating} className="hero-primary">
-              {creating ? 'Creating...' : 'Create Employee'}
+              {creating ? t('people.creating') : t('people.createEmployee')}
             </Button>
           </DialogFooter>
         </DialogContent>

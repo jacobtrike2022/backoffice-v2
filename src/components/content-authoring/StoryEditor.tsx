@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -727,7 +728,7 @@ export function StoryEditor({
         ));
       }
       
-      toast.success(`${type === 'video' ? 'Video' : 'Image'} uploaded successfully!`);
+      toast.success(t(type === 'video' ? 'contentAuthoring.videoUploadedSuccessfully' : 'contentAuthoring.imageUploadedSuccessfully'));
       
       return data.url;
     } catch (error: any) {
@@ -857,7 +858,7 @@ export function StoryEditor({
       } catch (error: any) {
         console.error('Error updating KB toggle:', error);
         pendingKBModalOpen.current = false; // Reset on error
-        toast.error('Failed to update Knowledge Base setting', {
+        toast.error(t('contentAuthoring.failedUpdateKbSetting'), {
           description: error.message || 'Please try again'
         });
       }
@@ -1613,10 +1614,10 @@ export function StoryEditor({
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold text-blue-900 dark:text-blue-100">
-                    Viewing Version {existingTrack.version_number}
+                    {t('contentAuthoring.viewingVersion', { version: existingTrack.version_number })}
                   </p>
                   <p className="text-sm text-blue-700 dark:text-blue-300">
-                    This is an older version. Changes made here won't be saved.
+                    {t('contentAuthoring.olderVersionNote')}
                   </p>
                 </div>
                 <Button
@@ -1626,7 +1627,7 @@ export function StoryEditor({
                   className="border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:text-blue-300"
                 >
                   <ChevronLeft className="h-4 w-4 mr-1" />
-                  Back
+                  {t('common.back')}
                 </Button>
               </div>
             </CardContent>
@@ -1637,7 +1638,7 @@ export function StoryEditor({
           <div className="flex items-center space-x-4">
             <Button variant="outline" size="sm" onClick={handleBackWithCheck}>
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
+              {t('common.back')}
             </Button>
             <div>
               <div className="flex items-center space-x-2 mb-1">
@@ -1646,12 +1647,12 @@ export function StoryEditor({
               <div className="flex items-center space-x-2 flex-wrap">
                 <Badge className="bg-pink-100 text-pink-700 border-pink-200 dark:bg-pink-900/30 dark:text-pink-400">
                   <Smartphone className="h-3 w-3 mr-1" />
-                  Story
+                  {t('contentAuthoring.storyBadge')}
                 </Badge>
                 <Badge variant="outline" className="text-muted-foreground">
-                  {storyDuration} {storyDuration === 1 ? 'min' : 'mins'}
+                  {storyDuration} {storyDuration === 1 ? t('contentAuthoring.minSingular') : t('contentAuthoring.minPlural')}
                 </Badge>
-                <Badge 
+                <Badge
                   variant="outline"
                   className={`${
                     existingTrack.status === 'published'
@@ -1659,12 +1660,12 @@ export function StoryEditor({
                       : 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400'
                   }`}
                 >
-                  {existingTrack.status === 'published' ? 'Published' : 'Draft'}
+                  {existingTrack.status === 'published' ? t('common.published') : t('common.draft')}
                 </Badge>
                 {isSystemContent && (
                   <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400">
                     <Lock className="h-3 w-3 mr-1" />
-                    Trike Library
+                    {t('contentAuthoring.trikeLibraryBadge')}
                   </Badge>
                 )}
               </div>
@@ -1674,10 +1675,10 @@ export function StoryEditor({
             <div className="flex items-center gap-2">
               <Button onClick={() => setIsEditMode(true)} className="hero-primary">
                 <Edit className="h-4 w-4 mr-2" />
-                Edit Track
+                {t('contentAuthoring.editTrack')}
                 {isSystemContent && isSuperAdmin && (
                   <Badge className="ml-2 bg-orange-100 text-orange-800">
-                    Super Admin
+                    {t('contentAuthoring.superAdmin')}
                   </Badge>
                 )}
               </Button>
@@ -1688,7 +1689,7 @@ export function StoryEditor({
                     variant="outline"
                     size="icon"
                     className="h-10 w-10"
-                    title="More actions"
+                    title={t('contentAuthoring.moreActions')}
                   >
                     <MoreVertical className="h-4 w-4" />
                   </Button>
@@ -1705,7 +1706,7 @@ export function StoryEditor({
                       }}
                     >
                       <Download className="h-4 w-4 mr-2" />
-                      Download PDF
+                      {t('contentAuthoring.downloadPdf')}
                     </Button>
                     {(onDuplicate || onCreateVariant || onArchive) && (
                       <Separator className="my-1" />
@@ -1720,7 +1721,7 @@ export function StoryEditor({
                         }}
                       >
                         <Copy className="h-4 w-4 mr-2" />
-                        Duplicate
+                        {t('contentAuthoring.duplicate')}
                       </Button>
                     )}
                     {onCreateVariant && (
@@ -1733,7 +1734,7 @@ export function StoryEditor({
                         }}
                       >
                         <GitBranch className="h-4 w-4 mr-2" />
-                        Create Variant
+                        {t('contentAuthoring.createVariant')}
                       </Button>
                     )}
                     {(onDuplicate || onCreateVariant) && onArchive && (
@@ -1749,7 +1750,7 @@ export function StoryEditor({
                         }}
                       >
                         <Archive className="h-4 w-4 mr-2" />
-                        Archive
+                        {t('contentAuthoring.archive')}
                       </Button>
                     )}
                   </div>
@@ -1773,7 +1774,7 @@ export function StoryEditor({
                   </div>
                   <Badge className="bg-pink-100 text-pink-700 border-pink-200 dark:bg-pink-900/30 dark:text-pink-400">
                     <Smartphone className="h-3 w-3 mr-1" />
-                    Story • {slides.length} Slides
+                    {t('contentAuthoring.storyBadge')} • {t('contentAuthoring.slidesCount', { count: slides.length })}
                   </Badge>
                 </div>
               </CardHeader>
@@ -1786,7 +1787,7 @@ export function StoryEditor({
 
                 {notes && (
                   <div className="mt-6 p-4 bg-accent/30 rounded-lg">
-                    <h3 className="font-medium mb-2">Additional Notes</h3>
+                    <h3 className="font-medium mb-2">{t('contentAuthoring.additionalNotes')}</h3>
                     <p className="text-sm text-muted-foreground whitespace-pre-wrap">{notes}</p>
                   </div>
                 )}
@@ -1836,7 +1837,7 @@ export function StoryEditor({
               return (
                 <Card>
                   <CardHeader>
-                    <CardTitle>Key Facts</CardTitle>
+                    <CardTitle>{t('contentAuthoring.keyFacts')}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-6">
                     {/* Grouped facts by slide */}
@@ -1866,7 +1867,7 @@ export function StoryEditor({
                     {ungroupedFacts.length > 0 && (
                       <div className="space-y-3">
                         {Object.keys(factsBySlide).length > 0 && (
-                          <h4 className="text-sm font-semibold text-foreground border-b pb-2">Other Facts</h4>
+                          <h4 className="text-sm font-semibold text-foreground border-b pb-2">{t('contentAuthoring.otherFacts')}</h4>
                         )}
                         <ul className="space-y-2 pl-2">
                           {ungroupedFacts.map((fact, idx) => {
@@ -1897,7 +1898,7 @@ export function StoryEditor({
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <Shield className="h-4 w-4 text-orange-500" />
-                    Super Admin Settings
+                    {t('contentAuthoring.superAdminSettings')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -1905,7 +1906,7 @@ export function StoryEditor({
                     <div className="space-y-0.5">
                       <Label htmlFor="system-content-view" className="text-sm font-medium">{t('contentAuthoring.systemTemplate')}</Label>
                       <p className="text-xs text-muted-foreground">
-                        Mark as Trike Library content
+                        {t('contentAuthoring.markAsTrikeLibrary')}
                       </p>
                     </div>
                     <Switch
@@ -1948,7 +1949,7 @@ export function StoryEditor({
                         const newStatus = existingTrack.status === 'published' ? 'draft' : 'published';
                         try {
                           await crud.updateTrack({ id: currentTrackId, status: newStatus });
-                          toast.success(`Story ${newStatus === 'published' ? 'published' : 'moved to drafts'}!`);
+                          toast.success(newStatus === 'published' ? t('contentAuthoring.storyPublishedStatus') : t('contentAuthoring.storyMovedToDrafts'));
                           setExistingTrack({ ...existingTrack, status: newStatus });
                           if (onUpdate) {
                             await onUpdate();
@@ -1959,11 +1960,11 @@ export function StoryEditor({
                         }
                       }}
                     >
-                      {existingTrack.status === 'published' ? 'Published' : 'Draft'}
+                      {existingTrack.status === 'published' ? t('common.published') : t('common.draft')}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Click the status badge to {existingTrack.status === 'published' ? 'move to drafts' : 'publish'}
+                    {existingTrack.status === 'published' ? t('contentAuthoring.clickBadgeToDraft') : t('contentAuthoring.clickBadgeToPublish')}
                   </p>
                 </CardContent>
               </Card>
@@ -1975,7 +1976,7 @@ export function StoryEditor({
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <BookOpen className="h-4 w-4" />
-                    Knowledge Base
+                    {t('contentAuthoring.knowledgeBase')}
                   </CardTitle>
                 </CardHeader>
               <CardContent className="space-y-4">
@@ -1983,7 +1984,7 @@ export function StoryEditor({
                   <div className="space-y-0.5">
                     <Label htmlFor="show-in-kb-view" className="text-sm">{t('contentAuthoring.showInKb')}</Label>
                     <p className="text-xs text-muted-foreground">
-                      Available in Knowledge Base
+                      {t('contentAuthoring.availableInKb')}
                     </p>
                   </div>
                   <Switch
@@ -1992,7 +1993,7 @@ export function StoryEditor({
                     onCheckedChange={handleKBToggle}
                   />
                 </div>
-                
+
                 {showInKnowledgeBase && (
                   <div className="pt-2">
                     <Button
@@ -2008,7 +2009,7 @@ export function StoryEditor({
                       }}
                     >
                       <TagIcon className="h-4 w-4 mr-2" />
-                      Manage KB Tags
+                      {t('contentAuthoring.manageKbTags')}
                     </Button>
 
                     <div>
@@ -2028,7 +2029,7 @@ export function StoryEditor({
                     </div>
 
                     <p className="text-xs text-muted-foreground mt-2">
-                      Select "KB Category" tags to organize this content in the Knowledge Base.
+                      {t('contentAuthoring.kbCategoryHint')}
                     </p>
                   </div>
                 )}
@@ -2039,7 +2040,7 @@ export function StoryEditor({
             {/* Details */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Details</CardTitle>
+                <CardTitle className="text-base">{t('contentAuthoring.details')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 text-sm">
                 <div className="flex items-start space-x-3">
@@ -2053,17 +2054,17 @@ export function StoryEditor({
                 <div className="flex items-start space-x-3">
                   <Smartphone className="h-4 w-4 text-muted-foreground mt-0.5" />
                   <div>
-                    <p className="text-muted-foreground text-xs">Format</p>
-                    <p className="font-medium">Portrait (9:16) • {slides.length} Slides</p>
+                    <p className="text-muted-foreground text-xs">{t('contentAuthoring.formatLabel')}</p>
+                    <p className="font-medium">{t('contentAuthoring.portraitFormat')} • {t('contentAuthoring.slidesCount', { count: slides.length })}</p>
                   </div>
                 </div>
                 <Separator />
                 <div className="flex items-start space-x-3">
                   <Clock className="h-4 w-4 text-muted-foreground mt-0.5" />
                   <div>
-                    <p className="text-muted-foreground text-xs">Est. Duration</p>
+                    <p className="text-muted-foreground text-xs">{t('contentAuthoring.estDuration')}</p>
                     <p className="font-medium">
-                      {existingTrack.duration_minutes || storyDuration} {(existingTrack.duration_minutes || storyDuration) === 1 ? 'min' : 'mins'}
+                      {t('contentAuthoring.minutesCount', { count: existingTrack.duration_minutes || storyDuration })}
                     </p>
                   </div>
                 </div>
@@ -2076,7 +2077,7 @@ export function StoryEditor({
                 <CardHeader>
                   <CardTitle className="text-base flex items-center">
                     <TagIcon className="h-4 w-4 mr-2" />
-                    Tags
+                    {t('contentAuthoring.tags')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -2180,22 +2181,22 @@ export function StoryEditor({
         <div className="flex items-center space-x-4">
           <Button variant="outline" size="sm" onClick={handleBackWithCheck}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
+            {t('common.back')}
           </Button>
           <div>
             <div className="flex items-center space-x-2 mb-1">
               <h1 className="text-foreground">
-                {currentTrackId ? title || 'Edit Story' : 'Create New Story'}
+                {currentTrackId ? title || t('contentAuthoring.editStory') : t('contentAuthoring.createNewStory')}
               </h1>
             </div>
             <div className="flex items-center space-x-2 flex-wrap">
               <Badge className="bg-pink-100 text-pink-700 border-pink-200 dark:bg-pink-900/30 dark:text-pink-400">
                 <Smartphone className="h-3 w-3 mr-1" />
-                Story
+                {t('contentAuthoring.storyBadge')}
               </Badge>
               {storyDuration > 0 && (
                 <Badge variant="outline" className="text-muted-foreground">
-                  {storyDuration} {storyDuration === 1 ? 'min' : 'mins'}
+                  {storyDuration} {storyDuration === 1 ? t('contentAuthoring.minSingular') : t('contentAuthoring.minPlural')}
                 </Badge>
               )}
             </div>
@@ -2206,18 +2207,18 @@ export function StoryEditor({
             <>
               <Button variant="outline" onClick={handleCancel} disabled={isSaving}>
                 <X className="h-4 w-4 mr-2" />
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button onClick={handleSave} disabled={isSaving} className="hero-primary">
                 <Save className="h-4 w-4 mr-2" />
-                {isSaving ? 'Saving...' : 'Save Changes'}
+                {isSaving ? t('common.saving') : t('common.saveChanges')}
               </Button>
             </>
           )}
           {!currentTrackId && (
             <Button variant="outline" onClick={handleSave} disabled={isSaving}>
               <Save className="h-4 w-4 mr-2" />
-              {isSaving ? 'Saving...' : 'Save Draft'}
+              {isSaving ? t('common.saving') : t('contentAuthoring.saveDraft')}
             </Button>
           )}
         </div>
@@ -2352,7 +2353,7 @@ export function StoryEditor({
                                 <div className="border-2 border-dashed border-border rounded-lg p-4 hover:bg-accent/50 transition-colors cursor-pointer">
                                   <div className="flex items-center justify-center space-x-2">
                                     <ImageIcon className="h-5 w-5 text-muted-foreground" />
-                                    <span className="text-sm text-muted-foreground">Upload Image</span>
+<span className="text-sm text-muted-foreground">{t('contentAuthoring.uploadImage')}</span>
                                   </div>
                                 </div>
                                 <input
@@ -2373,7 +2374,7 @@ export function StoryEditor({
                                 <div className="border-2 border-dashed border-border rounded-lg p-4 hover:bg-accent/50 transition-colors cursor-pointer">
                                   <div className="flex items-center justify-center space-x-2">
                                     <VideoIcon className="h-5 w-5 text-muted-foreground" />
-                                    <span className="text-sm text-muted-foreground">Upload Video</span>
+<span className="text-sm text-muted-foreground">{t('contentAuthoring.uploadVideo')}</span>
                                   </div>
                                 </div>
                                 <input
@@ -2413,7 +2414,7 @@ export function StoryEditor({
           {/* Notes */}
           <Card>
             <CardHeader>
-              <CardTitle>Additional Notes</CardTitle>
+              <CardTitle>{t('contentAuthoring.additionalNotes')}</CardTitle>
             </CardHeader>
             <CardContent>
               <Textarea
@@ -2600,7 +2601,7 @@ export function StoryEditor({
           {/* Tags */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Tags</CardTitle>
+              <CardTitle className="text-base">{t('contentAuthoring.tags')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex flex-wrap gap-2">
@@ -2608,7 +2609,7 @@ export function StoryEditor({
                 {(showInKnowledgeBase || (existingTrack?.tags || []).includes('system:show_in_knowledge_base') || existingTrack?.show_in_knowledge_base) && (
                   <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">
                     <BookOpen className="h-3 w-3 mr-1" />
-                    In Knowledge Base
+{t('contentAuthoring.inKnowledgeBase')}
                   </Badge>
                 )}
                 {tags.filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag, index) => (
@@ -2620,7 +2621,7 @@ export function StoryEditor({
                   </Badge>
                 ))}
                 {tags.filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !showInKnowledgeBase && (
-                  <p className="text-sm text-muted-foreground">No tags added</p>
+<p className="text-sm text-muted-foreground">{t('contentAuthoring.noTagsAdded')}</p>
                 )}
               </div>
               <Button
@@ -2630,7 +2631,7 @@ export function StoryEditor({
                 className="w-full"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Add Tags
+{t('contentAuthoring.addTags')}
               </Button>
             </CardContent>
           </Card>
@@ -2652,7 +2653,7 @@ export function StoryEditor({
                   <div className="space-y-0.5">
                     <Label htmlFor="system-content-edit" className="text-sm font-medium">{t('contentAuthoring.systemTemplate')}</Label>
                     <p className="text-xs text-muted-foreground">
-                      Mark as Trike Library content
+                      {t('contentAuthoring.markAsTrikeLibrary')}
                     </p>
                   </div>
                   <Switch
@@ -2696,7 +2697,7 @@ export function StoryEditor({
                           const newStatus = existingTrack.status === 'published' ? 'draft' : 'published';
                           try {
                             await crud.updateTrack({ id: currentTrackId, status: newStatus });
-                            toast.success(`Story ${newStatus === 'published' ? 'published' : 'moved to drafts'}!`);
+                            toast.success(newStatus === 'published' ? t('contentAuthoring.storyPublishedStatus') : t('contentAuthoring.storyMovedToDrafts'));
                             setExistingTrack({ ...existingTrack, status: newStatus });
                             if (onUpdate) {
                               await onUpdate();
@@ -2707,11 +2708,11 @@ export function StoryEditor({
                           }
                         }}
                       >
-                        {existingTrack.status === 'published' ? 'Published' : 'Draft'}
+                        {existingTrack.status === 'published' ? t('common.published') : t('common.draft')}
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Click the status badge to {existingTrack.status === 'published' ? 'move to drafts' : 'publish'}
+                      {existingTrack.status === 'published' ? t('contentAuthoring.clickBadgeToDraft') : t('contentAuthoring.clickBadgeToPublish')}
                     </p>
                   </>
                 ) : (
@@ -2719,11 +2720,11 @@ export function StoryEditor({
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted-foreground">{t('common.status')}</span>
                       <Badge variant="outline" className="bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400">
-                        Draft
+                        {t('common.draft')}
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Story will be saved as a draft. You can publish it later.
+                      {t('contentAuthoring.storyWillBeSavedAsDraft')}
                     </p>
                   </>
                 )}
@@ -2800,30 +2801,30 @@ export function StoryEditor({
           {/* Story Details */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Story Details</CardTitle>
+              <CardTitle className="text-base">{t('contentAuthoring.storyDetails')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
               <div className="flex items-start space-x-3">
                 <Smartphone className="h-4 w-4 text-muted-foreground mt-0.5" />
                 <div>
-                  <p className="text-muted-foreground text-xs">Format</p>
-                  <p className="font-medium">Portrait (9:16)</p>
+                  <p className="text-muted-foreground text-xs">{t('contentAuthoring.formatLabel')}</p>
+                  <p className="font-medium">{t('contentAuthoring.portraitFormat')}</p>
                 </div>
               </div>
               <Separator />
               <div className="flex items-start space-x-3">
                 <ImageIcon className="h-4 w-4 text-muted-foreground mt-0.5" />
                 <div>
-                  <p className="text-muted-foreground text-xs">Total Slides</p>
-                  <p className="font-medium">{slides.length} {slides.length === 1 ? 'Slide' : 'Slides'}</p>
+                  <p className="text-muted-foreground text-xs">{t('contentAuthoring.totalSlides')}</p>
+                  <p className="font-medium">{t('contentAuthoring.slidesCount', { count: slides.length })}</p>
                 </div>
               </div>
               <Separator />
               <div className="flex items-start space-x-3">
                 <Calendar className="h-4 w-4 text-muted-foreground mt-0.5" />
                 <div>
-                  <p className="text-muted-foreground text-xs">Est. Duration</p>
-                  <p className="font-medium">{storyDuration} {storyDuration === 1 ? 'minute' : 'minutes'}</p>
+                  <p className="text-muted-foreground text-xs">{t('contentAuthoring.estDuration')}</p>
+                  <p className="font-medium">{t('contentAuthoring.minutesCount', { count: storyDuration })}</p>
                 </div>
               </div>
               {currentTrackId && existingTrack && (
@@ -2845,13 +2846,13 @@ export function StoryEditor({
           {currentTrackId && existingTrack && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Performance Metrics</CardTitle>
+                <CardTitle className="text-base">{t('contentAuthoring.performanceMetrics')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground flex items-center gap-2">
                     <Eye className="h-4 w-4" />
-                    Views
+{t('contentAuthoring.views')}
                   </span>
                   <span className="font-semibold">{existingTrack.view_count || 0}</span>
                 </div>
@@ -2859,7 +2860,7 @@ export function StoryEditor({
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground flex items-center gap-2">
                     <ThumbsUp className="h-4 w-4" />
-                    Likes
+{t('contentAuthoring.likes')}
                   </span>
                   <span className="font-semibold">{existingTrack.likes_count || 0}</span>
                 </div>
@@ -2870,7 +2871,7 @@ export function StoryEditor({
           {/* Tags */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Tags</CardTitle>
+              <CardTitle className="text-base">{t('contentAuthoring.tags')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex flex-wrap gap-2">
@@ -2878,7 +2879,7 @@ export function StoryEditor({
                 {((existingTrack?.tags || []).includes('system:show_in_knowledge_base') || existingTrack?.show_in_knowledge_base) && (
                   <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">
                     <BookOpen className="h-3 w-3 mr-1" />
-                    In Knowledge Base
+{t('contentAuthoring.inKnowledgeBase')}
                   </Badge>
                 )}
                 {(existingTrack?.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag, index) => (
@@ -2890,7 +2891,7 @@ export function StoryEditor({
                   </Badge>
                 ))}
                 {(existingTrack?.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !((existingTrack?.tags || []).includes('system:show_in_knowledge_base') || existingTrack?.show_in_knowledge_base) && (
-                  <p className="text-sm text-muted-foreground">No tags added</p>
+<p className="text-sm text-muted-foreground">{t('contentAuthoring.noTagsAdded')}</p>
                 )}
                 <Button
                   variant="outline"
@@ -2910,7 +2911,7 @@ export function StoryEditor({
             <CardHeader>
               <CardTitle className="text-base flex items-center">
                 <Smartphone className="h-4 w-4 mr-2" />
-                Live Preview
+                {t('contentAuthoring.livePreview')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -2918,7 +2919,7 @@ export function StoryEditor({
                 <div className="aspect-[9/16] rounded-lg bg-accent/50 flex items-center justify-center border-2 border-dashed border-border">
                   <div className="text-center p-6">
                     <Smartphone className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">Add slides to preview</p>
+<p className="text-sm text-muted-foreground">{t('contentAuthoring.addSlidesToPreview')}</p>
                   </div>
                 </div>
               ) : (
@@ -2951,7 +2952,7 @@ export function StoryEditor({
                       <div className="w-full h-full flex items-center justify-center">
                         <div className="text-center text-white/60">
                           <Upload className="h-12 w-12 mx-auto mb-2" />
-                          <p className="text-sm">Upload content for this slide</p>
+<p className="text-sm">{t('contentAuthoring.uploadContentForSlide')}</p>
                         </div>
                       </div>
                     )}
@@ -3079,8 +3080,8 @@ export function StoryEditor({
                   <div className="border-2 border-dashed border-border rounded-lg p-6 hover:bg-accent/50 transition-colors cursor-pointer">
                     <div className="text-center">
                       <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                      <p className="text-sm text-muted-foreground mb-1">Upload Thumbnail</p>
-                      <p className="text-xs text-muted-foreground">16:9 recommended</p>
+                      <p className="text-sm text-muted-foreground mb-1">{t('contentAuthoring.uploadThumbnail')}</p>
+                      <p className="text-xs text-muted-foreground">{t('contentAuthoring.thumbnailAspectHint')}</p>
                     </div>
                   </div>
                   <input
@@ -3094,7 +3095,7 @@ export function StoryEditor({
                           setIsUploading(true);
                           const url = await crud.uploadTrackMedia(currentTrackId, file, 'thumbnail');
                           setThumbnailUrl(url);
-                          toast.success('Thumbnail uploaded!');
+                          toast.success(t('contentAuthoring.thumbnailUploaded'));
                         } catch (error: any) {
                           console.error('Error uploading thumbnail:', error);
                           toast.error(t('contentAuthoring.failedUploadThumbnail'));
@@ -3108,7 +3109,7 @@ export function StoryEditor({
                 </label>
               )}
               <p className="text-xs text-muted-foreground">
-                {currentTrackId ? 'Used in playlists and library views' : 'Save story first to upload thumbnail'}
+{currentTrackId ? t('contentAuthoring.thumbnailUsedInPlaylists') : t('contentAuthoring.saveFirstToUploadThumbnailStory')}
               </p>
             </CardContent>
           </Card>
@@ -3116,13 +3117,13 @@ export function StoryEditor({
           {/* Quick Tips */}
           <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
             <CardHeader>
-              <CardTitle className="text-sm text-blue-900 dark:text-blue-100">Quick Tips</CardTitle>
+              <CardTitle className="text-sm text-blue-900 dark:text-blue-100">{t('contentAuthoring.quickTips')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-xs text-blue-800 dark:text-blue-200">
-              <p>• Drag slides to reorder them</p>
-              <p>• Each slide can be an image or video</p>
-              <p>• Portrait format (9:16) recommended</p>
-              <p>• Click slide thumbnails to preview</p>
+              <p>• {t('contentAuthoring.storyQuickTip1')}</p>
+              <p>• {t('contentAuthoring.storyQuickTip2')}</p>
+              <p>• {t('contentAuthoring.storyQuickTip3')}</p>
+              <p>• {t('contentAuthoring.storyQuickTip4')}</p>
             </CardContent>
           </Card>
           

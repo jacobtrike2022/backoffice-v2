@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -59,6 +60,7 @@ export function TrackScopeModal({
   allowAllOrgs = false,
   onSaved,
 }: TrackScopeModalProps) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [scopeLevel, setScopeLevel] = useState<TrackScopeLevel>('UNIVERSAL');
@@ -161,17 +163,17 @@ export function TrackScopeModal({
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Track scope</DialogTitle>
+          <DialogTitle>{t('contentAuthoring.trackScopeTitle')}</DialogTitle>
           <DialogDescription>
-            Set content scope for “{trackTitle}”. Scope controls who can see and use this content.
+            {t('contentAuthoring.trackScopeDesc', { title: trackTitle })}
           </DialogDescription>
         </DialogHeader>
         {loading ? (
-          <div className="py-6 text-center text-muted-foreground">Loading…</div>
+          <div className="py-6 text-center text-muted-foreground">{t('common.loading')}</div>
         ) : (
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>Scope level</Label>
+              <Label>{t('contentAuthoring.scopeLevel')}</Label>
               <Select
                 value={scopeLevel}
                 onValueChange={(v) => setScopeLevel(v as TrackScopeLevel)}
@@ -191,13 +193,13 @@ export function TrackScopeModal({
 
             {scopeLevel === 'SECTOR' && (
               <div className="space-y-2">
-                <Label>Sector</Label>
+                <Label>{t('contentAuthoring.sector')}</Label>
                 <Select value={sector || 'none'} onValueChange={(v) => setSector(v === 'none' ? '' : (v as SectorType))}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select sector" />
+                    <SelectValue placeholder={t('contentAuthoring.selectSector')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Select sector</SelectItem>
+                    <SelectItem value="none">{t('contentAuthoring.selectSector')}</SelectItem>
                     {getSectorOptions().map((s) => (
                       <SelectItem key={s} value={s}>
                         {s}
@@ -211,13 +213,13 @@ export function TrackScopeModal({
             {scopeLevel === 'INDUSTRY' && (
               <>
                 <div className="space-y-2">
-                  <Label>Sector (optional filter)</Label>
+                  <Label>{t('contentAuthoring.sectorOptionalFilter')}</Label>
                   <Select value={sector || 'none'} onValueChange={(v) => { setSector(v === 'none' ? '' : (v as SectorType)); setIndustryId(''); }}>
                     <SelectTrigger>
-                      <SelectValue placeholder="All sectors" />
+                      <SelectValue placeholder={t('contentAuthoring.allSectors')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">All sectors</SelectItem>
+                      <SelectItem value="none">{t('contentAuthoring.allSectors')}</SelectItem>
                       {getSectorOptions().map((s) => (
                         <SelectItem key={s} value={s}>{s}</SelectItem>
                       ))}
@@ -225,13 +227,13 @@ export function TrackScopeModal({
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Industry</Label>
+                  <Label>{t('contentAuthoring.industry')}</Label>
                   <Select value={industryId || 'none'} onValueChange={(v) => setIndustryId(v === 'none' ? '' : v)}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select industry" />
+                      <SelectValue placeholder={t('contentAuthoring.selectIndustry')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Select industry</SelectItem>
+                      <SelectItem value="none">{t('contentAuthoring.selectIndustry')}</SelectItem>
                       {industries.map((i) => (
                         <SelectItem key={i.id} value={i.id}>
                           {i.name}
@@ -245,13 +247,13 @@ export function TrackScopeModal({
 
             {scopeLevel === 'STATE' && (
               <div className="space-y-2">
-                <Label>State</Label>
+                <Label>{t('contentAuthoring.state')}</Label>
                 <Select value={stateId || 'none'} onValueChange={(v) => setStateId(v === 'none' ? '' : v)}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select state" />
+                    <SelectValue placeholder={t('contentAuthoring.selectState')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Select state</SelectItem>
+                    <SelectItem value="none">{t('contentAuthoring.selectState')}</SelectItem>
                     {usStates.map((s) => (
                       <SelectItem key={s.id} value={s.id}>
                         {s.code} – {s.name}
@@ -264,13 +266,13 @@ export function TrackScopeModal({
 
             {scopeLevel === 'COMPANY' && (
               <div className="space-y-2">
-                <Label>Company (organization)</Label>
+                <Label>{t('contentAuthoring.company')}</Label>
                 <Select value={companyId || 'none'} onValueChange={(v) => setCompanyId(v === 'none' ? '' : v)}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select company" />
+                    <SelectValue placeholder={t('contentAuthoring.selectCompany')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Select company</SelectItem>
+                    <SelectItem value="none">{t('contentAuthoring.selectCompany')}</SelectItem>
                     {organizations.map((o) => (
                       <SelectItem key={o.id} value={o.id}>
                         {o.name}
@@ -283,13 +285,13 @@ export function TrackScopeModal({
 
             {scopeLevel === 'PROGRAM' && (
               <div className="space-y-2">
-                <Label>Program</Label>
+                <Label>{t('contentAuthoring.program')}</Label>
                 <Select value={programId || 'none'} onValueChange={(v) => setProgramId(v === 'none' ? '' : v)}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select program" />
+                    <SelectValue placeholder={t('contentAuthoring.selectProgram')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Select program</SelectItem>
+                    <SelectItem value="none">{t('contentAuthoring.selectProgram')}</SelectItem>
                     {programs.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
                         {p.name}
@@ -303,13 +305,13 @@ export function TrackScopeModal({
             {scopeLevel === 'UNIT' && (
               <>
                 <div className="space-y-2">
-                  <Label>Company (organization)</Label>
+                  <Label>{t('contentAuthoring.company')}</Label>
                   <Select value={companyId || 'none'} onValueChange={(v) => setCompanyId(v === 'none' ? '' : v)}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select company first" />
+                      <SelectValue placeholder={t('contentAuthoring.selectCompanyFirst')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Select company first</SelectItem>
+                      <SelectItem value="none">{t('contentAuthoring.selectCompanyFirst')}</SelectItem>
                       {organizations.map((o) => (
                         <SelectItem key={o.id} value={o.id}>
                           {o.name}
@@ -319,13 +321,13 @@ export function TrackScopeModal({
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Unit (location)</Label>
+                  <Label>{t('contentAuthoring.unit')}</Label>
                   <Select value={unitId || 'none'} onValueChange={(v) => setUnitId(v === 'none' ? '' : v)}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select location" />
+                      <SelectValue placeholder={t('contentAuthoring.selectUnit')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Select location</SelectItem>
+                      <SelectItem value="none">{t('contentAuthoring.selectUnit')}</SelectItem>
                       {stores.map((s) => (
                         <SelectItem key={s.id} value={s.id}>
                           {s.name}
@@ -340,10 +342,10 @@ export function TrackScopeModal({
 
             <div className="flex justify-end gap-2 pt-4">
               <Button variant="outline" onClick={onClose} disabled={saving}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving…' : 'Save scope'}
+                {saving ? t('contentAuthoring.saving') : t('contentAuthoring.saveScope')}
               </Button>
             </div>
           </div>

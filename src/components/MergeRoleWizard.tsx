@@ -24,6 +24,7 @@ export function MergeRoleWizard({
   roles,
   onMergeComplete,
 }: MergeRoleWizardProps) {
+  const { t } = useTranslation();
   const [targetRoleId, setTargetRoleId] = useState<string>('');
   const [reason, setReason] = useState('');
   const [merging, setMerging] = useState(false);
@@ -63,7 +64,7 @@ export function MergeRoleWizard({
         totalUsersMoved += result.users_migrated;
       }
 
-      toast.success('Roles merged successfully', {
+      toast.success(t('roles.toastMergeSuccess'), {
         description: `${totalUsersMoved} user${totalUsersMoved !== 1 ? 's' : ''} moved to "${targetRole?.name}". ${sourceRoles.length} role${sourceRoles.length > 1 ? 's' : ''} archived.`,
       });
 
@@ -71,7 +72,7 @@ export function MergeRoleWizard({
       onClose();
     } catch (error: any) {
       console.error('Error merging roles:', error);
-      toast.error('Failed to merge roles', {
+      toast.error(t('roles.toastMergeFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     } finally {
@@ -94,9 +95,9 @@ export function MergeRoleWizard({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Merge Roles</DialogTitle>
+          <DialogTitle>{t('roles.mergeRolesTitle')}</DialogTitle>
           <DialogDescription>
-            Select which role to keep and review what will happen during the merge.
+            {t('roles.mergeRolesDesc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -104,7 +105,7 @@ export function MergeRoleWizard({
           {/* Step 1: Select which role to keep */}
           <div className="space-y-4">
             <h3 className="font-semibold text-sm">
-              Step 1: Select which role to keep
+              {t('roles.mergeStep1')}
             </h3>
             <Separator />
 
@@ -137,7 +138,7 @@ export function MergeRoleWizard({
                           targetRoleId === role.id ? 'text-foreground' : ''
                         }`}
                       >
-                        {targetRoleId === role.id ? 'Keep: ' : ''}
+                        {targetRoleId === role.id ? t('roles.keepPrefix') : ''}
                         {role.name}
                       </Label>
                       <div className={`mt-2 space-y-1 text-sm ${
@@ -146,22 +147,22 @@ export function MergeRoleWizard({
                         {role.department && (
                           <div className="flex items-center gap-2">
                             <Building2 className="w-4 h-4" />
-                            <span>Department: {role.department}</span>
+                            <span>{t('roles.departmentLabel', { dept: role.department })}</span>
                           </div>
                         )}
                         {role.job_family && (
                           <div className="flex items-center gap-2">
                             <Building2 className="w-4 h-4" />
-                            <span>Job Family: {role.job_family}</span>
+                            <span>{t('roles.jobFamilyLabel', { family: role.job_family })}</span>
                           </div>
                         )}
                         <div className="flex items-center gap-2">
                           <Users className="w-4 h-4" />
-                          <span>Users: {role.user_count || 0}</span>
+                          <span>{t('roles.usersLabel', { count: role.user_count || 0 })}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4" />
-                          <span>Created: {formatDate(role.created_at)}</span>
+                          <span>{t('roles.createdLabel', { date: formatDate(role.created_at) })}</span>
                         </div>
                       </div>
                     </div>
@@ -173,12 +174,12 @@ export function MergeRoleWizard({
 
           {/* Step 2: Preview */}
           <div className="space-y-4">
-            <h3 className="font-semibold text-sm">Step 2: What will happen?</h3>
+            <h3 className="font-semibold text-sm">{t('roles.mergeStep2')}</h3>
             <Separator />
 
             <div className="bg-muted border-l-4 border-border p-4 rounded-lg">
               <h4 className="font-medium mb-2">
-                What will happen:
+                {t('roles.whatWillHappen')}
               </h4>
               <ul className="space-y-1 text-sm text-muted-foreground">
                 <li>
@@ -195,7 +196,7 @@ export function MergeRoleWizard({
                     </li>
                   ))}
                 </ul>
-                <li>• Aliases will be created for future matching</li>
+                <li>• {t('roles.aliasesWillBeCreated')}</li>
               </ul>
             </div>
           </div>
@@ -209,11 +210,10 @@ export function MergeRoleWizard({
                 <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5" />
                 <div>
                   <p className="text-sm font-medium text-yellow-800">
-                    ⚠️ Different Departments
+                    {t('roles.differentDepartmentsWarning')}
                   </p>
                   <p className="text-sm text-yellow-700 mt-1">
-                    Some roles have different departments. Users will keep their
-                    current role assignment after merge.
+                    {t('roles.differentDepartmentsDesc')}
                   </p>
                 </div>
               </div>
@@ -226,7 +226,7 @@ export function MergeRoleWizard({
                 <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5" />
                 <div>
                   <p className="text-sm font-medium text-blue-800">
-                    ℹ️ Users Will Be Moved
+                    {t('roles.usersWillBeMovedTitle')}
                   </p>
                   <p className="text-sm text-blue-700 mt-1">
                     {totalUsersToMove} user{totalUsersToMove !== 1 ? 's' : ''} currently assigned to the source role{sourceRoles.length > 1 ? 's' : ''} will be reassigned to "{targetRole?.name}".
@@ -238,12 +238,12 @@ export function MergeRoleWizard({
 
           {/* Reason */}
           <div className="space-y-2">
-            <Label htmlFor="merge-reason">Reason for merge (optional)</Label>
+            <Label htmlFor="merge-reason">{t('roles.reasonForMerge')}</Label>
             <Textarea
               id="merge-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g., Duplicate role created by mistake"
+              placeholder={t('roles.mergeReasonPlaceholder')}
               rows={3}
             />
           </div>
@@ -251,14 +251,14 @@ export function MergeRoleWizard({
           {/* Footer Actions */}
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="outline" onClick={onClose} disabled={merging}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
               onClick={handleMerge}
               disabled={merging}
             >
-              {merging ? 'Merging...' : 'Merge Roles'}
+              {merging ? t('roles.merging') : t('roles.mergeRolesBtn')}
             </Button>
           </div>
         </div>

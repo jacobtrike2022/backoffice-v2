@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
@@ -111,6 +112,7 @@ interface RoleDetailPageProps {
 }
 
 export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
+  const { t } = useTranslation();
   const [role, setRole] = useState<Role | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -390,7 +392,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       setAvailableRoles(roles);
     } catch (error: any) {
       console.error('Error loading roles list:', error);
-      toast.error('Failed to load roles list', {
+      toast.error(t('roles.detail.toastLoadRolesFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -431,7 +433,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       }
     } catch (error: any) {
       console.error('Error loading role:', error);
-      toast.error('Failed to load role', {
+      toast.error(t('roles.detail.toastLoadRoleFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     } finally {
@@ -493,7 +495,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
     // Validate file type
     const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
     if (!validTypes.includes(file.type)) {
-      toast.error('Invalid file type', {
+      toast.error(t('roles.detail.toastInvalidFileType'), {
         description: 'Please upload a PDF, Word document, or text file.',
       });
       return;
@@ -534,7 +536,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       }
 
       setExtractingJd(true);
-      toast.success('File uploaded', { description: 'Extracting job description...' });
+      toast.success(t('roles.detail.toastFileUploaded'), { description: t('roles.toastExtractingDesc') });
 
       // Now extract JD data using AI
       const jdResponse = await fetch(`${serverUrl}/extract-job-description`, {
@@ -579,7 +581,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           job_description_source: 'uploaded',
         }));
         setSourceFileInfo({ id: uploadedFile.id, file_name: uploadedFile.file_name });
-        toast.success('Job description updated', {
+        toast.success(t('roles.detail.toastJdUpdated'), {
           description: `Extracted from ${file.name}`,
         });
 
@@ -595,13 +597,13 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           job_description: jdText,
           job_description_source: 'uploaded',
         }));
-        toast.success('Job description extracted', {
+        toast.success(t('roles.detail.toastJdExtracted'), {
           description: 'Review and save the role to apply.',
         });
       }
     } catch (error: any) {
       console.error('JD upload error:', error);
-      toast.error('Upload failed', { description: error.message });
+      toast.error(t('roles.detail.toastUploadFailed'), { description: error.message });
     } finally {
       setUploadingJd(false);
       setExtractingJd(false);
@@ -685,7 +687,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       console.error('Error searching profiles:', error);
       const message = error.message || 'An unexpected error occurred';
       if (!options?.silent || message !== lastSearchError.current) {
-        toast.error('Failed to search profiles', {
+        toast.error(t('roles.detail.toastSearchProfilesFailed'), {
           id: 'onet-search-error',
           description: message,
         });
@@ -735,7 +737,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
           reports_to_role_id: formData.reports_to_role_id,
         });
         
-        toast.success('Role created successfully');
+        toast.success(t('roles.detail.toastRoleCreated'));
         // Set the role and exit edit mode, then trigger profile search
         setRole(newRole);
         setIsEditingCoreData(false);
@@ -786,10 +788,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       await rolesApi.update(updates);
       await loadRole();
       setIsEditingCoreData(false);
-      toast.success('Role updated successfully');
+      toast.success(t('roles.detail.toastRoleUpdated'));
     } catch (error: any) {
       console.error('Error saving role:', error);
-      toast.error('Failed to save role', {
+      toast.error(t('roles.detail.toastSaveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
       throw error;
@@ -825,11 +827,11 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
 
     try {
       await rolesApi.delete(role.id);
-      toast.success('Role archived successfully');
+      toast.success(t('roles.detail.toastRoleArchived'));
       onBack();
     } catch (error: any) {
       console.error('Error deleting role:', error);
-      toast.error('Failed to archive role', {
+      toast.error(t('roles.detail.toastArchiveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -865,7 +867,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         // For new roles, just set the selected profile - will be saved when role is created
         setSelectedProfile(match);
         setIsChangingProfile(false); // Hide suggestions after selection
-        toast.success('Profile selected. Create the role to apply it.');
+        toast.success(t('roles.detail.toastProfileSelectedCreate'));
       } else if (role) {
         // Apply profile to existing role
         await onetLocal.applyProfileToRole(role.id, match.onet_code);
@@ -878,11 +880,11 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         // Load merged data
         await loadMergedData();
         
-        toast.success('Profile applied successfully');
+        toast.success(t('roles.detail.toastProfileApplied'));
       }
     } catch (error: any) {
       console.error('Error applying profile:', error);
-      toast.error('Failed to apply profile', {
+      toast.error(t('roles.detail.toastProfileApplyFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -1292,24 +1294,24 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
   function getPermissionLevelLabel(level: number): string {
     switch (level) {
       case 1:
-        return 'Basic Employee';
+        return t('roles.detail.permBasicEmployee');
       case 2:
-        return 'Team Lead';
+        return t('roles.detail.permTeamLead');
       case 3:
-        return 'Manager';
+        return t('roles.detail.permManager');
       case 4:
-        return 'District/Regional Manager';
+        return t('roles.detail.permDistrictManager');
       case 5:
-        return 'Corporate/Executive';
+        return t('roles.detail.permCorporate');
       default:
         return 'Unknown';
     }
   }
 
   function getFlsaStatusLabel(value: 'exempt' | 'non_exempt' | null | undefined) {
-    if (value === 'non_exempt') return 'Hourly';
-    if (value === 'exempt') return 'Salary';
-    return 'Not Set';
+    if (value === 'non_exempt') return t('roles.detail.flsaHourly');
+    if (value === 'exempt') return t('roles.detail.flsaSalary');
+    return t('roles.detail.flsaNotSet');
   }
 
   const reportsToRoleName =
@@ -1328,10 +1330,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
   if (!role && roleId !== 'new') {
     return (
       <div className="text-center py-12">
-        <p className="text-muted-foreground">Role not found</p>
+        <p className="text-muted-foreground">{t('roles.detail.roleNotFound')}</p>
         <Button variant="outline" onClick={onBack} className="mt-4">
           <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Roles
+          {t('roles.detail.backToRoles')}
         </Button>
       </div>
     );
@@ -1344,11 +1346,11 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="sm" onClick={onBack}>
             <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Roles
+            {t('roles.detail.backToRoles')}
           </Button>
           <Separator orientation="vertical" className="h-6" />
           {roleId === 'new' ? (
-            <h1 className="text-2xl font-semibold">Create New Role</h1>
+            <h1 className="text-2xl font-semibold">{t('roles.detail.createNewRole')}</h1>
           ) : isEditingName ? (
             <div className="flex items-center gap-2">
               <Input
@@ -1412,17 +1414,17 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               {uploadingJd ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Uploading...
+                  {t('roles.uploading')}
                 </>
               ) : extractingJd ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Extracting...
+                  {t('roles.extracting')}
                 </>
               ) : (
                 <>
                   <Upload className="w-4 h-4 mr-2" />
-                  {role?.job_description || formData.job_description ? 'Replace Job Description' : 'Upload Job Description'}
+                  {role?.job_description || formData.job_description ? t('roles.replaceJobDescription') : t('roles.uploadJobDescription')}
                 </>
               )}
             </Button>
@@ -1435,12 +1437,12 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             {saving ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Saving...
+                {t('roles.saving')}
               </>
             ) : (
               <>
                 <Save className="w-4 h-4 mr-2" />
-                Save
+                {t('common.save')}
               </>
             )}
           </Button>
@@ -1453,10 +1455,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => setIsEditingCoreData(true)}>
-                  Edit
+                  {t('roles.detail.editRole')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setShowDeleteDialog(true)}>
-                  Archive Role
+                  {t('roles.archiveRole')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1468,7 +1470,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
       {(isEditingCoreData || roleId === 'new') ? (
         <Card className="mt-4">
           <CardHeader>
-            <CardTitle>{roleId === 'new' ? 'Create Role' : 'Edit Role Details'}</CardTitle>
+            <CardTitle>{roleId === 'new' ? t('roles.detail.createRoleCardTitle') : t('roles.detail.editRoleCardTitle')}</CardTitle>
             <CardDescription>
               {roleId === 'new' ? 'Enter core role information, then select a Smart Role Profile below' : 'Update core role information'}
             </CardDescription>
@@ -1477,13 +1479,13 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
             <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="space-y-6">
               {/* Basic Information */}
               <div className="space-y-4">
-                <h3 className="font-semibold text-sm">Basic Information</h3>
+                <h3 className="font-semibold text-sm">{t('roles.basicInformation')}</h3>
                 <Separator />
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="edit-name">
-                      Role Name <span className="text-red-500">*</span>
+                      {t('roles.roleName')} <span className="text-red-500">*</span>
                     </Label>
                     <Input
                       id="edit-name"
@@ -1491,7 +1493,7 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                       onChange={(e) =>
                         setFormData({ ...formData, name: e.target.value })
                       }
-                      placeholder="e.g., Store Manager"
+                      placeholder={t('roles.roleNamePlaceholder')}
                       required
                     />
                   </div>
@@ -1610,10 +1612,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                               await rolesApi.setReportsTo(value, roleId as string);
                               const updated = await rolesApi.getDirectReports(roleId as string);
                               setDirectReports(updated);
-                              toast.success('Added direct report');
+                              toast.success(t('roles.detail.toastAddedDirectReport'));
                             } catch (error: any) {
                               console.error('Error adding direct report:', error);
-                              toast.error('Failed to add direct report', {
+                              toast.error(t('roles.detail.toastAddDirectReportFailed'), {
                                 description: error.message || 'An unexpected error occurred',
                               });
                             }
@@ -1656,10 +1658,10 @@ export function RoleDetailPage({ roleId, onBack }: RoleDetailPageProps) {
                                 try {
                                   await rolesApi.setReportsTo(report.id, null);
                                   setDirectReports(directReports.filter((r) => r.id !== report.id));
-                                  toast.success(`Removed ${report.name} from direct reports`);
+                                  toast.success(t('roles.detail.toastRemovedDirectReport', { name: report.name }));
                                 } catch (error: any) {
                                   console.error('Error removing direct report:', error);
-                                  toast.error('Failed to remove direct report', {
+                                  toast.error(t('roles.detail.toastRemoveDirectReportFailed'), {
                                     description: error.message || 'An unexpected error occurred',
                                   });
                                 }

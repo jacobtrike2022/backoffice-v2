@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -37,6 +38,7 @@ export function EditCompetencyModal({
   source,
   loading = false,
 }: EditCompetencyModalProps) {
+  const { t } = useTranslation();
   const [customDescription, setCustomDescription] = useState(currentDescription);
   const [notes, setNotes] = useState('');
 
@@ -93,11 +95,11 @@ export function EditCompetencyModal({
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Edit {labels.singular}</DialogTitle>
+          <DialogTitle>{t('compliance.editCompetency', { type: labels.singular })}</DialogTitle>
           <DialogDescription>
             {isCustom
-              ? `Modify this custom ${labels.singular.toLowerCase()}`
-              : `Modify the description for this ${labels.singular.toLowerCase()}`}
+              ? t('compliance.modifyCustom', { type: labels.singular.toLowerCase() })
+              : t('compliance.modifyDescription', { type: labels.singular.toLowerCase() })}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -105,7 +107,7 @@ export function EditCompetencyModal({
           {!isCustom && (
             <>
               <div className="space-y-2">
-                <Label className="text-sm font-medium">Original {labels.singular}</Label>
+                <Label className="text-sm font-medium">{t('compliance.originalCompetency', { type: labels.singular })}</Label>
                 <div className="p-3 bg-muted rounded-md text-sm text-muted-foreground">
                   {originalDescription}
                 </div>
@@ -117,14 +119,14 @@ export function EditCompetencyModal({
           {/* Custom Description */}
           <div className="space-y-2">
             <Label htmlFor="custom-description">
-              {isCustom ? labels.singular : 'Custom'} Description{' '}
+              {isCustom ? labels.singular : t('compliance.customDescriptionLabel')} {t('compliance.competencyDescription', { type: '' }).replace(' ', '')}{' '}
               <span className="text-red-500">*</span>
             </Label>
             <Textarea
               id="custom-description"
               value={customDescription}
               onChange={(e) => setCustomDescription(e.target.value)}
-              placeholder={`Enter custom ${labels.singular.toLowerCase()} description...`}
+              placeholder={`${t('compliance.enterDescription')} ${labels.singular.toLowerCase()}...`}
               rows={4}
               className="resize-none"
             />
@@ -132,17 +134,17 @@ export function EditCompetencyModal({
 
           {/* Notes (optional) */}
           <div className="space-y-2">
-            <Label htmlFor="notes">Notes (optional)</Label>
+            <Label htmlFor="notes">{t('compliance.notesOptional')}</Label>
             <Textarea
               id="notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Why did you change this? (for internal reference)"
+              placeholder={t('compliance.notesPlaceholder')}
               rows={2}
               className="resize-none"
             />
             <p className="text-xs text-muted-foreground">
-              Add notes about why you modified this {labels.singular.toLowerCase()}
+              {t('compliance.notesHint', { type: labels.singular.toLowerCase() })}
             </p>
           </div>
         </div>
@@ -155,20 +157,20 @@ export function EditCompetencyModal({
                 disabled={loading}
                 className="text-muted-foreground"
               >
-                Revert to Original
+                {t('compliance.revertToOriginal')}
               </Button>
             )}
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={handleClose} disabled={loading}>
-              Cancel
+              {t('compliance.cancel')}
             </Button>
             <Button
               onClick={handleSave}
               disabled={loading || !customDescription.trim()}
               className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
             >
-              {loading ? 'Saving...' : 'Save Changes'}
+              {loading ? t('compliance.saving') : t('common.saveChanges')}
             </Button>
           </div>
         </DialogFooter>

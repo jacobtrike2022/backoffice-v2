@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -65,6 +66,7 @@ const extractSlides = (data: string | any[] | { slides: any[] }): any[] => {
 };
 
 export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, onTranscriptsGenerated, readOnly }: StoryTranscriptProps) {
+  const { t } = useTranslation();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcripts, setTranscripts] = useState<VideoTranscript[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -178,7 +180,7 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <MessageSquare className="h-5 w-5" />
-            Video Transcripts
+            {t('contentAuthoring.storyTranscriptTitle')}
           </CardTitle>
           {!hasTranscripts && !readOnly && (
             <Button
@@ -190,12 +192,12 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
               {isTranscribing ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Transcribing...
+                  {t('contentAuthoring.transcribing')}
                 </>
               ) : (
                 <>
                   <MessageSquare className="h-4 w-4 mr-2" />
-                  Generate Transcripts
+                  {t('contentAuthoring.generateTranscripts')}
                 </>
               )}
             </Button>
@@ -214,9 +216,9 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
           <div className="flex flex-col items-center justify-center py-12 space-y-4">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
             <div className="text-center">
-              <p className="font-medium">Processing Video Transcripts</p>
+              <p className="font-medium">{t('contentAuthoring.processingVideoTranscripts')}</p>
               <p className="text-sm text-muted-foreground mt-1">
-                This may take a few minutes depending on video length...
+                {t('contentAuthoring.processingMayTakeMinutes')}
               </p>
             </div>
           </div>
@@ -225,7 +227,7 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
         {!isTranscribing && !hasTranscripts && !readOnly && (
           <div className="text-center py-8 text-muted-foreground">
             <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-50" />
-            <p>Click "Generate Transcripts" to create transcripts for all video slides</p>
+            <p>{t('contentAuthoring.noTranscriptsYet')}</p>
           </div>
         )}
 
@@ -238,7 +240,7 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
                   <VideoIcon className="h-4 w-4 text-primary" />
                   <h3 className="font-semibold">{videoTranscript.slideName}</h3>
                   <Badge variant="outline" className="text-xs">
-                    Slide {videoTranscript.slideOrder + 1}
+                    {t('contentAuthoring.slideLabel', { number: videoTranscript.slideOrder + 1 })}
                   </Badge>
                 </div>
 
@@ -291,10 +293,10 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
                   {isTranscribing ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Regenerating...
+                      {t('contentAuthoring.regenerating')}
                     </>
                   ) : (
-                    'Regenerate Transcripts'
+                    t('contentAuthoring.regenerateTranscripts')
                   )}
                 </Button>
               </div>

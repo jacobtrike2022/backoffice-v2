@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -20,6 +21,8 @@ export function EmailVariablesEditor({
   onChange,
   disabled = false,
 }: EmailVariablesEditorProps) {
+  const { t } = useTranslation();
+
   const addVariable = () => {
     onChange([...variables, { key: '', description: '' }]);
   };
@@ -45,7 +48,7 @@ export function EmailVariablesEditor({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <Label className="text-sm font-medium">Available Variables</Label>
+        <Label className="text-sm font-medium">{t('emailSettings.availableVariables')}</Label>
         <Button
           type="button"
           variant="outline"
@@ -54,13 +57,13 @@ export function EmailVariablesEditor({
           disabled={disabled}
         >
           <Plus className="h-4 w-4 mr-1" />
-          Add Variable
+          {t('emailSettings.addVariable')}
         </Button>
       </div>
 
       {variables.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-lg">
-          No variables defined. Add variables that can be used in this template.
+          {t('emailSettings.noVariablesDefined')}
         </p>
       ) : (
         <div className="space-y-2">
@@ -75,7 +78,7 @@ export function EmailVariablesEditor({
                   <Input
                     value={variable.key}
                     onChange={(e) => updateVariable(index, 'key', e.target.value)}
-                    placeholder="variable_name"
+                    placeholder={t('emailSettings.variableNamePlaceholder')}
                     className="font-mono h-8"
                     disabled={disabled}
                   />
@@ -86,7 +89,7 @@ export function EmailVariablesEditor({
                   onChange={(e) =>
                     updateVariable(index, 'description', e.target.value)
                   }
-                  placeholder="Description of what this variable represents"
+                  placeholder={t('emailSettings.variableDescriptionPlaceholder')}
                   className="h-8 text-sm"
                   disabled={disabled}
                 />
@@ -108,7 +111,7 @@ export function EmailVariablesEditor({
 
       {variables.length > 0 && (
         <p className="text-xs text-muted-foreground">
-          Use these variables in your template with double curly braces:{' '}
+          {t('emailSettings.variableUsageHint')}{' '}
           <code className="bg-muted px-1 rounded">{`{{variable_name}}`}</code>
         </p>
       )}

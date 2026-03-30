@@ -127,15 +127,13 @@ export function RoleModal({
 
     // Validation
     if (!formData.name.trim()) {
-      toast.error('Role name is required');
+      toast.error(t('roles.toastRoleNameRequired'));
       return;
     }
 
     // If is_manager is checked, ensure permission_level >= 3
     if (formData.is_manager && formData.permission_level < 3) {
-      toast.error(
-        'Manager roles must have a permission level of 3 or higher'
-      );
+      toast.error(t('roles.toastManagerPermLevel'));
       return;
     }
 
@@ -161,20 +159,18 @@ export function RoleModal({
     if (!editingRole) return;
 
     if (
-      !confirm(
-        `Are you sure you want to archive "${editingRole.name}"? This action cannot be undone.`
-      )
+      !confirm(t('roles.archiveConfirm', { name: editingRole.name }))
     ) {
       return;
     }
 
     try {
       await rolesApi.delete(editingRole.id);
-      toast.success('Role archived successfully');
+      toast.success(t('roles.toastArchiveSuccess'));
       onClose();
     } catch (error: any) {
       console.error('Error deleting role:', error);
-      toast.error('Failed to archive role', {
+      toast.error(t('roles.toastArchiveFailed'), {
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -250,7 +246,7 @@ export function RoleModal({
         throw new Error(errData.error || 'Text extraction failed');
       }
 
-      toast.success('File uploaded', { description: 'Extracting job description...' });
+      toast.success(t('roles.toastFileUploaded'), { description: t('roles.toastExtractingDesc') });
 
       // Now extract JD data using AI
       const jdResponse = await fetch(`${serverUrl}/extract-job-description`, {
@@ -293,12 +289,12 @@ export function RoleModal({
       // Auto-expand advanced section to show the extracted JD
       setShowAdvanced(true);
 
-      toast.success('Job description extracted', {
+      toast.success(t('roles.toastJdExtracted'), {
         description: extractedJd.role_name || 'Review the extracted content below.',
       });
     } catch (error: any) {
       console.error('JD upload error:', error);
-      toast.error('Upload failed', { description: error.message });
+      toast.error(t('roles.toastUploadFailed'), { description: error.message });
     } finally {
       setUploadingJd(false);
       // Reset file input
@@ -350,7 +346,7 @@ export function RoleModal({
                   onChange={(e) =>
                     setFormData({ ...formData, name: e.target.value })
                   }
-                  placeholder="e.g., Store Manager"
+                  placeholder={t('roles.roleNamePlaceholder')}
                   required
                 />
               </div>
@@ -363,7 +359,7 @@ export function RoleModal({
                   onChange={(e) =>
                     setFormData({ ...formData, display_name: e.target.value })
                   }
-                  placeholder="Shorter version for display"
+                  placeholder={t('roles.displayNamePlaceholder')}
                 />
               </div>
             </div>
@@ -376,7 +372,7 @@ export function RoleModal({
                 onChange={(e) =>
                   setFormData({ ...formData, description: e.target.value })
                 }
-                placeholder="Brief description of this role"
+                placeholder={t('roles.descriptionPlaceholder')}
                 rows={3}
               />
             </div>
@@ -397,14 +393,14 @@ export function RoleModal({
                   }
                 >
                   <SelectTrigger id="department">
-                    <SelectValue placeholder="Select department" />
+                    <SelectValue placeholder={t('roles.departmentPlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Operations">Operations</SelectItem>
-                    <SelectItem value="Kitchen">Kitchen</SelectItem>
-                    <SelectItem value="Management">Management</SelectItem>
-                    <SelectItem value="Sales">Sales</SelectItem>
-                    <SelectItem value="Corporate">Corporate</SelectItem>
+                    <SelectItem value="Operations">{t('roles.deptOperations')}</SelectItem>
+                    <SelectItem value="Kitchen">{t('roles.deptKitchen')}</SelectItem>
+                    <SelectItem value="Management">{t('roles.deptManagement')}</SelectItem>
+                    <SelectItem value="Sales">{t('roles.deptSales')}</SelectItem>
+                    <SelectItem value="Corporate">{t('roles.deptCorporate')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -418,13 +414,13 @@ export function RoleModal({
                   }
                 >
                   <SelectTrigger id="job_family">
-                    <SelectValue placeholder="Select job family" />
+                    <SelectValue placeholder={t('roles.jobFamilyPlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Food Service">Food Service</SelectItem>
-                    <SelectItem value="Retail">Retail</SelectItem>
-                    <SelectItem value="Management">Management</SelectItem>
-                    <SelectItem value="Leadership">Leadership</SelectItem>
+                    <SelectItem value="Food Service">{t('roles.jobFamilyFoodService')}</SelectItem>
+                    <SelectItem value="Retail">{t('roles.jobFamilyRetail')}</SelectItem>
+                    <SelectItem value="Management">{t('roles.deptManagement')}</SelectItem>
+                    <SelectItem value="Leadership">{t('roles.jobFamilyLeadership')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -526,7 +522,7 @@ export function RoleModal({
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Upload a PDF, Word doc, or text file to auto-extract job description content.
+                  {t('roles.jdUploadHint')}
                 </p>
               </div>
 
@@ -541,7 +537,7 @@ export function RoleModal({
                       job_description: e.target.value,
                     })
                   }
-                  placeholder="Full job description for RAG indexing and reference"
+                  placeholder={t('roles.jobDescriptionPlaceholder')}
                   rows={10}
                 />
               </div>
@@ -565,13 +561,13 @@ export function RoleModal({
                     <div className="flex items-center gap-2">
                       <RadioGroupItem value="manual" id="source-manual" />
                       <Label htmlFor="source-manual" className="cursor-pointer">
-                        Manual
+                        {t('roles.jdSourceManual')}
                       </Label>
                     </div>
                     <div className="flex items-center gap-2">
                       <RadioGroupItem value="hris" id="source-hris" />
                       <Label htmlFor="source-hris" className="cursor-pointer">
-                        HRIS
+                        {t('roles.jdSourceHRIS')}
                       </Label>
                     </div>
                     <div className="flex items-center gap-2">
@@ -580,7 +576,7 @@ export function RoleModal({
                         htmlFor="source-uploaded"
                         className="cursor-pointer"
                       >
-                        Uploaded
+                        {t('roles.jdSourceUploaded')}
                       </Label>
                     </div>
                   </RadioGroup>
@@ -593,7 +589,7 @@ export function RoleModal({
           {/* Status (Edit Mode Only) */}
           {isEditMode && (
             <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
+              <Label htmlFor="status">{t('roles.statusLabel')}</Label>
               <Select value={status} onValueChange={(value: any) => setStatus(value)}>
                 <SelectTrigger id="status">
                   <SelectValue />

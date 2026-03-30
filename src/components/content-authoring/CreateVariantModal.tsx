@@ -462,7 +462,7 @@ export function CreateVariantModal({
     }
 
     if (selectedVariantType === 'company' && !organizationId && !organizationName.trim()) {
-      toast.error('Organization context could not be loaded. Refresh and try again.');
+      toast.error(t('contentAuthoring.orgContextLoadFailed'));
       return;
     }
 
@@ -845,7 +845,7 @@ export function CreateVariantModal({
                   {!orgContextReady && (
                     <p className="text-xs text-muted-foreground flex items-center gap-2">
                       <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                      Loading organization…
+                      {t('contentAuthoring.loadingOrganization')}
                     </p>
                   )}
                   <div className="flex items-center gap-3">
@@ -853,7 +853,7 @@ export function CreateVariantModal({
                       <Building2 className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                     </div>
                     <div>
-                      <p className="font-medium text-foreground">{organizationName || 'Your Organization'}</p>
+                      <p className="font-medium text-foreground">{organizationName || t('contentAuthoring.yourOrganization')}</p>
                       <p className="text-xs text-muted-foreground">{t('contentAuthoring.companyVariantHint')}</p>
                     </div>
                   </div>
@@ -917,20 +917,12 @@ export function CreateVariantModal({
                 </Label>
                 {selectedVariantType === 'geographic' && (
                   <p className="text-xs text-muted-foreground mb-3">
-                    <span className="font-medium text-foreground">Full workflow (recommended):</span>{' '}
-                    research plan, evidence, redline draft, and citations in a dedicated wizard.
-                    <span className="block mt-1">
-                      <span className="font-medium text-foreground">AI Chat:</span> conversational Q&amp;A, then
-                      AI writes the variant body when you generate.{' '}
-                      <span className="font-medium text-foreground">Manual copy:</span> duplicate source content as
-                      a draft—edit by hand; no AI run from this step.
-                    </span>
+                    {t('contentAuthoring.geoMethodDesc')}
                   </p>
                 )}
                 {selectedVariantType && selectedVariantType !== 'geographic' && (
                   <p className="text-xs text-muted-foreground mb-3">
-                    <span className="font-medium text-foreground">AI Chat:</span> Q&amp;A then AI-generated body.{' '}
-                    <span className="font-medium text-foreground">Manual copy:</span> clone source as draft for manual edits.
+                    {t('contentAuthoring.otherMethodDesc')}
                   </p>
                 )}
 
@@ -960,7 +952,7 @@ export function CreateVariantModal({
                 )}
 
                 {selectedVariantType === 'geographic' && (
-                  <p className="text-xs font-medium text-muted-foreground mb-2">Or choose a simpler path</p>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">{t('contentAuthoring.chooseSimplePath')}</p>
                 )}
 
                 <div className="grid grid-cols-2 gap-3 mb-4">
@@ -1112,7 +1104,7 @@ export function CreateVariantModal({
           onComplete={(draft, variantTrackId) => {
             // Draft was published successfully - now we have the actual track ID
             setShowStateVariantWizard(false);
-            toast.success('State variant created!');
+            toast.success(t('contentAuthoring.stateVariantCreated'));
             // Close the main modal and notify parent with the new track ID
             const trackId = variantTrackId || draft.draftId;
             if (trackId) {
