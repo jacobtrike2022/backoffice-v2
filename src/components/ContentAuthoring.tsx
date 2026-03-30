@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Footer } from './Footer';
-import { 
-  FileText, 
-  Video, 
-  Image as ImageIcon, 
+import {
+  FileText,
+  Video,
+  Image as ImageIcon,
   CheckCircle,
   Plus,
   Edit,
@@ -35,11 +36,9 @@ import {
 
 type ContentType = 'article' | 'video' | 'story' | 'checkpoint' | null;
 
-const contentTypes = [
+const contentTypesMeta = [
   {
     id: 'article',
-    name: 'Article',
-    description: 'Create text-based content with rich formatting, images, and headers',
     icon: FileText,
     color: 'bg-blue-100 dark:bg-blue-900/30',
     iconColor: 'text-blue-600 dark:text-blue-400',
@@ -47,8 +46,6 @@ const contentTypes = [
   },
   {
     id: 'video',
-    name: 'Video',
-    description: 'Upload or embed video content with learning objectives and metadata',
     icon: Video,
     color: 'bg-purple-100 dark:bg-purple-900/30',
     iconColor: 'text-purple-600 dark:text-purple-400',
@@ -56,8 +53,6 @@ const contentTypes = [
   },
   {
     id: 'story',
-    name: 'Story',
-    description: 'Create engaging portrait-mode stories with image-video-image sequences',
     icon: ImageIcon,
     color: 'bg-pink-100 dark:bg-pink-900/30',
     iconColor: 'text-pink-600 dark:text-pink-400',
@@ -65,8 +60,6 @@ const contentTypes = [
   },
   {
     id: 'checkpoint',
-    name: 'Checkpoint',
-    description: 'Build interactive quizzes with multiple choice questions and scoring',
     icon: CheckCircle,
     color: 'bg-green-100 dark:bg-green-900/30',
     iconColor: 'text-green-600 dark:text-green-400',
@@ -87,11 +80,11 @@ interface ContentAuthoringProps {
   onClearEditingArticle?: () => void;
 }
 
-export function ContentAuthoring({ 
-  onNavigateToLibrary, 
-  currentRole, 
-  initialTrackId, 
-  initialMode, 
+export function ContentAuthoring({
+  onNavigateToLibrary,
+  currentRole,
+  initialTrackId,
+  initialMode,
   onNavigateToPlaylist,
   onBackClick,
   previousView,
@@ -99,6 +92,7 @@ export function ContentAuthoring({
   editingArticle,
   onClearEditingArticle
 }: ContentAuthoringProps) {
+  const { t } = useTranslation();
   const [selectedType, setSelectedType] = useState<ContentType>(null);
   const [editingTrack, setEditingTrack] = useState<any>(null);
   const [draftTracks, setDraftTracks] = useState<any[]>([]);
@@ -106,7 +100,7 @@ export function ContentAuthoring({
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set(['article', 'video', 'story', 'checkpoint']));
   const [hasLoadedInitialTrack, setHasLoadedInitialTrack] = useState(false); // Track if initial load is done
-  
+
   // Track unsaved changes
   const [hasUnsavedChangesCheckFn, setHasUnsavedChangesCheckFn] = useState<(() => boolean) | null>(null);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
@@ -114,6 +108,30 @@ export function ContentAuthoring({
 
   // Create Variant modal state
   const [createVariantModal, setCreateVariantModal] = useState<{ open: boolean; track: any }>({ open: false, track: null });
+
+  // Build translated content types list inside the component
+  const contentTypes = [
+    {
+      ...contentTypesMeta[0],
+      name: t('contentAuthoring.typeArticleName'),
+      description: t('contentAuthoring.typeArticleDesc'),
+    },
+    {
+      ...contentTypesMeta[1],
+      name: t('contentAuthoring.typeVideoName'),
+      description: t('contentAuthoring.typeVideoDesc'),
+    },
+    {
+      ...contentTypesMeta[2],
+      name: t('contentAuthoring.typeStoryName'),
+      description: t('contentAuthoring.typeStoryDesc'),
+    },
+    {
+      ...contentTypesMeta[3],
+      name: t('contentAuthoring.typeCheckpointName'),
+      description: t('contentAuthoring.typeCheckpointDesc'),
+    },
+  ];
 
   const handleRegisterLocal = useCallback((checkFn: (() => boolean) | null) => {
     setHasUnsavedChangesCheckFn(() => checkFn);
@@ -162,7 +180,7 @@ export function ContentAuthoring({
       setDraftTracks(drafts);
     } catch (error: any) {
       console.error('Error loading draft tracks:', error);
-      toast.error('Failed to load draft tracks');
+      toast.error(t('contentAuthoring.failedLoadDrafts'));
     } finally {
       setIsLoading(false);
     }
@@ -185,7 +203,7 @@ export function ContentAuthoring({
 
   const handleCloseWithCheck = () => {
     console.log('🚪 handleCloseWithCheck called, checking for unsaved changes...');
-    
+
     if (hasUnsavedChangesCheckFn && hasUnsavedChangesCheckFn()) {
       console.log('⚠️ Unsaved changes detected, showing dialog');
       setPendingNavAction(() => () => {
@@ -228,27 +246,27 @@ export function ContentAuthoring({
   const handlePublishTrack = async (trackId: string) => {
     try {
       await crud.updateTrack({ id: trackId, status: 'published' });
-      toast.success('Track published successfully!');
+      toast.success(t('contentAuthoring.trackPublishedSuccess'));
       loadDraftTracks();
     } catch (error: any) {
       console.error('Error publishing track:', error);
       // Show specific error message (includes publish validation messages like "Video transcription must complete")
-      toast.error(error.message || 'Failed to publish track');
+      toast.error(error.message || t('contentAuthoring.failedPublishTrack'));
     }
   };
 
   const handleDeleteTrack = async (trackId: string) => {
-    if (!confirm('Are you sure you want to delete this draft?')) {
+    if (!confirm(t('contentAuthoring.confirmDeleteDraft'))) {
       return;
     }
 
     try {
       await crud.deleteTrack(trackId);
-      toast.success('Draft deleted successfully');
+      toast.success(t('contentAuthoring.draftDeletedSuccess'));
       loadDraftTracks();
     } catch (error: any) {
       console.error('Error deleting track:', error);
-      toast.error('Failed to delete draft');
+      toast.error(t('contentAuthoring.failedDeleteDraft'));
     }
   };
 
@@ -321,9 +339,9 @@ export function ContentAuthoring({
                   setSelectedType(updatedTrack.type);
                 }).catch((err) => {
                   console.error('Error loading variant track:', err);
-                  toast.error('Variant created but failed to load. Refresh to see it.');
+                  toast.error(t('contentAuthoring.variantLoadFailed'));
                 });
-                toast.success('Variant created! Opening editor...');
+                toast.success(t('contentAuthoring.variantCreated'));
               }}
             />
           )}
@@ -360,9 +378,9 @@ export function ContentAuthoring({
                   setSelectedType(updatedTrack.type);
                 }).catch((err) => {
                   console.error('Error loading variant track:', err);
-                  toast.error('Variant created but failed to load. Refresh to see it.');
+                  toast.error(t('contentAuthoring.variantLoadFailed'));
                 });
-                toast.success('Variant created! Opening editor...');
+                toast.success(t('contentAuthoring.variantCreated'));
               }}
             />
           )}
@@ -399,9 +417,9 @@ export function ContentAuthoring({
                   setSelectedType(updatedTrack.type);
                 }).catch((err) => {
                   console.error('Error loading variant track:', err);
-                  toast.error('Variant created but failed to load. Refresh to see it.');
+                  toast.error(t('contentAuthoring.variantLoadFailed'));
                 });
-                toast.success('Variant created! Opening editor...');
+                toast.success(t('contentAuthoring.variantCreated'));
               }}
             />
           )}
@@ -438,9 +456,9 @@ export function ContentAuthoring({
                   setSelectedType(updatedTrack.type);
                 }).catch((err) => {
                   console.error('Error loading variant track:', err);
-                  toast.error('Variant created but failed to load. Refresh to see it.');
+                  toast.error(t('contentAuthoring.variantLoadFailed'));
                 });
-                toast.success('Variant created! Opening editor...');
+                toast.success(t('contentAuthoring.variantCreated'));
               }}
             />
           )}
@@ -496,20 +514,20 @@ export function ContentAuthoring({
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-foreground">Content Authoring</h1>
+        <h1 className="text-foreground">{t('contentAuthoring.pageTitle')}</h1>
         <p className="text-muted-foreground mt-1">
-          Create and manage learning content for your organization
+          {t('contentAuthoring.pageSubtitle')}
         </p>
       </div>
 
       {/* Content Type Cards */}
       <div>
-        <h2 className="text-lg font-semibold text-foreground mb-4">Create New Content</h2>
+        <h2 className="text-lg font-semibold text-foreground mb-4">{t('contentAuthoring.createNewContent')}</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {contentTypes.map((type) => {
             const Icon = type.icon;
             return (
-              <Card 
+              <Card
                 key={type.id}
                 className={`cursor-pointer transition-all hover:shadow-lg hover:scale-105 border-2 ${type.borderColor} group`}
                 onClick={() => handleCreateNew(type.id as ContentType)}
@@ -525,7 +543,7 @@ export function ContentAuthoring({
                     </div>
                     <Button size="sm" className="w-full bg-brand-gradient text-white shadow-brand">
                       <Plus className="h-4 w-4 mr-2" />
-                      {type.id === 'checkpoint' ? 'Checkpoint' : `Create ${type.name}`}
+                      {type.id === 'checkpoint' ? t('contentAuthoring.createCheckpointBtn') : t('contentAuthoring.createTypeBtn', { name: type.name })}
                     </Button>
                   </div>
                 </CardContent>
@@ -538,14 +556,14 @@ export function ContentAuthoring({
       {/* Track Drafts */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-foreground">Track Drafts</h2>
-          <Button 
-            variant="outline" 
+          <h2 className="text-lg font-semibold text-foreground">{t('contentAuthoring.trackDrafts')}</h2>
+          <Button
+            variant="outline"
             size="sm"
             onClick={onNavigateToLibrary}
           >
             <ExternalLink className="h-4 w-4 mr-2" />
-            View Published
+            {t('contentAuthoring.viewPublished')}
           </Button>
         </div>
 
@@ -554,7 +572,7 @@ export function ContentAuthoring({
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search drafts..."
+              placeholder={t('contentAuthoring.searchDraftsPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10"
@@ -564,7 +582,7 @@ export function ContentAuthoring({
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm">
                 <Filter className="h-4 w-4 mr-2" />
-                Filter by Type
+                {t('contentAuthoring.filterByType')}
                 {typeFilters.size < contentTypes.length && (
                   <Badge variant="secondary" className="ml-2">
                     {typeFilters.size}
@@ -591,18 +609,18 @@ export function ContentAuthoring({
             {isLoading ? (
               <div className="p-12 text-center">
                 <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
-                <p className="text-muted-foreground">Loading drafts...</p>
+                <p className="text-muted-foreground">{t('contentAuthoring.loadingDrafts')}</p>
               </div>
             ) : filteredDrafts.length === 0 ? (
               <div className="p-12 text-center">
                 <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <p className="text-muted-foreground">
                   {searchQuery || typeFilters.size < contentTypes.length
-                    ? 'No drafts match your filters'
-                    : 'No drafts yet'}
+                    ? t('contentAuthoring.noDraftsMatchFilters')
+                    : t('contentAuthoring.noDraftsYet')}
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Get started by creating your first piece of content above
+                  {t('contentAuthoring.getStartedHint')}
                 </p>
               </div>
             ) : (
@@ -610,11 +628,11 @@ export function ContentAuthoring({
                 {filteredDrafts.map((track) => {
                   const typeInfo = getContentTypeInfo(track.type);
                   if (!typeInfo) return null;
-                  
+
                   const Icon = typeInfo.icon;
-                  
+
                   return (
-                    <div 
+                    <div
                       key={track.id}
                       className="p-4 hover:bg-accent/50 transition-colors"
                     >
@@ -626,11 +644,11 @@ export function ContentAuthoring({
                           <div>
                             <div className="flex items-center space-x-2">
                               <h3 className="font-semibold text-foreground">{track.title}</h3>
-                              <Badge 
+                              <Badge
                                 variant="outline"
                                 className="bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400"
                               >
-                                Draft
+                                {t('contentAuthoring.draftBadge')}
                               </Badge>
                             </div>
                             <div className="flex items-center space-x-3 text-xs text-muted-foreground mt-1">
@@ -638,13 +656,13 @@ export function ContentAuthoring({
                               {track.created_at && (
                                 <>
                                   <span>•</span>
-                                  <span>Created {new Date(track.created_at).toLocaleDateString()}</span>
+                                  <span>{t('contentAuthoring.createdDate', { date: new Date(track.created_at).toLocaleDateString() })}</span>
                                 </>
                               )}
                               {track.updated_at && (
                                 <>
                                   <span>•</span>
-                                  <span>Updated {new Date(track.updated_at).toLocaleDateString()}</span>
+                                  <span>{t('contentAuthoring.updatedDate', { date: new Date(track.updated_at).toLocaleDateString() })}</span>
                                 </>
                               )}
                             </div>
@@ -652,21 +670,21 @@ export function ContentAuthoring({
                         </div>
 
                         <div className="flex items-center space-x-2">
-                          <Button 
-                            variant="outline" 
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => handleEditTrack(track)}
                           >
                             <Edit className="h-4 w-4 mr-2" />
-                            Edit
+                            {t('contentAuthoring.editBtn')}
                           </Button>
-                          <Button 
-                            size="sm" 
+                          <Button
+                            size="sm"
                             className="bg-brand-gradient text-white shadow-brand hover:opacity-90 border-0"
                             onClick={() => handlePublishTrack(track.id)}
                           >
                             <Send className="h-4 w-4 mr-2" />
-                            Publish
+                            {t('contentAuthoring.publishBtn')}
                           </Button>
                           <Button
                             variant="ghost"
@@ -690,9 +708,9 @@ export function ContentAuthoring({
       {showUnsavedDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-background border border-border rounded-lg shadow-lg p-6 max-w-md mx-4">
-            <h3 className="text-lg font-semibold text-foreground mb-2">Unsaved Changes</h3>
+            <h3 className="text-lg font-semibold text-foreground mb-2">{t('contentAuthoring.unsavedChangesTitle')}</h3>
             <p className="text-muted-foreground mb-6">
-              You have unsaved changes. What would you like to do?
+              {t('contentAuthoring.unsavedChangesMessage')}
             </p>
             <div className="flex gap-3 justify-end">
               <Button
@@ -702,7 +720,7 @@ export function ContentAuthoring({
                   setPendingNavAction(null);
                 }}
               >
-                Cancel
+                {t('contentAuthoring.cancelBtn')}
               </Button>
               <Button
                 variant="destructive"
@@ -714,7 +732,7 @@ export function ContentAuthoring({
                   setPendingNavAction(null);
                 }}
               >
-                Discard Changes
+                {t('contentAuthoring.discardChangesBtn')}
               </Button>
             </div>
           </div>

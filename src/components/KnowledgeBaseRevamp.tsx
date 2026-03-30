@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -169,21 +170,22 @@ const ICON_SIZE_MD = 20;
 // --- Components ---
 
 // 1. Command Palette Modal
-const CommandPalette = ({ 
-  isOpen, 
-  onClose, 
+const CommandPalette = ({
+  isOpen,
+  onClose,
   onSearch,
   recentSearches = [],
   tracks = [],
   onSelectTrack
-}: { 
-  isOpen: boolean; 
-  onClose: () => void; 
+}: {
+  isOpen: boolean;
+  onClose: () => void;
   onSearch: (query: string) => void;
   recentSearches?: string[];
   tracks?: any[];
   onSelectTrack?: (track: any) => void;
 }) => {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   
@@ -222,9 +224,9 @@ const CommandPalette = ({
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="p-0 max-w-2xl bg-white dark:bg-slate-950 border-none shadow-2xl overflow-hidden top-[20%] translate-y-0">
-        <DialogTitle className="sr-only">Search Knowledge Base</DialogTitle>
+        <DialogTitle className="sr-only">{t('knowledgeBase.searchKnowledgeBase')}</DialogTitle>
         <DialogDescription className="sr-only">
-           Search for articles, videos, and other resources.
+          {t('knowledgeBase.searchKbDescription')}
         </DialogDescription>
         <div className="flex items-center border-b px-4 py-3">
           <Search className="h-5 w-5 text-muted-foreground mr-3" />
@@ -233,7 +235,7 @@ const CommandPalette = ({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search knowledge base..."
+            placeholder={t('knowledgeBase.searchPlaceholder')}
             className="flex-1 bg-transparent outline-none text-lg placeholder:text-muted-foreground/50"
           />
           <div className="flex items-center gap-1">
@@ -246,7 +248,7 @@ const CommandPalette = ({
            {/* Search Results */}
            {query && filteredTracks.length > 0 && (
              <div className="px-2 py-2">
-               <h3 className="text-xs font-semibold text-muted-foreground mb-2 px-2">Results</h3>
+               <h3 className="text-xs font-semibold text-muted-foreground mb-2 px-2">{t('knowledgeBase.searchResults')}</h3>
                <div className="space-y-1">
                  {filteredTracks.map((track) => (
                    <div 
@@ -278,15 +280,15 @@ const CommandPalette = ({
            {/* No Results Message */}
            {query && filteredTracks.length === 0 && (
              <div className="py-8 text-center text-muted-foreground">
-               <p>No results found for "{query}"</p>
-               <p className="text-xs mt-1">Try searching for something else.</p>
+               <p>{t('knowledgeBase.noResults', { query })}</p>
+               <p className="text-xs mt-1">{t('knowledgeBase.noResultsTip')}</p>
              </div>
            )}
 
            {/* Recent Searches Placeholder */}
            {!query && recentSearches.length > 0 && (
              <div className="mb-4 px-2">
-               <h3 className="text-xs font-semibold text-muted-foreground mb-2 px-2">Recent Searches</h3>
+               <h3 className="text-xs font-semibold text-muted-foreground mb-2 px-2">{t('knowledgeBase.recentSearches')}</h3>
                {recentSearches.map((search, idx) => (
                  <div 
                    key={idx} 
@@ -302,17 +304,17 @@ const CommandPalette = ({
            
            {!query && (
              <div className="px-2">
-               <h3 className="text-xs font-semibold text-muted-foreground mb-2 px-2">Quick Actions</h3>
+               <h3 className="text-xs font-semibold text-muted-foreground mb-2 px-2">{t('knowledgeBase.quickActions')}</h3>
                <div className="space-y-1">
                  <div className="flex items-center px-2 py-2 text-sm rounded-md hover:bg-accent cursor-pointer group">
                    <FileText className="h-4 w-4 mr-2 text-blue-500" />
-                   <span>Create New Article</span>
-                   <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">Admin</span>
+                   <span>{t('knowledgeBase.createNewArticle')}</span>
+                   <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">{t('knowledgeBase.adminLabel')}</span>
                  </div>
                  <div className="flex items-center px-2 py-2 text-sm rounded-md hover:bg-accent cursor-pointer group">
                     <Video className="h-4 w-4 mr-2 text-purple-500" />
-                    <span>Create New Video</span>
-                    <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">Admin</span>
+                    <span>{t('knowledgeBase.createNewVideo')}</span>
+                    <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">{t('knowledgeBase.adminLabel')}</span>
                  </div>
                </div>
              </div>
@@ -324,17 +326,18 @@ const CommandPalette = ({
 };
 
 // 2. Article Card Component
-const ArticleCard = ({ 
-  track, 
-  onClick, 
-  isBookmarked, 
-  onToggleBookmark 
-}: { 
-  track: any, 
+const ArticleCard = ({
+  track,
+  onClick,
+  isBookmarked,
+  onToggleBookmark
+}: {
+  track: any,
   onClick: () => void,
   isBookmarked?: boolean,
   onToggleBookmark?: (trackId: string, e: React.MouseEvent) => void
 }) => {
+  const { t } = useTranslation();
   const TypeIcon = track.type === 'video' ? Video : track.type === 'story' ? BookMarked : FileText;
   
   return (
@@ -349,7 +352,7 @@ const ArticleCard = ({
         <button
           onClick={(e) => onToggleBookmark(track.id, e)}
           className="absolute top-4 right-4 p-2 rounded-lg bg-white dark:bg-slate-800 shadow-sm border border-slate-200 dark:border-slate-700 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-slate-50 dark:hover:bg-slate-700 z-10"
-          title={isBookmarked ? "Remove from saved" : "Save for later"}
+          title={isBookmarked ? t('knowledgeBase.removeFromSaved') : t('knowledgeBase.saveForLater')}
         >
           <Bookmark 
             size={16} 
@@ -379,7 +382,7 @@ const ArticleCard = ({
       </h3>
       
       <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-3 mb-6 flex-grow leading-relaxed">
-        {track.description || track.excerpt || "No description available."}
+        {track.description || track.excerpt || t('knowledgeBase.noDescription')}
       </p>
       
       <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800 mt-auto text-xs text-slate-400">
@@ -391,7 +394,7 @@ const ArticleCard = ({
              <ThumbsUp size={14} /> {track.likes || 0}
           </span>
         </div>
-        <span>Updated {formatDistanceToNow(new Date(track.updated_at), { addSuffix: true })}</span>
+        <span>{t('knowledgeBase.updated')} {formatDistanceToNow(new Date(track.updated_at), { addSuffix: true })}</span>
       </div>
     </motion.div>
   );
@@ -399,6 +402,7 @@ const ArticleCard = ({
 
 // 3. Table of Contents (Sticky)
 const TableOfContents = ({ sections }: { sections: { id: string, title: string, level: number }[] }) => {
+  const { t } = useTranslation();
   const [activeSection, setActiveSection] = useState<string>(sections[0]?.id || '');
 
   useEffect(() => {
@@ -429,7 +433,7 @@ const TableOfContents = ({ sections }: { sections: { id: string, title: string, 
 
   return (
     <div className="sticky top-32 w-60 hidden xl:block pl-6 border-l border-slate-200 dark:border-slate-800">
-      <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100 mb-4 uppercase tracking-wider">On This Page</h4>
+      <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100 mb-4 uppercase tracking-wider">{t('knowledgeBase.onThisPage')}</h4>
       <nav className="space-y-1">
         {sections.map((section) => (
           <a
@@ -471,6 +475,7 @@ interface BrainHeroProps {
 }
 
 const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
+  const { t } = useTranslation();
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [messages, setMessages] = useState<Array<{
@@ -1158,7 +1163,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                   <input
                     ref={inputRef}
                     type="text"
-                    placeholder="Ask a question about your training content..."
+                    placeholder={t('knowledgeBase.brainSearchPlaceholder')}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => {
@@ -1214,15 +1219,15 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                           <MessageSquare className="w-4 h-4" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-white">Ask Company Brain</p>
-                          <p className="text-xs text-white/50 truncate">"Ask about: {input}"</p>
+                          <p className="text-sm font-medium text-white">{t('knowledgeBase.askCompanyBrain')}</p>
+                          <p className="text-xs text-white/50 truncate">"{t('knowledgeBase.askCompanyBrain')}: {input}"</p>
                         </div>
                       </button>
 
                       {searchResults.length > 0 && (
                         <>
                           <div className="px-4 py-2 mt-2">
-                            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Search Results</p>
+                            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">{t('knowledgeBase.searchResultsLabel')}</p>
                           </div>
 
                           <div className="space-y-1">
@@ -1262,13 +1267,13 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                       {isSearching && searchResults.length === 0 && (
                         <div className="px-4 py-8 text-center">
                           <div className="inline-block w-5 h-5 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin mb-2" />
-                          <p className="text-xs text-white/40">Searching your knowledge base...</p>
+                          <p className="text-xs text-white/40">{t('knowledgeBase.searchingKb')}</p>
                         </div>
                       )}
 
                       {!isSearching && searchResults.length === 0 && input.trim() && (
                         <div className="px-4 py-4 text-center">
-                          <p className="text-xs text-white/40">No matching articles found. Ask me instead!</p>
+                          <p className="text-xs text-white/40">{t('knowledgeBase.noMatchingArticles')}</p>
                         </div>
                       )}
                     </motion.div>
@@ -1381,7 +1386,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                             animate={{ scale: [1, 1.3, 1], opacity: [0.5, 1, 0.5] }}
                             transition={{ duration: 1, repeat: Infinity }}
                           />
-                          <span className="text-white/50 text-sm">Thinking...</span>
+                          <span className="text-white/50 text-sm">{t('knowledgeBase.thinking')}</span>
                         </div>
                       </div>
                     </motion.div>
@@ -1393,7 +1398,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                  deduplicatedCitations.length > 0 && 
                  !isNotFoundResponse && (
                   <div className="mt-4 pt-4 border-t border-white/10 max-w-2xl mx-auto">
-                    <p className="text-xs text-white/40 mb-2">Sources referenced:</p>
+                    <p className="text-xs text-white/40 mb-2">{t('knowledgeBase.sourcesReferenced')}</p>
                     <div className="flex flex-wrap gap-2">
                       {deduplicatedCitations.map((citation: any) => (
                         <button
@@ -1420,7 +1425,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                     <input
                       ref={followUpInputRef}
                       type="text"
-                      placeholder="Ask a follow-up question..."
+                      placeholder={t('knowledgeBase.followUpPlaceholder')}
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       onKeyDown={(e) => {
@@ -1465,15 +1470,15 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                               <MessageSquare className="w-4 h-4" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-white">Ask Company Brain</p>
-                              <p className="text-xs text-white/50 truncate">"Ask about: {input}"</p>
+                              <p className="text-sm font-medium text-white">{t('knowledgeBase.askCompanyBrain')}</p>
+                              <p className="text-xs text-white/50 truncate">"{t('knowledgeBase.askCompanyBrain')}: {input}"</p>
                             </div>
                           </button>
 
                           {searchResults.length > 0 && (
                             <>
                               <div className="px-4 py-2 mt-2">
-                                <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Search Results</p>
+                                <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">{t('knowledgeBase.searchResultsLabel')}</p>
                               </div>
                               
                               <div className="space-y-1">
@@ -1513,13 +1518,13 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                           {isSearching && searchResults.length === 0 && (
                             <div className="px-4 py-8 text-center">
                               <div className="inline-block w-5 h-5 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin mb-2" />
-                              <p className="text-xs text-white/40">Searching your knowledge base...</p>
+                              <p className="text-xs text-white/40">{t('knowledgeBase.searchingKb')}</p>
                             </div>
                           )}
 
                           {!isSearching && searchResults.length === 0 && input.trim() && (
                             <div className="px-4 py-4 text-center">
-                              <p className="text-xs text-white/40">No matching articles found. Ask me instead!</p>
+                              <p className="text-xs text-white/40">{t('knowledgeBase.noMatchingArticles')}</p>
                             </div>
                           )}
                         </motion.div>
@@ -1535,7 +1540,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
                     className="flex items-center gap-1.5 text-xs text-white/40 hover:text-white/60 transition-colors"
                   >
                     <X className="w-3 h-3" />
-                    Clear conversation
+                    {t('knowledgeBase.clearConversation')}
                   </button>
                 </div>
               </div>
@@ -1548,6 +1553,7 @@ const BrainHero: React.FC<BrainHeroProps> = ({ onNavigateToTrack }) => {
 };
 
 export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle }: KnowledgeBaseProps) {
+  const { t } = useTranslation();
   const { user } = useCurrentUser();
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1827,11 +1833,11 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
 
       if (error) throw error;
 
-      toast.success('KB settings saved successfully');
+      toast.success(t('knowledgeBase.kbSettingsSaved'));
       setShowKBSettings(false);
     } catch (error: any) {
       console.error('Error saving KB settings:', error);
-      toast.error('Failed to save KB settings', { description: error.message });
+      toast.error(t('knowledgeBase.kbSettingsFailed'), { description: error.message });
     }
   };
 
@@ -1991,7 +1997,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
     
     try {
       await crud.toggleTrackLike(selectedTrack.id);
-      toast.success("Article liked!");
+      toast.success(t('knowledgeBase.articleLiked'));
     } catch (e) {
       console.error("Failed to like", e);
       setSelectedTrack({ ...selectedTrack, likes: currentLikes });
@@ -2004,9 +2010,9 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
     setUserFeedback(helpful);
     
     if (helpful) {
-      toast.success("Glad you found this helpful!");
+      toast.success(t('knowledgeBase.feedbackHelpful'));
     } else {
-      toast.success("Thanks for your feedback.");
+      toast.success(t('knowledgeBase.feedbackThanks'));
     }
 
     try {
@@ -2050,7 +2056,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
           setSavedItems(bookmarks);
         } catch (e) {
           console.error("Failed to load saved items", e);
-          toast.error("Failed to load saved items");
+          toast.error(t('knowledgeBase.bookmarkError'));
         }
       };
       loadSavedItems();
@@ -2077,16 +2083,16 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
     try {
       if (isBookmarked) {
         await crud.removeKBTrackBookmark(trackId);
-        toast.success("Removed from saved items");
+        toast.success(t('knowledgeBase.removedFromSaved'));
       } else {
         await crud.bookmarkKBTrack(trackId);
-        toast.success("Saved for later");
+        toast.success(t('knowledgeBase.savedForLater'));
       }
     } catch (error) {
       console.error("Bookmark error:", error);
       // Revert on error
       setBookmarkedTracks(bookmarkedTracks);
-      toast.error("Failed to update bookmark");
+      toast.error(t('knowledgeBase.bookmarkError'));
     }
   };
 
@@ -2149,8 +2155,8 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
               <BookOpen className="h-6 w-6" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">Knowledge Base</h1>
-              <p className="text-sm text-muted-foreground">Find guides, policies, and training materials</p>
+              <h1 className="text-2xl font-bold tracking-tight">{t('knowledgeBase.title')}</h1>
+              <p className="text-sm text-muted-foreground">{t('knowledgeBase.subtitle')}</p>
             </div>
           </div>
 
@@ -2161,7 +2167,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                  onClick={onCreateArticle}
                >
                  <Plus className="h-4 w-4 mr-2" />
-                 Create Article
+                 {t('knowledgeBase.createArticle')}
                </Button>
              )}
              <Button
@@ -2169,7 +2175,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                size="icon"
                onClick={() => setShowKBSettings(true)}
                className="hover:bg-accent"
-               title="KB Settings"
+               title={t('knowledgeBase.kbSettings')}
              >
                <Settings className="h-4 w-4" />
              </Button>
@@ -2186,7 +2192,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
              {/* Collections / Categories */}
              <div>
                 <div className="flex items-center justify-between mb-4 px-3">
-                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Collections</h3>
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t('knowledgeBase.collections')}</h3>
                   {(currentRole === 'admin' || currentRole === 'trike-super-admin') && (
                     <Button 
                       variant="ghost" 
@@ -2213,7 +2219,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                  >
                    <div className="flex items-center gap-3">
                      <BookOpen className="h-4 w-4 opacity-70" />
-                     All Content
+                     {t('knowledgeBase.allContent')}
                    </div>
                    {selectedCategory === null && <ChevronRight className="h-3 w-3 opacity-50" />}
                  </button>
@@ -2250,7 +2256,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
              {/* Recent */}
              {recentTracks.length > 0 && (
                <div>
-                 <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 px-3">Recently Viewed</h3>
+                 <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 px-3">{t('knowledgeBase.recentlyViewed')}</h3>
                  <div className="space-y-1">
                    {recentTracks.map((track: any) => (
                      <button
@@ -2275,7 +2281,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                   className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
                 >
                   <Bookmark className="h-4 w-4" />
-                  Saved Items
+                  {t('knowledgeBase.savedItems')}
                   {bookmarkedTracks.size > 0 && (
                     <Badge 
                       className="ml-auto text-xs bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-0"
@@ -2312,20 +2318,20 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
           {/* Breadcrumbs (Mobile/Tablet only or when browsing) */}
           {!selectedTrack && (
             <div className="flex items-center text-sm text-muted-foreground mb-6">
-              <span 
+              <span
                 className="hover:text-foreground cursor-pointer"
                 onClick={() => {
                   setSelectedCategory(null);
                   setSelectedTrack(null);
                 }}
               >
-                Knowledge Base
+                {t('knowledgeBase.title')}
               </span>
               <ChevronRight className="h-4 w-4 mx-2" />
               <span className="text-foreground font-medium">
-                {selectedCategory 
-                  ? categories?.find((c:any) => c.id === selectedCategory)?.name 
-                  : 'All Content'}
+                {selectedCategory
+                  ? categories?.find((c:any) => c.id === selectedCategory)?.name
+                  : t('knowledgeBase.allContent')}
               </span>
             </div>
           )}
@@ -2367,14 +2373,14 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                        <Search className="h-10 w-10 text-slate-400" />
                      </div>
                      <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-2">
-                       No articles found
+                       {t('knowledgeBase.noArticlesFound')}
                      </h3>
                      <p className="text-slate-500 dark:text-slate-400 max-w-sm mx-auto mb-6">
-                       We couldn't find anything matching "{searchQuery}". Try adjusting your search or browse categories.
+                       {t('knowledgeBase.noArticlesDesc', { query: searchQuery })}
                      </p>
                      {searchQuery && (
                        <Button variant="outline" onClick={() => setSearchQuery('')}>
-                         Clear Search
+                         {t('knowledgeBase.clearSearch')}
                        </Button>
                      )}
                   </div>
@@ -2390,7 +2396,9 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                <div className="flex items-center justify-between mb-8">
                   <Button variant="ghost" className="pl-0 text-slate-500 hover:text-slate-900 hover:bg-transparent" onClick={handleBackToBrowse}>
                     <CornerUpLeft className="h-4 w-4 mr-2" />
-                    Back to {selectedCategory ? categories?.find((c:any) => c.id === selectedCategory)?.name : 'Browse'}
+                    {selectedCategory
+                      ? t('knowledgeBase.backToBrowse', { name: categories?.find((c:any) => c.id === selectedCategory)?.name })
+                      : t('knowledgeBase.backToBrowseDefault')}
                   </Button>
                   <div className="flex gap-2">
                     {selectedTrack && (
@@ -2401,14 +2409,14 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                         className="gap-2 border-orange-200 hover:border-orange-400 hover:bg-orange-50"
                       >
                         <MessageSquare className="h-4 w-4 text-orange-500" />
-                        <span className="hidden sm:inline">Ask</span>
+                        <span className="hidden sm:inline">{t('knowledgeBase.askButton')}</span>
                       </Button>
                     )}
                     <Button 
                       variant="outline" 
                       size="sm"
                       onClick={(e) => toggleBookmark(selectedTrack.id, e)}
-                      title={bookmarkedTracks.has(selectedTrack.id) ? "Remove from saved" : "Save for later"}
+                      title={bookmarkedTracks.has(selectedTrack.id) ? t('knowledgeBase.removeFromSaved') : t('knowledgeBase.saveForLater')}
                       className="px-3"
                     >
                       <Bookmark 
@@ -2423,7 +2431,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                       variant="outline" 
                       size="sm"
                       onClick={handleDownloadPDF}
-                      title="Download as PDF"
+                      title={t('knowledgeBase.downloadAsPdf')}
                       className="px-3"
                     >
                       <Download className="h-4 w-4" />
@@ -2447,7 +2455,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                   <div className="flex items-center gap-3 mb-6 text-sm text-slate-500">
                      <span>{selectedTrack.type ? selectedTrack.type.charAt(0).toUpperCase() + selectedTrack.type.slice(1) : 'Article'}</span>
                      <span>•</span>
-                     <span>Last updated {formatKbPdfDate(selectedTrack.updated_at)}</span>
+                     <span>{t('knowledgeBase.lastUpdated')} {formatKbPdfDate(selectedTrack.updated_at)}</span>
                   </div>
                   
                   <h1 className="text-4xl font-bold text-slate-900 dark:text-slate-50 leading-tight mb-6">
@@ -2462,7 +2470,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                         </div>
                         <button
                           className="flex items-center gap-1 hover:text-[#F64A05] transition-colors"
-                          title="Like this article"
+                          title={t('knowledgeBase.likeArticle')}
                           onClick={handleLike}
                         >
                            <ThumbsUp className="h-4 w-4" />
@@ -2639,7 +2647,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center text-white text-sm font-bold shadow-md">
                            ✓
                          </div>
-                         Key Facts
+                         {t('knowledgeBase.keyFacts')}
                        </h3>
                        <div className="grid sm:grid-cols-2 gap-4">
                          {selectedTrackFacts.map((factObj: any, i: number) => {
@@ -2675,7 +2683,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                   {attachments.length > 0 && (
                     <div className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-800 not-prose">
                       <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-6">
-                        Resources
+                        {t('knowledgeBase.resources')}
                       </h2>
                       <div className="space-y-3">
                         {attachments.map((attachment) => {
@@ -2746,7 +2754,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
          sidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
          <div className="p-4 flex items-center justify-between border-b">
-            <span className="font-bold text-lg">Navigation</span>
+            <span className="font-bold text-lg">{t('knowledgeBase.navigation')}</span>
             <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)}>
                <X className="h-5 w-5" />
             </Button>
@@ -2755,7 +2763,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
             {/* Mobile sidebar content matches desktop sidebar */}
              <div className="space-y-6">
              <div>
-               <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 px-1">Collections</h3>
+               <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 px-1">{t('knowledgeBase.collections')}</h3>
                <div className="space-y-1">
                  <button
                    onClick={() => { 
@@ -2766,7 +2774,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                    className="w-full flex items-center px-3 py-3 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-100"
                  >
                    <BookOpen className="h-4 w-4 mr-3" />
-                   All Content
+                   {t('knowledgeBase.allContent')}
                  </button>
                  {categoriesWithCounts?.map((category: any) => (
                    <button
@@ -2822,9 +2830,9 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
       {/* Saved Items Dialog */}
       <Dialog open={showSavedItems} onOpenChange={setShowSavedItems}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
-          <DialogTitle>Saved Items</DialogTitle>
+          <DialogTitle>{t('knowledgeBase.savedItems')}</DialogTitle>
           <DialogDescription>
-            Articles you've bookmarked for later reference
+            {t('knowledgeBase.noSavedItemsDesc')}
           </DialogDescription>
           
           <ScrollArea className="h-[60vh] pr-4">
@@ -2834,10 +2842,10 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
                   <Bookmark className="h-10 w-10 text-slate-400" />
                 </div>
                 <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-2">
-                  No saved items yet
+                  {t('knowledgeBase.noSavedItems')}
                 </h3>
                 <p className="text-slate-500 dark:text-slate-400 max-w-sm">
-                  Bookmark articles to save them for later. Click the bookmark icon on any article card or detail page.
+                  {t('knowledgeBase.noSavedItemsDesc')}
                 </p>
               </div>
             ) : (
@@ -2907,10 +2915,10 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
           {savedItems.length > 0 && (
             <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-700">
               <p className="text-sm text-slate-500">
-                {savedItems.length} {savedItems.length === 1 ? 'item' : 'items'} saved
+                {t('knowledgeBase.savedItems')}: {savedItems.length}
               </p>
               <Button variant="outline" onClick={() => setShowSavedItems(false)}>
-                Close
+                {t('knowledgeBase.close')}
               </Button>
             </div>
           )}
@@ -2921,9 +2929,9 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
       <Dialog open={showKBSettings} onOpenChange={setShowKBSettings}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Knowledge Base Settings</DialogTitle>
+            <DialogTitle>{t('knowledgeBase.kbSettingsTitle')}</DialogTitle>
             <DialogDescription>
-              Configure privacy and access settings for your KB articles
+              {t('knowledgeBase.kbSettingsDesc')}
             </DialogDescription>
           </DialogHeader>
 
@@ -2931,24 +2939,24 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
             {/* Privacy Section */}
             <div className="space-y-4">
               <div>
-                <h3 className="font-semibold mb-1">Article Privacy</h3>
+                <h3 className="font-semibold mb-1">{t('knowledgeBase.articlePrivacy')}</h3>
                 <p className="text-sm text-muted-foreground">
-                  Control how employees access KB articles via QR codes
+                  {t('knowledgeBase.articlePrivacyDesc')}
                 </p>
               </div>
 
               <div className="flex items-start space-x-3 p-4 bg-accent/30 rounded-lg">
                 <Info className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
                 <p className="text-sm">
-                  All KB articles require employee PIN authentication for activity tracking
+                  {t('knowledgeBase.pinAuthNote')}
                 </p>
               </div>
 
               <div className="flex items-center justify-between p-4 border-2 border-border rounded-lg hover:border-primary/50 transition-colors">
                 <div>
-                  <Label htmlFor="guestAccess" className="font-medium">Allow Guest Access</Label>
+                  <Label htmlFor="guestAccess" className="font-medium">{t('knowledgeBase.allowGuestAccess')}</Label>
                   <p className="text-sm text-muted-foreground mt-1">
-                    If enabled, viewers can skip PIN and browse as guest (no activity tracking). If disabled, PIN is required.
+                    {t('knowledgeBase.allowGuestAccessDesc')}
                   </p>
                 </div>
                 <Switch
@@ -2962,13 +2970,13 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
 
           <div className="flex justify-end gap-2 pt-4 border-t">
             <Button variant="outline" onClick={() => setShowKBSettings(false)}>
-              Cancel
+              {t('knowledgeBase.cancel')}
             </Button>
-            <Button 
+            <Button
               className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white hover:opacity-90 border-0"
               onClick={handleSaveKBSettings}
             >
-              Save Changes
+              {t('knowledgeBase.saveChanges')}
             </Button>
           </div>
         </DialogContent>

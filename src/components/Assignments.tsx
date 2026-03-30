@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Footer } from './Footer';
-import { 
-  Plus, 
-  Search, 
+import {
+  Plus,
+  Search,
   Filter,
   Calendar,
   Users,
@@ -65,6 +66,7 @@ interface AssignmentsProps {
 }
 
 export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: AssignmentsProps) {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -92,7 +94,7 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
       setAssignments(data || []);
     } catch (error) {
       console.error('Error fetching assignments:', error);
-      toast.error('Failed to load assignments');
+      toast.error(t('assignments.toastLoadError'));
     } finally {
       setLoading(false);
     }
@@ -107,25 +109,25 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
       setRecalculating(true);
       const orgId = await getCurrentUserOrgId();
       if (!orgId) {
-        toast.error('Organization not found');
+        toast.error(t('assignments.toastOrgNotFound'));
         return;
       }
 
-      toast.info('Recalculating progress for all assignments...');
+      toast.info(t('assignments.toastRecalculating'));
       const result = await recalculateAllProgress(orgId);
-      
+
       if (result.success) {
-        toast.success(`Progress recalculated: ${result.processed} assignments updated`);
+        toast.success(t('assignments.toastRecalcSuccess', { count: result.processed }));
         if (result.errors > 0) {
-          toast.warning(`${result.errors} assignments had errors`);
+          toast.warning(t('assignments.toastRecalcErrors', { count: result.errors }));
         }
         await fetchAssignments();
       } else {
-        toast.error('Failed to recalculate progress');
+        toast.error(t('assignments.toastRecalcFailed'));
       }
     } catch (error) {
       console.error('Error recalculating progress:', error);
-      toast.error('Failed to recalculate progress');
+      toast.error(t('assignments.toastRecalcFailed'));
     } finally {
       setRecalculating(false);
     }
@@ -133,14 +135,14 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
 
   const filteredAssignments = assignments.filter(assignment => {
     const playlistTitle = assignment.playlist?.title || '';
-    const userName = assignment.user ? 
+    const userName = assignment.user ?
       `${assignment.user.first_name} ${assignment.user.last_name}` : '';
-    const matchesSearch = searchQuery === '' || 
+    const matchesSearch = searchQuery === '' ||
       playlistTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
       userName.toLowerCase().includes(searchQuery.toLowerCase());
-    
+
     const matchesStatus = filterStatus === 'all' || assignment.status === filterStatus;
-    
+
     return matchesSearch && matchesStatus;
   });
 
@@ -149,47 +151,47 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
       case 'completed':
         return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-0">
           <CheckCircle className="h-3 w-3 mr-1" />
-          Completed
+          {t('assignments.statusCompleted')}
         </Badge>;
       case 'in_progress':
         return <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border-0">
           <Clock className="h-3 w-3 mr-1" />
-          In Progress
+          {t('assignments.statusInProgress')}
         </Badge>;
       case 'overdue':
         return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-0">
           <AlertCircle className="h-3 w-3 mr-1" />
-          Overdue
+          {t('assignments.statusOverdue')}
         </Badge>;
       default:
         return <Badge variant="outline">
-          Assigned
+          {t('assignments.statusAssigned')}
         </Badge>;
     }
   };
 
   const stats = [
     {
-      label: 'Active Assignments',
+      label: t('assignments.activeAssignments'),
       value: assignments.filter(a => a.status === 'in_progress').length,
       icon: Clock,
       color: 'text-blue-600 dark:text-blue-400'
     },
     {
-      label: 'Completed',
+      label: t('assignments.completed'),
       value: assignments.filter(a => a.status === 'completed').length,
       icon: CheckCircle,
       color: 'text-green-600 dark:text-green-400'
     },
     {
-      label: 'Total Assignments',
+      label: t('assignments.totalAssignments'),
       value: assignments.length,
       icon: PlaySquare,
       color: 'text-primary'
     },
     {
-      label: 'Average Completion',
-      value: assignments.length > 0 
+      label: t('assignments.averageCompletion'),
+      value: assignments.length > 0
         ? `${Math.round(assignments.reduce((acc, a) => acc + (a.progress_percent || 0), 0) / assignments.length)}%`
         : '0%',
       icon: Users,
@@ -202,27 +204,27 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-foreground mb-2">Content Assignments</h1>
+          <h1 className="text-foreground mb-2">{t('assignments.title')}</h1>
           <p className="text-muted-foreground">
-            Manage and track training assignments across your organization
+            {t('assignments.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button 
+          <Button
             variant="outline"
             onClick={handleRecalculateProgress}
             disabled={recalculating || loading}
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${recalculating ? 'animate-spin' : ''}`} />
-            Recalculate Progress
+            {t('assignments.recalculateProgress')}
           </Button>
           {currentRole === 'admin' && (
-            <Button 
+            <Button
               className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
               onClick={onOpenAssignmentWizard}
             >
               <Plus className="h-4 w-4 mr-2" />
-              New Assignment
+              {t('assignments.newAssignment')}
             </Button>
           )}
         </div>
@@ -257,7 +259,7 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search assignments..."
+                placeholder={t('assignments.searchPlaceholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -265,13 +267,13 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
             </div>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
               <SelectTrigger className="w-full lg:w-[180px]">
-                <SelectValue placeholder="Status" />
+                <SelectValue placeholder={t('assignments.allStatus')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="in_progress">In Progress</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="assigned">Assigned</SelectItem>
+                <SelectItem value="all">{t('assignments.allStatus')}</SelectItem>
+                <SelectItem value="in_progress">{t('assignments.inProgress')}</SelectItem>
+                <SelectItem value="completed">{t('assignments.completed')}</SelectItem>
+                <SelectItem value="assigned">{t('assignments.assigned')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -282,11 +284,11 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
       {loading ? (
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading assignments...</p>
+          <p className="text-muted-foreground">{t('assignments.loading')}</p>
         </div>
       ) : assignments.length === 0 ? (
         <div className="text-center py-12">
-          <p className="text-muted-foreground">No assignments found</p>
+          <p className="text-muted-foreground">{t('assignments.noAssignments')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -297,15 +299,15 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
                   {/* Playlist title */}
                   <div className="flex-1">
                     <h3 className="font-semibold text-lg">
-                      {assignment.playlist?.title || 'Unknown Playlist'}
+                      {assignment.playlist?.title || t('assignments.unknownPlaylist')}
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      Assigned to: {assignment.user ? 
-                        `${assignment.user.first_name} ${assignment.user.last_name}` : 
-                        'Unknown User'}
+                      {t('assignments.assignedTo')} {assignment.user ?
+                        `${assignment.user.first_name} ${assignment.user.last_name}` :
+                        t('assignments.unknownUser')}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Assigned: {new Date(assignment.assigned_at).toLocaleDateString()}
+                      {t('assignments.assignedOn')} {new Date(assignment.assigned_at).toLocaleDateString()}
                     </p>
                   </div>
 
@@ -313,10 +315,10 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
                   <div className="flex items-center gap-4">
                     <div className="text-right min-w-[120px]">
                       <p className="text-sm font-medium mb-1">
-                        Progress: {assignment.progress_percent}%
+                        {t('assignments.progress')} {assignment.progress_percent}%
                       </p>
                       <div className="w-32 h-2.5 bg-accent rounded-full overflow-hidden">
-                        <div 
+                        <div
                           className="h-full bg-primary transition-all duration-300"
                           style={{ width: `${assignment.progress_percent}%` }}
                         />
@@ -324,7 +326,7 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
                     </div>
 
                     {/* Status badge */}
-                    <Badge 
+                    <Badge
                       variant={
                         assignment.status === 'completed' ? 'default' :
                         assignment.status === 'in_progress' ? 'secondary' :
@@ -338,7 +340,7 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
                     {/* Due date */}
                     {assignment.due_date && (
                       <div className="text-sm text-muted-foreground min-w-[100px] text-right">
-                        Due: {new Date(assignment.due_date).toLocaleDateString()}
+                        {t('assignments.due')} {new Date(assignment.due_date).toLocaleDateString()}
                       </div>
                     )}
                   </div>
@@ -353,18 +355,18 @@ export function Assignments({ currentRole = 'admin', onOpenAssignmentWizard }: A
         <Card>
           <CardContent className="p-12 text-center">
             <Search className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-            <h3 className="font-semibold mb-2">No assignments found</h3>
+            <h3 className="font-semibold mb-2">{t('assignments.noMatchTitle')}</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              Try adjusting your search or filter criteria
+              {t('assignments.noMatchDesc')}
             </p>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => {
                 setSearchQuery('');
                 setFilterStatus('all');
               }}
             >
-              Clear all filters
+              {t('assignments.clearFilters')}
             </Button>
           </CardContent>
         </Card>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -74,6 +75,7 @@ interface TrackDetailEditProps {
 }
 
 export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated = false, isNewContent = false, onNavigateToPlaylist, registerUnsavedChangesCheck, onArchive, onDuplicate, onCreateVariant }: TrackDetailEditProps) {
+  const { t } = useTranslation();
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -592,7 +594,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
   const handleSave = async () => {
     if (!editFormData.title.trim()) {
-      toast.error('Title is required');
+      toast.error(t('trackDetail.titleRequired'));
       return;
     }
 
@@ -734,7 +736,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       await crud.updateTrack(saveData);
 
       console.log('Track updated successfully, calling onUpdate...');
-      toast.success(contentChanged ? 'Track updated successfully!' : 'Settings updated!');
+      toast.success(contentChanged ? t('trackDetail.trackUpdated') : t('trackDetail.settingsUpdated'));
       
       setIsEditMode(false);
       
@@ -805,7 +807,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       }
     } catch (error: any) {
       console.error('Error updating track:', error);
-      toast.error(`Failed to update track: ${error.message || 'Unknown error'}`);
+      toast.error(t('trackDetail.failedToUpdate', { error: error.message || 'Unknown error' }));
     } finally {
       setIsSaving(false);
     }
@@ -837,10 +839,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       try {
         console.log(`🗑️ Deleting fact ${factToRemove._dbId} from database...`);
         await factsCrud.deleteFactFromTrack(factToRemove._dbId, track.id);
-        toast.success('Key fact removed');
+        toast.success(t('trackDetail.keyFactRemoved'));
       } catch (error: any) {
         console.error('Failed to delete fact:', error);
-        toast.error('Failed to remove fact from database');
+        toast.error(t('trackDetail.failedToRemoveFact'));
         return; // Don't remove from UI if database delete failed
       }
     }
@@ -868,7 +870,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     
     // Validation
     if (!transcriptText || transcriptText.length < 100) {
-      toast.error('Please add a transcript first (at least 100 characters)');
+      toast.error(t('trackDetail.noTranscriptForFacts'));
       return;
     }
 
@@ -934,30 +936,30 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         const newFacts = data.enriched || data.simple || [];
         
         if (newFacts.length === 0) {
-          toast.error('No key facts could be generated from this transcript');
+          toast.error(t('trackDetail.noFactsGenerated'));
           return;
         }
-        
+
         // Add database IDs to new facts (returned from API)
         const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
           ...fact,
           _dbId: data.factIds?.[index], // Add the database UUID
         }));
-        
-        const updatedFacts = shouldReplace 
+
+        const updatedFacts = shouldReplace
           ? newFactsWithIds
           : [...editFormData.learning_objectives, ...newFactsWithIds];
-        
+
         setEditFormData({
           ...editFormData,
           learning_objectives: updatedFacts,
         });
-        
+
         toast.success(`✨ Generated ${newFacts.length} key fact${newFacts.length > 1 ? 's' : ''}!`);
-        
+
       } catch (error: any) {
         console.error('❌ Error generating key facts:', error);
-        toast.error(error.message || 'Failed to generate key facts');
+        toast.error(error.message || t('trackDetail.factsFailed'));
       } finally {
         setIsGeneratingKeyFacts(false);
       }
@@ -995,26 +997,26 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         const newFacts = data.enriched || data.simple || [];
         
         if (newFacts.length === 0) {
-          toast.error('No key facts could be generated from this transcript');
+          toast.error(t('trackDetail.noFactsGenerated'));
           return;
         }
-        
+
         // Add database IDs to new facts (returned from API)
         const newFactsWithIds = newFacts.map((fact: any, index: number) => ({
           ...fact,
           _dbId: data.factIds?.[index], // Add the database UUID
         }));
-        
+
         setEditFormData({
           ...editFormData,
           learning_objectives: newFactsWithIds,
         });
-        
+
         toast.success(`✨ Generated ${newFacts.length} key fact${newFacts.length > 1 ? 's' : ''}!`);
-        
+
       } catch (error: any) {
         console.error('❌ Error generating key facts:', error);
-        toast.error(error.message || 'Failed to generate key facts');
+        toast.error(error.message || t('trackDetail.factsFailed'));
       } finally {
         setIsGeneratingKeyFacts(false);
       }
@@ -1067,14 +1069,14 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           tags: Array.from(currentTags)
         });
 
-        toast.success(checked ? 'Track added to Knowledge Base' : 'Track removed from Knowledge Base');
+        toast.success(checked ? t('trackDetail.trackAddedToKb') : t('trackDetail.trackRemovedFromKb'));
 
         // Refresh the track data - the useEffect watching 'track' will open the modal
         onUpdate();
       } catch (error: any) {
         console.error('Error updating KB toggle:', error);
         pendingKBModalOpen.current = false; // Reset on error
-        toast.error('Failed to update Knowledge Base setting', {
+        toast.error(t('trackDetail.failedToUpdateKb'), {
           description: error.message || 'Please try again'
         });
       }
@@ -1088,13 +1090,13 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
     // Validate file type
     const validTypes = ['video/mp4', 'video/webm', 'video/ogg', 'audio/mpeg', 'audio/wav', 'audio/ogg'];
     if (!validTypes.includes(file.type)) {
-      toast.error('Please upload a valid video or audio file');
+      toast.error(t('trackDetail.uploadFailed', { error: 'Please upload a valid video or audio file' }));
       return;
     }
 
     // Validate file size (max 50MB)
     if (file.size > 50 * 1024 * 1024) {
-      toast.error('File size must be less than 50MB');
+      toast.error(t('trackDetail.uploadFailed', { error: 'File size must be less than 50MB' }));
       return;
     }
 
@@ -1246,10 +1248,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       });
 
       console.log('Updated form with metadata:', { duration, thumbnailUrl, type: isVideo ? 'video' : 'audio' });
-      toast.success('Media file uploaded successfully! Click \"Save Changes\" to persist.');
+      toast.success(t('trackDetail.uploadSuccess'));
     } catch (error: any) {
       console.error('Upload error:', error);
-      toast.error(`Upload failed: ${error.message}`);
+      toast.error(t('trackDetail.uploadFailed', { error: error.message }));
     } finally {
       setIsUploading(false);
     }
@@ -1257,7 +1259,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
 
   const handleTranscribe = async () => {
     if (!editFormData.content_url && !track.content_url) {
-      toast.error('Please upload a video or audio file first');
+      toast.error(t('trackDetail.uploadFailed', { error: 'Please upload a video or audio file first' }));
       return;
     }
 
@@ -1269,7 +1271,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       const contentUrl = editFormData.content_url || track.content_url;
       console.log('Transcribing:', contentUrl);
       
-      toast.info('Transcription started... This may take 30-60 seconds.');
+      toast.info(t('trackDetail.transcriptStarted'));
       
       const response = await fetch(transcribeUrl, {
         method: 'POST',
@@ -1310,13 +1312,13 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         transcript_data: transcriptData,
       }));
 
-      toast.success('Transcript generated and saved!');
+      toast.success(t('trackDetail.transcriptSaved'));
 
       // Trigger refetch to sync track prop (transcript already shows via editFormData.transcript_data)
       await onUpdate();
     } catch (error: any) {
       console.error('Transcription error:', error);
-      toast.error(`Transcription failed: ${error.message}`);
+      toast.error(t('trackDetail.transcriptFailed', { error: error.message }));
     } finally {
       setIsTranscribing(false);
     }
@@ -1399,7 +1401,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
   // Handle save and navigate
   const handleSaveAndNavigate = async () => {
     if (!editFormData.title.trim()) {
-      toast.error('Title is required');
+      toast.error(t('trackDetail.titleRequired'));
       setShowUnsavedDialog(false);
       return;
     }
@@ -1492,7 +1494,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
       }
 
       await crud.updateTrack(saveData);
-      toast.success('Track updated successfully!');
+      toast.success(t('trackDetail.trackUpdated'));
 
       // Close dialog and navigate
       setShowUnsavedDialog(false);
@@ -1525,7 +1527,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
             className="flex items-center"
           >
             <ChevronLeft className="h-4 w-4 mr-1" />
-            Back to Library
+            {t('trackDetail.backToLibrary')}
           </Button>
           <div>
             {isEditMode ? (
@@ -1541,7 +1543,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               {isSystemContent && (
                 <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200">
                   <Lock className="h-3 w-3 mr-1" />
-                  Trike Library
+                  {t('trackDetail.trikeLibrary')}
                 </Badge>
               )}
               <Badge className={getTypeBadgeColor(track.type)}>
@@ -1567,7 +1569,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                   disabled={isSaving}
                 >
                   <X className="h-4 w-4 mr-2" />
-                  Cancel
+                  {t('trackDetail.cancel')}
                 </Button>
                 <Button
                   onClick={handleSave}
@@ -1575,7 +1577,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                   className="hero-primary"
                 >
                   <Save className="h-4 w-4 mr-2" />
-                  {isSaving ? 'Saving...' : 'Save Changes'}
+                  {isSaving ? t('trackDetail.saving') : t('trackDetail.saveChanges')}
                 </Button>
               </>
             ) : (
@@ -1585,10 +1587,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                   className="hero-primary"
                 >
                   <Edit className="h-4 w-4 mr-2" />
-                  Edit Track
+                  {t('trackDetail.editTrack')}
                   {isSystemContent && isSuperAdminAuthenticated && (
                     <Badge className="ml-2 bg-orange-100 text-orange-800">
-                      Super Admin
+                      {t('trackDetail.superAdmin')}
                     </Badge>
                   )}
                 </Button>
@@ -1599,7 +1601,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                       variant="outline"
                       size="icon"
                       className="h-10 w-10"
-                      title="More actions"
+                      title={t('trackDetail.moreActions')}
                     >
                       <MoreVertical className="h-4 w-4" />
                     </Button>
@@ -1615,7 +1617,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                         }}
                       >
                         <Download className="h-4 w-4 mr-2" />
-                        Download PDF
+                        {t('trackDetail.downloadPdf')}
                       </Button>
                       {(onDuplicate || onCreateVariant || onArchive) && (
                         <Separator className="my-1" />
@@ -1630,7 +1632,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                           }}
                         >
                           <Copy className="h-4 w-4 mr-2" />
-                          Duplicate
+                          {t('trackDetail.duplicate')}
                         </Button>
                       )}
                       {onCreateVariant && (
@@ -1643,7 +1645,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                           }}
                         >
                           <GitBranch className="h-4 w-4 mr-2" />
-                          Create Variant
+                          {t('trackDetail.createVariant')}
                         </Button>
                       )}
                       {(onDuplicate || onCreateVariant) && onArchive && (
@@ -1659,7 +1661,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                           }}
                         >
                           <Archive className="h-4 w-4 mr-2" />
-                          Archive
+                          {t('trackDetail.archive')}
                         </Button>
                       )}
                     </div>
@@ -1684,10 +1686,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                   </div>
                   <div className="flex-1">
                     <p className="font-semibold text-blue-900 dark:text-blue-100">
-                      Viewing Version {track.version_number}
+                      {t('trackDetail.viewingVersion', { version: track.version_number })}
                     </p>
                     <p className="text-sm text-blue-700 dark:text-blue-300">
-                      This is an older version. Changes made here won't be saved.
+                      {t('trackDetail.olderVersionNote')}
                     </p>
                   </div>
                   <Button
@@ -1697,7 +1699,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     className="border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:text-blue-300"
                   >
                     <ChevronLeft className="h-4 w-4 mr-1" />
-                    Back
+                    {t('trackDetail.back')}
                   </Button>
                 </div>
               </CardContent>
@@ -1738,7 +1740,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                       src={track.content_url}
                       onTimeUpdate={handleVideoTimeUpdate}
                     >
-                      Your browser does not support the video tag.
+                      {t('trackDetail.videoNotSupported')}
                     </video>
                   ) : (track.type === 'audio' || track.content_url.match(/\.(mp3|wav|ogg)$/i)) ? (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-orange-100 to-orange-50 dark:from-orange-900/20 dark:to-orange-800/20">
@@ -1752,7 +1754,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                         className="w-full max-w-md"
                         src={track.content_url}
                       >
-                        Your browser does not support the audio tag.
+                        {t('trackDetail.audioNotSupported')}
                       </audio>
                     </div>
                   ) : (
@@ -1761,7 +1763,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                         <div className="text-primary opacity-40 scale-150 mb-4">
                           {getTypeIcon(track.type)}
                         </div>
-                        <p className="text-sm text-muted-foreground">Preview not available for this content type</p>
+                        <p className="text-sm text-muted-foreground">{t('trackDetail.previewNotAvailable')}</p>
                       </div>
                     </div>
                   )}
@@ -1827,7 +1829,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           {/* Description */}
           <Card>
             <CardHeader>
-              <CardTitle className="font-bold">Description</CardTitle>
+              <CardTitle className="font-bold">{t('trackDetail.description')}</CardTitle>
             </CardHeader>
             <CardContent>
               {isEditMode ? (
@@ -1835,11 +1837,11 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                   value={editFormData.description}
                   onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
                   rows={4}
-                  placeholder="Enter track description..."
+                  placeholder={t('trackDetail.descriptionPlaceholder')}
                 />
               ) : (
                 <p className="text-muted-foreground leading-relaxed">
-                  {track.description || 'No description provided'}
+                  {track.description || t('trackDetail.noDescription')}
                 </p>
               )}
             </CardContent>
@@ -1849,7 +1851,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="font-bold">Tags</CardTitle>
+                <CardTitle className="font-bold">{t('trackDetail.tags')}</CardTitle>
               </div>
             </CardHeader>
             <CardContent>
@@ -1857,12 +1859,12 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 {/* System Knowledge Base Badge - Always shown when KB toggle is on */}
                 {(isEditMode ? editFormData.show_in_knowledge_base : ((track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base)) && (
                   <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">
-                    In Knowledge Base
+                    {t('trackDetail.inKnowledgeBase')}
                   </Badge>
                 )}
                 {isEditMode ? (
                   <>
-                    {(editFormData.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag: string, index: number) => (
+                    {(editFormData.tags || []).filter((tag: string) => tag !== 'system:show_in_knowledge_base').map((tag: string, index: number) => (
                       <Badge
                         key={index}
                         variant="secondary"
@@ -1880,18 +1882,18 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                       className="h-6"
                     >
                       <Plus className="h-3 w-3 mr-1" />
-                      Add Tag
+                      {t('trackDetail.addTag')}
                     </Button>
                   </>
                 ) : (
                   <>
-                    {(track.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').map((tag: string, index: number) => (
+                    {(track.tags || []).filter((tag: string) => tag !== 'system:show_in_knowledge_base').map((tag: string, index: number) => (
                       <Badge key={index} variant="secondary">
                         {tag}
                       </Badge>
                     ))}
-                    {(track.tags || []).filter((t: string) => t !== 'system:show_in_knowledge_base').length === 0 && !(track.tags || []).includes('system:show_in_knowledge_base') && (
-                      <p className="text-sm text-muted-foreground">No tags</p>
+                    {(track.tags || []).filter((tag: string) => tag !== 'system:show_in_knowledge_base').length === 0 && !(track.tags || []).includes('system:show_in_knowledge_base') && (
+                      <p className="text-sm text-muted-foreground">{t('trackDetail.noTags')}</p>
                     )}
                     <Button
                       variant="outline"
@@ -1900,7 +1902,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                       className="h-6"
                     >
                       <Plus className="h-3 w-3 mr-1" />
-                      Add Tag
+                      {t('trackDetail.addTag')}
                     </Button>
                   </>
                 )}
@@ -1912,7 +1914,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="font-bold">Key Facts</CardTitle>
+                <CardTitle className="font-bold">{t('trackDetail.keyFacts')}</CardTitle>
                 {isEditMode && (
                   <div className="flex items-center gap-2">
                     {/* AI Generate Button with Neon Orange Glow */}
@@ -1920,7 +1922,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                       onClick={handleGenerateKeyFacts}
                       disabled={isGeneratingKeyFacts}
                       className="group relative p-2 rounded-lg transition-all duration-300 hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                      title="Generate Key Facts with AI"
+                      title={t('trackDetail.generateKeyFacts')}
                     >
                       {/* Neon glow background - understated but noticeable */}
                       <div className="absolute inset-0 bg-gradient-to-r from-[#F74A05] to-[#FF6B35] rounded-lg opacity-20 blur-md group-hover:opacity-40 group-hover:blur-lg transition-all duration-300" />
@@ -1946,7 +1948,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     
                     <Button size="sm" variant="outline" onClick={handleAddLearningObjective}>
                       <Plus className="h-4 w-4 mr-1" />
-                      Add
+                      {t('trackDetail.addKeyFact')}
                     </Button>
                   </div>
                 )}
@@ -1981,7 +1983,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                           <Input
                             value={displayValue}
                             onChange={(e) => handleUpdateLearningObjective(index, e.target.value)}
-                            placeholder="Key fact..."
+                            placeholder={t('trackDetail.keyFactPlaceholder')}
                           />
                           <Button
                             size="sm"
@@ -2005,7 +2007,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     );
                   })}
                   {(!editFormData.learning_objectives || editFormData.learning_objectives.length === 0) && (
-                    <p className="text-sm text-muted-foreground">No key facts yet. Click "Add" to create one.</p>
+                    <p className="text-sm text-muted-foreground">{t('trackDetail.noKeyFacts')}</p>
                   )}
                 </div>
               ) : (
@@ -2050,7 +2052,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                       );
                     })
                   ) : (
-                    <p className="text-sm text-muted-foreground">No key facts defined</p>
+                    <p className="text-sm text-muted-foreground">{t('trackDetail.noKeyFactsDefined')}</p>
                   )}
                 </ul>
               )}
@@ -2066,11 +2068,11 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           {(!isSystemContent || isSuperAdminAuthenticated) && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Publishing Status</CardTitle>
+                <CardTitle className="text-base">{t('trackDetail.publishingStatus')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Status</span>
+                  <span className="text-sm text-muted-foreground">{t('trackDetail.status')}</span>
                   {/* Show popover with "Processing..." when trying to publish but not ready */}
                   {track.status !== 'published' && !canPublish ? (
                     <Popover>
@@ -2083,7 +2085,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                         </Badge>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-2 text-xs" side="left">
-                        Processing...
+                        {t('trackDetail.processing')}
                       </PopoverContent>
                     </Popover>
                   ) : (
@@ -2098,24 +2100,24 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                         const newStatus = track.status === 'published' ? 'draft' : 'published';
                         try {
                           await crud.updateTrack({ id: track.id, status: newStatus });
-                          toast.success(`Track ${newStatus === 'published' ? 'published' : 'moved to drafts'}!`);
+                          toast.success(newStatus === 'published' ? t('trackDetail.trackPublishedMsg') : t('trackDetail.trackMovedToDrafts'));
                           await onUpdate();
                         } catch (error: any) {
                           console.error('Error updating status:', error);
-                          toast.error(error.message || 'Failed to update status');
+                          toast.error(error.message || t('trackDetail.failedToUpdateStatus'));
                         }
                       }}
                     >
-                      {track.status === 'published' ? 'Published' : 'Draft'}
+                      {track.status === 'published' ? t('trackDetail.published') : t('trackDetail.draft')}
                     </Badge>
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {track.status === 'published'
-                    ? 'Click the status badge to move to drafts'
+                    ? t('trackDetail.clickToUnpublish')
                     : canPublish
-                      ? 'Click the status badge to publish'
-                      : 'Waiting for content to finish processing...'}
+                      ? t('trackDetail.clickToPublish')
+                      : t('trackDetail.waitingForContent')}
                 </p>
               </CardContent>
             </Card>
@@ -2127,15 +2129,15 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <BookOpen className="h-5 w-5" />
-                  Knowledge Base
+                  {t('trackDetail.knowledgeBase')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label htmlFor="show-in-kb" className="text-base">Show in KB</Label>
+                    <Label htmlFor="show-in-kb" className="text-base">{t('trackDetail.showInKb')}</Label>
                     <p className="text-xs text-muted-foreground">
-                      Available in Knowledge Base
+                      {t('trackDetail.availableInKb')}
                     </p>
                   </div>
                   <Switch
@@ -2160,29 +2162,29 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                         }}
                      >
                        <Tag className="h-4 w-4 mr-2" />
-                       Manage KB Tags
+                       {t('trackDetail.manageKbTags')}
                      </Button>
 
                      {/* Selected KB Tags Display */}
                      <div>
-                       <p className="text-xs font-medium mb-2 text-muted-foreground">Selected Categories:</p>
+                       <p className="text-xs font-medium mb-2 text-muted-foreground">{t('trackDetail.selectedCategories')}</p>
                        <div className="flex flex-wrap gap-2">
                          {(isEditMode ? editFormData.tags : track.tags || [])
-                           .filter((t: string) => kbTagNames.has(t))
+                           .filter((tag: string) => kbTagNames.has(tag))
                            .map((tag: string) => (
                              <Badge key={tag} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-100">
                                {tag}
                              </Badge>
                          ))}
                          {(isEditMode ? editFormData.tags : track.tags || [])
-                           .filter((t: string) => kbTagNames.has(t)).length === 0 && (
-                           <span className="text-xs text-muted-foreground italic">No categories selected</span>
+                           .filter((tag: string) => kbTagNames.has(tag)).length === 0 && (
+                           <span className="text-xs text-muted-foreground italic">{t('trackDetail.noCategoriesSelected')}</span>
                          )}
                        </div>
                      </div>
 
                      <p className="text-xs text-muted-foreground mt-2">
-                       Select "KB Category" tags to organize this content in the Knowledge Base.
+                       {t('trackDetail.kbCategoryNote')}
                      </p>
                   </div>
                 )}
@@ -2195,10 +2197,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <LinkIcon className="h-4 w-4" />
-                Content scope
+                {t('trackDetail.contentScope')}
               </CardTitle>
               <p className="text-xs text-muted-foreground">
-                Who can see and use this content (Universal, Sector, Industry, State, Company, Program, or Unit).
+                {t('trackDetail.contentScopeDesc')}
               </p>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -2213,10 +2215,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                   {track.scope.unit_name && <Badge variant="outline">{track.scope.unit_name}</Badge>}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">No scope set (defaults to Universal).</p>
+                <p className="text-sm text-muted-foreground">{t('trackDetail.noScopeSet')}</p>
               )}
               <Button variant="outline" size="sm" onClick={() => setIsScopeModalOpen(true)}>
-                {track.scope ? 'Edit scope' : 'Set scope'}
+                {track.scope ? t('trackDetail.editScope') : t('trackDetail.setScope')}
               </Button>
             </CardContent>
           </Card>
@@ -2227,15 +2229,15 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Shield className="h-4 w-4 text-orange-500" />
-                  Super Admin Settings
+                  {t('trackDetail.superAdminSettings')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label htmlFor="system-content" className="text-sm font-medium">System Template</Label>
+                    <Label htmlFor="system-content" className="text-sm font-medium">{t('trackDetail.systemTemplate')}</Label>
                     <p className="text-xs text-muted-foreground">
-                      Mark as Trike Library content
+                      {t('trackDetail.markAsTrikeLibrary')}
                     </p>
                   </div>
                   <Switch
@@ -2247,7 +2249,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                       } else {
                         crud.updateTrack({ id: track.id, is_system_content: checked })
                           .then(() => {
-                            toast.success(checked ? 'Marked as system content' : 'Removed from Trike Library');
+                            toast.success(checked ? t('trackDetail.markedAsSystemContent') : t('trackDetail.removedFromTrikeLibrary'));
                             onUpdate();
                           });
                       }
@@ -2261,13 +2263,13 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           {/* Stats */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Performance Metrics</CardTitle>
+              <CardTitle className="text-base">{t('trackDetail.performanceMetrics')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground flex items-center gap-2">
                   <Eye className="h-4 w-4" />
-                  Views
+                  {t('trackDetail.views')}
                 </span>
                 <span className="font-semibold">{track.view_count || 0}</span>
               </div>
@@ -2275,7 +2277,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground flex items-center gap-2">
                   <ThumbsUp className="h-4 w-4" />
-                  Likes
+                  {t('trackDetail.likes')}
                 </span>
                 <span className="font-semibold">{track.likes_count || 0}</span>
               </div>
@@ -2283,10 +2285,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground flex items-center gap-2">
                   <Calendar className="h-4 w-4" />
-                  Published
+                  {t('trackDetail.publishedDate')}
                 </span>
                 <span className="text-sm">
-                  {track.published_at 
+                  {track.published_at
                     ? new Date(track.published_at).toLocaleDateString()
                     : 'N/A'}
                 </span>
@@ -2295,10 +2297,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground flex items-center gap-2">
                   <Clock className="h-4 w-4" />
-                  Last Updated
+                  {t('trackDetail.lastUpdated')}
                 </span>
                 <span className="text-sm">
-                  {track.updated_at 
+                  {track.updated_at
                     ? new Date(track.updated_at).toLocaleDateString()
                     : 'N/A'}
                 </span>
@@ -2310,14 +2312,14 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           {isEditMode && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Duration</CardTitle>
+                <CardTitle className="text-base">{t('trackDetail.duration')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <Input
                   type="number"
                   value={editFormData.duration_minutes}
                   onChange={(e) => setEditFormData({ ...editFormData, duration_minutes: e.target.value })}
-                  placeholder="Duration in minutes"
+                  placeholder={t('trackDetail.durationPlaceholder')}
                 />
               </CardContent>
             </Card>
@@ -2327,13 +2329,13 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           {isEditMode && !isSystemContent && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Media File</CardTitle>
+                <CardTitle className="text-base">{t('trackDetail.mediaFile')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Current Media URL */}
                 {editFormData.content_url && (
                   <div className="p-3 bg-muted rounded-lg">
-                    <p className="text-xs text-muted-foreground mb-1">Current Media URL:</p>
+                    <p className="text-xs text-muted-foreground mb-1">{t('trackDetail.currentMediaUrl')}</p>
                     <p className="text-xs font-mono break-all">{editFormData.content_url}</p>
                   </div>
                 )}
@@ -2342,7 +2344,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 <div className="space-y-2">
                   <label className="text-sm flex items-center gap-2">
                     <LinkIcon className="h-4 w-4" />
-                    Enter Media URL
+                    {t('trackDetail.enterMediaUrl')}
                   </label>
                   <Input
                     type="url"
@@ -2357,14 +2359,14 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                         const thumbnailUrl = await extractThumbnailFromUrl(newUrl);
                         if (thumbnailUrl) {
                           setEditFormData((prev: any) => ({ ...prev, thumbnail_url: thumbnailUrl }));
-                          toast.success('Thumbnail auto-extracted from video URL!');
+                          toast.success(t('trackDetail.autoExtractedThumbnail'));
                         }
                       }
                     }}
-                    placeholder="https://example.com/video.mp4"
+                    placeholder={t('trackDetail.mediaUrlPlaceholder')}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Supports YouTube, Vimeo, and direct file URLs. Note: Auto-transcription only works with uploaded files or direct media URLs, not YouTube/Vimeo links.
+                    {t('trackDetail.mediaUrlNote')}
                   </p>
                 </div>
 
@@ -2373,7 +2375,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     <Separator />
                   </div>
                   <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-background px-2 text-muted-foreground">Or</span>
+                    <span className="bg-background px-2 text-muted-foreground">{t('trackDetail.or')}</span>
                   </div>
                 </div>
 
@@ -2381,7 +2383,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                 <div className="space-y-2">
                   <label className="text-sm flex items-center gap-2">
                     <Upload className="h-4 w-4" />
-                    Upload File
+                    {t('trackDetail.uploadFile')}
                   </label>
                   <Input
                     type="file"
@@ -2391,12 +2393,12 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     className="cursor-pointer"
                   />
                   {isUploading && (
-                    <p className="text-xs text-muted-foreground">Uploading... Please wait.</p>
+                    <p className="text-xs text-muted-foreground">{t('trackDetail.uploading')}</p>
                   )}
                   <p className="text-xs text-muted-foreground">
-                    Supported formats: MP4, WebM, OGG (video), MP3, WAV, OGG (audio)
+                    {t('trackDetail.supportedFormats')}
                     <br />
-                    Max size: 50MB
+                    {t('trackDetail.maxSize')}
                   </p>
                 </div>
               </CardContent>
@@ -2409,7 +2411,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               <CardHeader>
                 <CardTitle className="text-base flex items-center">
                   <ImageIcon className="h-4 w-4 mr-2" />
-                  Thumbnail
+                  {t('trackDetail.thumbnail')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -2427,7 +2429,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                         <Button variant="outline" size="sm" className="w-full" asChild disabled={isUploading}>
                           <span>
                             <Upload className="h-4 w-4 mr-2" />
-                            Replace
+                            {t('trackDetail.replaceThumbnail')}
                           </span>
                         </Button>
                         <input
@@ -2446,10 +2448,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                                   thumbnail_user_set: true // User explicitly set thumbnail
                                 }));
                                 setThumbnailUserSet(true); // Update component state too
-                                toast.success('Thumbnail updated!');
+                                toast.success(t('trackDetail.thumbnailUpdated'));
                               } catch (error: any) {
                                 console.error('Error uploading thumbnail:', error);
-                                toast.error('Failed to upload thumbnail');
+                                toast.error(t('trackDetail.failedToUploadThumbnail'));
                               } finally {
                                 setIsUploading(false);
                               }
@@ -2470,7 +2472,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                           setThumbnailUserSet(true); // Update component state too
                         }}
                         disabled={isUploading}
-                        title="Remove thumbnail"
+                        title={t('trackDetail.removeThumbnail')}
                       >
                         <X className="h-4 w-4" />
                       </Button>
@@ -2481,8 +2483,8 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                     <div className="border-2 border-dashed border-border rounded-lg p-6 hover:bg-accent/50 transition-colors cursor-pointer">
                       <div className="text-center">
                         <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                        <p className="text-sm text-muted-foreground mb-1">Upload Thumbnail</p>
-                        <p className="text-xs text-muted-foreground">16:9 recommended</p>
+                        <p className="text-sm text-muted-foreground mb-1">{t('trackDetail.uploadThumbnail')}</p>
+                        <p className="text-xs text-muted-foreground">{t('trackDetail.thumbnailRatio')}</p>
                       </div>
                     </div>
                     <input
@@ -2501,10 +2503,10 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                               thumbnail_user_set: true // User explicitly uploaded thumbnail
                             }));
                             setThumbnailUserSet(true); // Update component state too
-                            toast.success('Thumbnail uploaded!');
+                            toast.success(t('trackDetail.thumbnailUploaded'));
                           } catch (error: any) {
                             console.error('Error uploading thumbnail:', error);
-                            toast.error('Failed to upload thumbnail');
+                            toast.error(t('trackDetail.failedToUploadThumbnail'));
                           } finally {
                             setIsUploading(false);
                           }
@@ -2515,7 +2517,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
                   </label>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  Used in playlists, library views, and video player poster
+                  {t('trackDetail.thumbnailNote')}
                 </p>
               </CardContent>
             </Card>
@@ -2524,30 +2526,30 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
           {/* Metadata */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Metadata</CardTitle>
+              <CardTitle className="text-base">{t('trackDetail.metadata')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <div>
-                <span className="text-muted-foreground">Type:</span>
+                <span className="text-muted-foreground">{t('trackDetail.typeLabel')}</span>
                 <span className="ml-2 capitalize">{track.type}</span>
               </div>
               <div>
-                <span className="text-muted-foreground">Status:</span>
+                <span className="text-muted-foreground">{t('trackDetail.statusLabel')}</span>
                 <span className="ml-2 capitalize">{track.status}</span>
               </div>
               <div>
-                <span className="text-muted-foreground">Version:</span>
+                <span className="text-muted-foreground">{t('trackDetail.versionLabel')}</span>
                 <span className="ml-2">{track.version || '1.0'}</span>
               </div>
               {track.passing_score && (
                 <div>
-                  <span className="text-muted-foreground">Passing Score:</span>
+                  <span className="text-muted-foreground">{t('trackDetail.passingScore')}</span>
                   <span className="ml-2">{track.passing_score}%</span>
                 </div>
               )}
               {track.max_attempts && (
                 <div>
-                  <span className="text-muted-foreground">Max Attempts:</span>
+                  <span className="text-muted-foreground">{t('trackDetail.maxAttempts')}</span>
                   <span className="ml-2">{track.max_attempts}</span>
                 </div>
               )}
@@ -2604,11 +2606,11 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
               if (unrecognizedNames.length > 0) {
                 console.warn('Some tags were not recognized:', unrecognizedNames);
               }
-              toast.success('Tags updated');
+              toast.success(t('trackDetail.tagsUpdated'));
               onUpdate(); // Refresh track data
             } catch (error: any) {
               console.error('Error updating tags:', error);
-              toast.error('Failed to update tags', {
+              toast.error(t('trackDetail.failedToUpdateTags'), {
                 description: error.message || 'Please try again'
               });
             }

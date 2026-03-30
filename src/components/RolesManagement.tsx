@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
@@ -41,6 +42,7 @@ interface RolesManagementProps {
 }
 
 export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementProps) {
+  const { t } = useTranslation();
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -66,8 +68,8 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
       setRoles(data);
     } catch (error: any) {
       console.error('Error loading roles:', error);
-      toast.error('Failed to load roles', {
-        description: error.message || 'An unexpected error occurred',
+      toast.error(t('rolesManagement.failedLoadRoles'), {
+        description: error.message || t('rolesManagement.unexpectedError'),
       });
     } finally {
       setLoading(false);
@@ -97,11 +99,11 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
       await rolesApi.create(input);
       await loadRoles();
       setIsModalOpen(false);
-      toast.success('Role created successfully');
+      toast.success(t('rolesManagement.roleCreatedSuccess'));
     } catch (error: any) {
       console.error('Error creating role:', error);
-      toast.error('Failed to create role', {
-        description: error.message || 'An unexpected error occurred',
+      toast.error(t('rolesManagement.failedCreateRole'), {
+        description: error.message || t('rolesManagement.unexpectedError'),
       });
       throw error;
     }
@@ -113,11 +115,11 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
       await loadRoles();
       setIsModalOpen(false);
       setEditingRole(null);
-      toast.success('Role updated successfully');
+      toast.success(t('rolesManagement.roleUpdatedSuccess'));
     } catch (error: any) {
       console.error('Error updating role:', error);
-      toast.error('Failed to update role', {
-        description: error.message || 'An unexpected error occurred',
+      toast.error(t('rolesManagement.failedUpdateRole'), {
+        description: error.message || t('rolesManagement.unexpectedError'),
       });
       throw error;
     }
@@ -125,20 +127,18 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
 
   const handleDeleteRole = async (roleId: string) => {
     if (
-      !confirm(
-        'Are you sure you want to archive this role? It will be marked as archived and hidden from active lists.'
-      )
+      !confirm(t('rolesManagement.confirmArchive'))
     )
       return;
 
     try {
       await rolesApi.delete(roleId);
       await loadRoles();
-      toast.success('Role archived successfully');
+      toast.success(t('rolesManagement.roleArchivedSuccess'));
     } catch (error: any) {
       console.error('Error deleting role:', error);
-      toast.error('Failed to archive role', {
-        description: error.message || 'An unexpected error occurred',
+      toast.error(t('rolesManagement.failedArchiveRole'), {
+        description: error.message || t('rolesManagement.unexpectedError'),
       });
     }
   };
@@ -180,7 +180,7 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
       setUserListPopover(roleId);
     } catch (error: any) {
       console.error('Error loading users:', error);
-      toast.error('Failed to load users');
+      toast.error(t('rolesManagement.failedLoadUsers'));
     }
   };
 
@@ -202,17 +202,17 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
   const getPermissionLevelLabel = (level: number) => {
     switch (level) {
       case 1:
-        return 'Basic Employee';
+        return t('rolesManagement.levelBasicEmployee');
       case 2:
-        return 'Team Lead';
+        return t('rolesManagement.levelTeamLead');
       case 3:
-        return 'Manager';
+        return t('rolesManagement.levelManager');
       case 4:
-        return 'District/Regional Manager';
+        return t('rolesManagement.levelDistrictManager');
       case 5:
-        return 'Corporate/Executive';
+        return t('rolesManagement.levelCorporate');
       default:
-        return `Level ${level}`;
+        return t('rolesManagement.levelN', { level });
     }
   };
 
@@ -235,7 +235,7 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
             onClick={handleOpenCreateModal}
           >
             <Plus className="w-4 h-4 mr-2" />
-            New Role
+            {t('rolesManagement.newRole')}
           </Button>
           {selectedRoleIds.size >= 2 ? (
             <Button
@@ -248,7 +248,7 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
                 setShowManualMergeWizard(true);
               }}
             >
-              Merge Selected ({selectedRoleIds.size})
+              {t('rolesManagement.mergeSelected', { count: selectedRoleIds.size })}
             </Button>
           ) : (
             <Button
@@ -256,7 +256,7 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
               size="sm"
               onClick={() => setShowDuplicatesModal(true)}
             >
-              Find Duplicates
+              {t('rolesManagement.findDuplicates')}
             </Button>
           )}
         </div>
@@ -265,7 +265,7 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
           <Input
-            placeholder="Search roles..."
+            placeholder={t('rolesManagement.searchPlaceholder')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-9"
@@ -277,18 +277,18 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-2">
           <Label htmlFor="status-filter" className="text-sm font-medium">
-            Status:
+            {t('rolesManagement.statusLabel')}
           </Label>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger id="status-filter" className="w-[180px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="inactive">Inactive</SelectItem>
-              <SelectItem value="pending_review">Pending Review</SelectItem>
-              <SelectItem value="archived">Archived</SelectItem>
+              <SelectItem value="all">{t('rolesManagement.statusAll')}</SelectItem>
+              <SelectItem value="active">{t('rolesManagement.statusActive')}</SelectItem>
+              <SelectItem value="inactive">{t('rolesManagement.statusInactive')}</SelectItem>
+              <SelectItem value="pending_review">{t('rolesManagement.statusPendingReview')}</SelectItem>
+              <SelectItem value="archived">{t('rolesManagement.statusArchived')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -303,7 +303,7 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
             htmlFor="show-archived"
             className="text-sm font-normal cursor-pointer"
           >
-            Show archived
+            {t('rolesManagement.showArchived')}
           </Label>
         </div>
       </div>
@@ -312,13 +312,13 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
       {selectedRoleIds.size > 0 && (
         <div className="px-4 py-2 bg-orange-50 border border-orange-200 rounded-lg flex items-center justify-between">
           <span className="text-sm text-orange-800">
-            {selectedRoleIds.size} role{selectedRoleIds.size > 1 ? 's' : ''} selected
+            {t('rolesManagement.rolesSelected', { count: selectedRoleIds.size })}
           </span>
           <button
             onClick={() => setSelectedRoleIds(new Set())}
             className="text-sm text-orange-600 hover:text-orange-800 font-medium"
           >
-            Clear selection
+            {t('rolesManagement.clearSelection')}
           </button>
         </div>
       )}
@@ -330,7 +330,7 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
             <div className="p-12 text-center">
               <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
               <p className="mt-4 text-sm text-muted-foreground">
-                Loading roles...
+                {t('rolesManagement.loadingRoles')}
               </p>
             </div>
           ) : filteredRoles.length === 0 ? (
@@ -338,13 +338,13 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
               <Users className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
               <h3 className="font-semibold mb-2">
                 {searchTerm || statusFilter !== 'all'
-                  ? 'No roles match your search'
-                  : 'No roles found'}
+                  ? t('rolesManagement.noRolesMatchSearch')
+                  : t('rolesManagement.noRolesFound')}
               </h3>
               <p className="text-sm text-muted-foreground mb-4">
                 {searchTerm || statusFilter !== 'all'
-                  ? 'Try adjusting your filters or search terms'
-                  : 'Create your first role to get started'}
+                  ? t('rolesManagement.adjustFilters')
+                  : t('rolesManagement.createFirstRole')}
               </p>
               {!searchTerm && statusFilter === 'all' && (
                 <Button
@@ -352,7 +352,7 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
                   onClick={handleOpenCreateModal}
                 >
                   <Plus className="w-4 h-4 mr-2" />
-                  Create First Role
+                  {t('rolesManagement.createFirstRoleBtn')}
                 </Button>
               )}
             </div>
@@ -378,13 +378,13 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
                       onClick={(e) => e.stopPropagation()}
                     />
                   </TableHead>
-                  <TableHead>Role Name</TableHead>
-                  <TableHead>Department</TableHead>
-                  <TableHead>Job Family</TableHead>
-                  <TableHead>Users</TableHead>
-                  <TableHead>Permission Level</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t('rolesManagement.colRoleName')}</TableHead>
+                  <TableHead>{t('rolesManagement.colDepartment')}</TableHead>
+                  <TableHead>{t('rolesManagement.colJobFamily')}</TableHead>
+                  <TableHead>{t('rolesManagement.colUsers')}</TableHead>
+                  <TableHead>{t('rolesManagement.colPermissionLevel')}</TableHead>
+                  <TableHead>{t('rolesManagement.colStatus')}</TableHead>
+                  <TableHead className="text-right">{t('rolesManagement.colActions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -465,7 +465,7 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
                           <PopoverContent className="w-64">
                             <div className="space-y-2">
                               <h4 className="font-semibold text-sm mb-2">
-                                Users with this role
+                                {t('rolesManagement.usersWithThisRole')}
                               </h4>
                               {userListData.slice(0, 5).map((user, idx) => (
                                 <div
@@ -482,7 +482,7 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
                               ))}
                               {userListData.length > 5 && (
                                 <p className="text-xs text-muted-foreground pt-2">
-                                  and {userListData.length - 5} more
+                                  {t('rolesManagement.andMore', { count: userListData.length - 5 })}
                                 </p>
                               )}
                             </div>
@@ -573,4 +573,3 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
     </div>
   );
 }
-

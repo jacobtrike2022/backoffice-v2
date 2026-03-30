@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -57,13 +58,14 @@ interface AlbumDetailViewProps {
   previousView?: string | null;
 }
 
-export function AlbumDetailView({ 
-  album, 
-  onBack, 
-  onUpdate, 
+export function AlbumDetailView({
+  album,
+  onBack,
+  onUpdate,
   onPublish,
-  previousView 
+  previousView
 }: AlbumDetailViewProps) {
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
     title: album.title,
@@ -100,10 +102,10 @@ export function AlbumDetailView({
 
   const handleSave = async () => {
     if (!editForm.title.trim()) {
-      toast.error('Title is required');
+      toast.error(t('albumDetail.toastTitleRequired'));
       return;
     }
-    
+
     setSaving(true);
     try {
       await albumsCrud.updateAlbum({
@@ -111,12 +113,12 @@ export function AlbumDetailView({
         title: editForm.title.trim(),
         description: editForm.description.trim() || undefined,
       });
-      toast.success('Album updated');
+      toast.success(t('albumDetail.toastAlbumUpdated'));
       setIsEditing(false);
       onUpdate();
     } catch (err) {
       console.error('Error saving album:', err);
-      toast.error('Failed to save album');
+      toast.error(t('albumDetail.toastSaveFailed'));
     } finally {
       setSaving(false);
     }
@@ -125,13 +127,13 @@ export function AlbumDetailView({
   const handleRemoveTrack = async (trackId: string) => {
     try {
       await albumsCrud.removeTrackFromAlbum(album.id, trackId);
-      toast.success('Track removed');
+      toast.success(t('albumDetail.toastTrackRemoved'));
       // Update local state optimistically
       setLocalTracks(prev => prev.filter(t => t.track_id !== trackId));
       onUpdate();
     } catch (err) {
       console.error('Error removing track:', err);
-      toast.error('Failed to remove track');
+      toast.error(t('albumDetail.toastRemoveTrackFailed'));
     }
   };
 
@@ -161,16 +163,16 @@ export function AlbumDetailView({
 
   const handleAddSelectedTracks = async () => {
     if (selectedTrackIds.size === 0) return;
-    
+
     try {
       const result = await albumsCrud.addTracksToAlbum(album.id, Array.from(selectedTrackIds));
-      toast.success(`Added ${selectedTrackIds.size} track(s)`);
+      toast.success(t('albumDetail.toastTracksAdded', { count: selectedTrackIds.size }));
       setShowAddTracksDialog(false);
       // onUpdate will refresh the album and localTracks will sync via useEffect
       onUpdate();
     } catch (err) {
       console.error('Error adding tracks:', err);
-      toast.error('Failed to add tracks');
+      toast.error(t('albumDetail.toastAddTracksFailed'));
     }
   };
 
@@ -196,7 +198,7 @@ export function AlbumDetailView({
   const handleDragOver = (e: React.DragEvent, targetTrackId: string) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    
+
     if (!draggedTrackId || draggedTrackId === targetTrackId) return;
 
     // Track the drop target
@@ -204,13 +206,13 @@ export function AlbumDetailView({
 
     const draggedIndex = localTracks.findIndex(t => t.track_id === draggedTrackId);
     const targetIndex = localTracks.findIndex(t => t.track_id === targetTrackId);
-    
+
     if (draggedIndex === -1 || targetIndex === -1) return;
 
     const newTracks = [...localTracks];
     const [draggedTrack] = newTracks.splice(draggedIndex, 1);
     newTracks.splice(targetIndex, 0, draggedTrack);
-    
+
     setLocalTracks(newTracks);
   };
 
@@ -223,21 +225,21 @@ export function AlbumDetailView({
 
     // Get the current order from localTracks (which was updated during dragOver)
     const trackIds = localTracks.map(t => t.track_id);
-    
+
     try {
       await albumsCrud.reorderAlbumTracks(album.id, trackIds);
-      toast.success('Track order updated');
+      toast.success(t('albumDetail.toastOrderUpdated'));
       onUpdate(); // Refresh album data
     } catch (err) {
       console.error('Error reordering tracks:', err);
-      toast.error('Failed to reorder tracks');
+      toast.error(t('albumDetail.toastReorderFailed'));
       // Revert to original order
       if (album.tracks) {
         const sorted = [...album.tracks].sort((a, b) => a.display_order - b.display_order);
         setLocalTracks(sorted);
       }
     }
-    
+
     setDraggedTrackId(null);
     setDropTargetId(null);
   };
@@ -264,6 +266,20 @@ export function AlbumDetailView({
   const totalDuration = album.total_duration_minutes || 0;
   const trackCount = album.track_count || 0;
 
+  const getScopeLabel = () => {
+    if (!albumScope) return t('albumDetail.scopeDefault');
+    if (albumScope.scope_level === 'UNIVERSAL') return t('albumDetail.scopeUniversal');
+    if (albumScope.scope_level === 'STATE' && albumScope.state_code) {
+      return albumScope.state_name
+        ? t('albumDetail.scopeStateFull', { code: albumScope.state_code, name: albumScope.state_name })
+        : t('albumDetail.scopeState', { code: albumScope.state_code });
+    }
+    if (albumScope.scope_level === 'COMPANY' && albumScope.company_name) {
+      return t('albumDetail.scopeCompany', { name: albumScope.company_name });
+    }
+    return albumScope.scope_level;
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -271,7 +287,9 @@ export function AlbumDetailView({
         <div className="flex items-center space-x-4">
           <Button variant="ghost" onClick={onBack} className="flex items-center">
             <ArrowLeft className="h-4 w-4 mr-1" />
-            {previousView ? `Back to ${previousView === 'content' ? 'Content Library' : 'Albums'}` : 'Back to Albums'}
+            {previousView
+              ? (previousView === 'content' ? t('albumDetail.backToContent') : t('albumDetail.backToAlbums'))
+              : t('albumDetail.backToAlbums')}
           </Button>
           <div>
             <div className="flex items-center space-x-3">
@@ -283,7 +301,7 @@ export function AlbumDetailView({
                   value={editForm.title}
                   onChange={(e) => setEditForm(prev => ({ ...prev, title: e.target.value }))}
                   className="text-xl font-bold h-auto py-1"
-                  placeholder="Album title"
+                  placeholder={t('albumDetail.albumTitlePlaceholder')}
                 />
               ) : (
                 <h1 className="text-foreground">{album.title}</h1>
@@ -294,15 +312,15 @@ export function AlbumDetailView({
                 {album.status}
               </Badge>
               <span>•</span>
-              <span>{trackCount} {trackCount === 1 ? 'track' : 'tracks'}</span>
+              <span>{trackCount} {trackCount === 1 ? t('albumDetail.track') : t('albumDetail.tracks')}</span>
               <span>•</span>
-              <span>{totalDuration} min</span>
+              <span>{totalDuration} {t('albumDetail.min')}</span>
               <span>•</span>
-              <span>Updated {new Date(album.updated_at).toLocaleDateString()}</span>
+              <span>{t('albumDetail.updated')} {new Date(album.updated_at).toLocaleDateString()}</span>
             </div>
           </div>
         </div>
-        
+
         <div className="flex items-center space-x-2">
           {isEditing ? (
             <>
@@ -311,11 +329,11 @@ export function AlbumDetailView({
                 setEditForm({ title: album.title, description: album.description || '' });
               }}>
                 <X className="h-4 w-4 mr-2" />
-                Cancel
+                {t('albumDetail.cancel')}
               </Button>
               <Button onClick={handleSave} disabled={saving}>
                 <Save className="h-4 w-4 mr-2" />
-                {saving ? 'Saving...' : 'Save'}
+                {saving ? t('albumDetail.saving') : t('albumDetail.save')}
               </Button>
             </>
           ) : (
@@ -323,12 +341,12 @@ export function AlbumDetailView({
               {album.status === 'draft' && (
                 <Button onClick={onPublish} className="bg-green-600 hover:bg-green-700">
                   <CheckCircle2 className="h-4 w-4 mr-2" />
-                  Publish
+                  {t('albumDetail.publish')}
                 </Button>
               )}
               <Button variant="outline" onClick={() => setIsEditing(true)}>
                 <Edit className="h-4 w-4 mr-2" />
-                Edit
+                {t('albumDetail.edit')}
               </Button>
             </>
           )}
@@ -340,21 +358,13 @@ export function AlbumDetailView({
         <CardContent className="pt-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-medium mb-1">Scope</h3>
+              <h3 className="text-sm font-medium mb-1">{t('albumDetail.scope')}</h3>
               <p className="text-sm text-muted-foreground">
-                {albumScope
-                  ? albumScope.scope_level === 'UNIVERSAL'
-                    ? 'Universal (visible to all organizations)'
-                    : albumScope.scope_level === 'STATE' && albumScope.state_code
-                      ? `State: ${albumScope.state_code}${albumScope.state_name ? ` – ${albumScope.state_name}` : ''}`
-                      : albumScope.scope_level === 'COMPANY' && albumScope.company_name
-                        ? `Company: ${albumScope.company_name}`
-                        : albumScope.scope_level
-                  : 'Universal (default)'}
+                {getScopeLabel()}
               </p>
             </div>
             <Button variant="outline" size="sm" onClick={() => setScopeModalOpen(true)}>
-              Edit scope
+              {t('albumDetail.editScope')}
             </Button>
           </div>
         </CardContent>
@@ -364,11 +374,11 @@ export function AlbumDetailView({
       {isEditing && (
         <Card>
           <CardContent className="pt-6">
-            <label className="text-sm font-medium mb-2 block">Description</label>
+            <label className="text-sm font-medium mb-2 block">{t('albumDetail.description')}</label>
             <Textarea
               value={editForm.description}
               onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
-              placeholder="Optional album description..."
+              placeholder={t('albumDetail.descriptionPlaceholder')}
               rows={3}
             />
           </CardContent>
@@ -401,24 +411,24 @@ export function AlbumDetailView({
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <AlbumIcon className="h-5 w-5" />
-            Tracks in Album
+            {t('albumDetail.tracksInAlbum')}
           </CardTitle>
           <Button onClick={() => setShowAddTracksDialog(true)}>
             <Plus className="h-4 w-4 mr-2" />
-            Add Tracks
+            {t('albumDetail.addTracks')}
           </Button>
         </CardHeader>
         <CardContent>
           {(!localTracks || localTracks.length === 0) ? (
             <div className="text-center py-12">
               <AlbumIcon className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-              <h3 className="font-semibold mb-2">No tracks in this album</h3>
+              <h3 className="font-semibold mb-2">{t('albumDetail.noTracksTitle')}</h3>
               <p className="text-sm text-muted-foreground mb-4">
-                Add tracks to build your album
+                {t('albumDetail.noTracksDesc')}
               </p>
               <Button variant="outline" onClick={() => setShowAddTracksDialog(true)}>
                 <Plus className="h-4 w-4 mr-2" />
-                Add Tracks
+                {t('albumDetail.addTracks')}
               </Button>
             </div>
           ) : (
@@ -439,13 +449,13 @@ export function AlbumDetailView({
                     <GripVertical className="h-4 w-4 cursor-grab active:cursor-grabbing" />
                     <span className="text-sm w-6 text-center">{index + 1}</span>
                   </div>
-                  
+
                   <img
                     src={getEffectiveThumbnailUrl(albumTrack.track?.thumbnail_url)}
                     alt=""
                     className="w-12 h-12 rounded object-cover bg-muted"
                   />
-                  
+
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{albumTrack.track?.title || 'Untitled'}</p>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -456,15 +466,15 @@ export function AlbumDetailView({
                       {albumTrack.track?.duration_minutes && (
                         <span className="flex items-center gap-1">
                           <Clock className="h-3 w-3" />
-                          {albumTrack.track.duration_minutes} min
+                          {albumTrack.track.duration_minutes} {t('albumDetail.min')}
                         </span>
                       )}
                       {albumTrack.is_required && (
-                        <Badge variant="secondary" className="text-xs">Required</Badge>
+                        <Badge variant="secondary" className="text-xs">{t('albumDetail.required')}</Badge>
                       )}
                     </div>
                   </div>
-                  
+
                   <Button
                     variant="ghost"
                     size="sm"
@@ -484,24 +494,24 @@ export function AlbumDetailView({
       <Dialog open={showAddTracksDialog} onOpenChange={setShowAddTracksDialog}>
         <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>Add Tracks to Album</DialogTitle>
+            <DialogTitle>{t('albumDetail.addTracksDialogTitle')}</DialogTitle>
             <DialogDescription>
-              Select tracks to add to "{album.title}"
+              {t('albumDetail.addTracksDialogDesc', { title: album.title })}
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="py-2">
             <Input
-              placeholder="Search tracks..."
+              placeholder={t('albumDetail.searchTracksPlaceholder')}
               value={trackSearchQuery}
               onChange={(e) => setTrackSearchQuery(e.target.value)}
             />
           </div>
-          
+
           <div className="flex-1 overflow-y-auto min-h-[300px] space-y-2">
             {filteredAvailableTracks.length === 0 ? (
               <p className="text-center text-muted-foreground py-8">
-                No available tracks to add
+                {t('albumDetail.noAvailableTracks')}
               </p>
             ) : (
               filteredAvailableTracks.map((track) => (
@@ -532,7 +542,7 @@ export function AlbumDetailView({
                         {track.type}
                       </Badge>
                       {track.duration_minutes != null && track.duration_minutes > 0 && (
-                        <span>{track.duration_minutes} min</span>
+                        <span>{track.duration_minutes} {t('albumDetail.min')}</span>
                       )}
                     </div>
                   </div>
@@ -540,16 +550,18 @@ export function AlbumDetailView({
               ))
             )}
           </div>
-          
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAddTracksDialog(false)}>
-              Cancel
+              {t('albumDetail.cancelButton')}
             </Button>
             <Button
               onClick={handleAddSelectedTracks}
               disabled={selectedTrackIds.size === 0}
             >
-              Add {selectedTrackIds.size} Track{selectedTrackIds.size !== 1 ? 's' : ''}
+              {selectedTrackIds.size === 1
+                ? t('albumDetail.addTracksButton_one', { count: selectedTrackIds.size })
+                : t('albumDetail.addTracksButton_other', { count: selectedTrackIds.size })}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -559,4 +571,3 @@ export function AlbumDetailView({
     </div>
   );
 }
-

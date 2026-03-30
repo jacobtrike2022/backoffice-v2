@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Footer } from './Footer';
 import { Button } from './ui/button';
@@ -88,6 +89,7 @@ interface PlaylistsProps {
 }
 
 export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditPlaylist, selectedPlaylistId, selectedAlbumId, initialTab, previousView, onBackToPreviousView }: PlaylistsProps) {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [viewFilter, setViewFilter] = useState<string>('all');
   const [selectedPlaylist, setSelectedPlaylist] = useState<any | null>(null);
@@ -137,7 +139,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       setExpandedAlbums(new Set()); // Reset expanded albums
     } catch (error) {
       console.error('Error fetching playlist details:', error);
-      toast.error('Failed to load playlist details');
+      toast.error(t('playlists.failedLoadPlaylistDetails'));
     } finally {
       setLoadingPlaylistDetails(false);
     }
@@ -181,7 +183,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       setAlbums(data);
     } catch (err) {
       console.error('Error fetching albums:', err);
-      toast.error('Failed to load albums');
+      toast.error(t('playlists.failedLoadAlbums'));
     } finally {
       setAlbumsLoading(false);
     }
@@ -248,10 +250,10 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       link.download = `${selectedPlaylist.title}-assignments-${new Date().toISOString().split('T')[0]}.csv`;
       link.click();
 
-      toast.success(`Exported ${history.length} assignments to CSV`);
+      toast.success(t('playlists.exportedAssignments', { count: history.length }));
     } catch (error) {
       console.error('Error exporting CSV:', error);
-      toast.error('Failed to export CSV');
+      toast.error(t('playlists.failedExportCsv'));
     }
   };
 
@@ -308,7 +310,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
     } catch (err) {
       console.error('Error fetching playlists:', err);
       setError(err as Error);
-      toast.error('Failed to load playlists');
+      toast.error(t('playlists.failedLoadPlaylists'));
     } finally {
       setLoading(false);
     }
@@ -319,11 +321,11 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
     e.stopPropagation();
     try {
       await crud.duplicatePlaylist(playlistId);
-      toast.success('Playlist duplicated successfully');
+      toast.success(t('playlists.playlistDuplicatedSuccess'));
       fetchPlaylists();
     } catch (err) {
       console.error('Error duplicating playlist:', err);
-      toast.error('Failed to duplicate playlist');
+      toast.error(t('playlists.failedDuplicatePlaylist'));
     }
   };
 
@@ -338,33 +340,33 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
   const handleArchivePlaylist = async (playlistId: string, archiveAssignments: boolean) => {
     try {
       await crud.archivePlaylist(playlistId, archiveAssignments);
-      toast.success('Playlist archived successfully');
+      toast.success(t('playlists.playlistArchivedSuccess'));
       fetchPlaylists();
       if (selectedPlaylist?.id === playlistId) {
         setSelectedPlaylist(null);
       }
     } catch (err) {
       console.error('Error archiving playlist:', err);
-      toast.error('Failed to archive playlist');
+      toast.error(t('playlists.failedArchivePlaylist'));
       throw err; // Re-throw so modal knows it failed
     }
   };
 
   const handleDeletePlaylist = async (playlistId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('Are you sure you want to delete this playlist? This action cannot be undone.')) {
+    if (!confirm(t('playlists.confirmDeletePlaylist'))) {
       return;
     }
     try {
       await crud.deletePlaylist(playlistId);
-      toast.success('Playlist deleted successfully');
+      toast.success(t('playlists.playlistDeletedSuccess'));
       fetchPlaylists();
       if (selectedPlaylist?.id === playlistId) {
         setSelectedPlaylist(null);
       }
     } catch (err) {
       console.error('Error deleting playlist:', err);
-      toast.error('Failed to delete playlist');
+      toast.error(t('playlists.failedDeletePlaylist'));
     }
   };
 
@@ -373,17 +375,17 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
     try {
       const orgId = effectiveOrgId;
       if (!orgId) {
-        toast.error('Organization not found');
+        toast.error(t('playlists.orgNotFound'));
         return;
       }
-      
+
       const newAlbum = await albumsCrud.createAlbum({
         title: 'New Album',
         organization_id: orgId,
         status: 'draft',
       });
       
-      toast.success('Album created');
+      toast.success(t('playlists.albumCreated'));
       // Fetch full album with tracks relationship
       const fullAlbum = await albumsCrud.getAlbumById(newAlbum.id);
       if (fullAlbum) {
@@ -392,7 +394,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       await fetchAlbums();
     } catch (err) {
       console.error('Error creating album:', err);
-      toast.error('Failed to create album');
+      toast.error(t('playlists.failedCreateAlbum'));
     }
   };
 
@@ -400,11 +402,11 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
     e.stopPropagation();
     try {
       await albumsCrud.duplicateAlbum(albumId);
-      toast.success('Album duplicated');
+      toast.success(t('playlists.albumDuplicated'));
       await fetchAlbums();
     } catch (err) {
       console.error('Error duplicating album:', err);
-      toast.error('Failed to duplicate album');
+      toast.error(t('playlists.failedDuplicateAlbum'));
     }
   };
 
@@ -412,39 +414,39 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
     e.stopPropagation();
     try {
       await albumsCrud.archiveAlbum(albumId);
-      toast.success('Album archived');
+      toast.success(t('playlists.albumArchived'));
       await fetchAlbums();
       if (selectedAlbum?.id === albumId) {
         setSelectedAlbum(null);
       }
     } catch (err) {
       console.error('Error archiving album:', err);
-      toast.error('Failed to archive album');
+      toast.error(t('playlists.failedArchiveAlbum'));
     }
   };
 
   const handleDeleteAlbum = async (albumId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('Are you sure you want to delete this album? This action cannot be undone.')) {
+    if (!confirm(t('playlists.confirmDeleteAlbum'))) {
       return;
     }
     try {
       await albumsCrud.deleteAlbum(albumId);
-      toast.success('Album deleted');
+      toast.success(t('playlists.albumDeleted'));
       await fetchAlbums();
       if (selectedAlbum?.id === albumId) {
         setSelectedAlbum(null);
       }
     } catch (err) {
       console.error('Error deleting album:', err);
-      toast.error('Failed to delete album');
+      toast.error(t('playlists.failedDeleteAlbum'));
     }
   };
 
   const handlePublishAlbum = async (albumId: string) => {
     try {
       await albumsCrud.publishAlbum(albumId);
-      toast.success('Album published');
+      toast.success(t('playlists.albumPublished'));
       await fetchAlbums();
       // Refresh selected album if it's the one being published
       if (selectedAlbum?.id === albumId) {
@@ -453,7 +455,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       }
     } catch (err) {
       console.error('Error publishing album:', err);
-      toast.error('Failed to publish album');
+      toast.error(t('playlists.failedPublishAlbum'));
     }
   };
 
@@ -519,7 +521,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
               className="flex items-center"
             >
               <ArrowLeft className="h-4 w-4 mr-1" />
-              {previousView ? `Back to ${previousView === 'content' ? 'Content Library' : 'Previous View'}` : 'Back to Playlists'}
+              {previousView ? `${previousView === 'content' ? t('playlists.backToContentLibrary') : t('playlists.backToPreviousView')}` : t('playlists.backToPlaylists')}
             </Button>
             <div>
               <div className="flex items-center space-x-3">
@@ -533,10 +535,10 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   {selectedPlaylist.type === 'auto' ? (
                     <>
                       <Zap className="h-3 w-3 mr-1" />
-                      Auto-Assigned
+                      {t('playlists.autoAssigned')}
                     </>
                   ) : (
-                    'Manual Assignment'
+                    t('playlists.manualAssignment')
                   )}
                 </Badge>
                 <span>•</span>
@@ -544,21 +546,21 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   {selectedPlaylist.releaseType === 'progressive' ? (
                     <>
                       <Lock className="h-3 w-3 mr-1" />
-                      Progressive Release
+                      {t('playlists.progressiveRelease')}
                     </>
                   ) : (
-                    'Immediate Access'
+                    t('playlists.immediateAccess')
                   )}
                 </Badge>
                 <span>•</span>
-                <span>Created {selectedPlaylist.created_at ? new Date(selectedPlaylist.created_at).toLocaleDateString() : 'Unknown'}</span>
+                <span>{t('playlists.playlistCreated')} {selectedPlaylist.created_at ? new Date(selectedPlaylist.created_at).toLocaleDateString() : ''}</span>
               </div>
             </div>
           </div>
           <div className="flex items-center space-x-2">
             <Button variant="outline" onClick={() => onEditPlaylist?.(selectedPlaylist.id)}>
               <Edit className="h-4 w-4 mr-2" />
-              Edit Playlist
+              {t('playlists.editPlaylist')}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -569,16 +571,16 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={(e) => handleDuplicatePlaylist(selectedPlaylist.id, e)}>
                   <Copy className="h-4 w-4 mr-2" />
-                  Duplicate
+                  {t('playlists.duplicate')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={(e) => handleOpenArchiveModal(selectedPlaylist.id, selectedPlaylist.title, e)}>
                   <Archive className="h-4 w-4 mr-2" />
-                  Archive
+                  {t('playlists.archive')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className="text-red-600" onClick={(e) => handleDeletePlaylist(selectedPlaylist.id, e)}>
                   <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
+                  {t('playlists.delete')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -591,7 +593,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Assigned Learners</p>
+                  <p className="text-sm text-muted-foreground">{t('playlists.assignedLearners')}</p>
                   <p className="text-2xl font-bold">{selectedPlaylist.assignedTo}</p>
                 </div>
                 <Users className="h-8 w-8 text-blue-500" />
@@ -602,7 +604,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Completion Rate</p>
+                  <p className="text-sm text-muted-foreground">{t('playlists.completionRate')}</p>
                   <p className="text-2xl font-bold">{selectedPlaylist.completionRate}%</p>
                 </div>
                 <TrendingUp className="h-8 w-8 text-green-500" />
@@ -613,10 +615,10 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Total Content</p>
+                  <p className="text-sm text-muted-foreground">{t('playlists.totalContent')}</p>
                   <p className="text-2xl font-bold">{selectedPlaylist.total_track_count || selectedPlaylist.totalTracks || selectedPlaylist.track_ids?.length || 0}</p>
                   <p className="text-xs text-muted-foreground">
-                    {selectedPlaylist.albumCount > 0 ? `${selectedPlaylist.albumCount} albums • ` : ''}tracks
+                    {selectedPlaylist.albumCount > 0 ? `${selectedPlaylist.albumCount} ${t('playlists.albums')} • ` : ''}{t('playlists.tracks')}
                   </p>
                 </div>
                 <Library className="h-8 w-8 text-primary" />
@@ -627,7 +629,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Est. Completion</p>
+                  <p className="text-sm text-muted-foreground">{t('playlists.estCompletion')}</p>
                   <p className="text-2xl font-bold">
                     {totalDuration >= 60 
                       ? (totalDuration / 60).toFixed(1)
@@ -635,7 +637,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                     }
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {totalDuration >= 60 ? 'hours' : 'minutes'}
+                    {totalDuration >= 60 ? t('playlists.hours') : t('playlists.minutes')}
                   </p>
                 </div>
                 <Clock className="h-8 w-8 text-orange-500" />
@@ -647,10 +649,10 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="triggers">Assignment Logic</TabsTrigger>
-            <TabsTrigger value="stages">Stage Delivery</TabsTrigger>
-            <TabsTrigger value="completion">Completion Actions</TabsTrigger>
+            <TabsTrigger value="overview">{t('playlists.tabOverview')}</TabsTrigger>
+            <TabsTrigger value="triggers">{t('playlists.tabAssignmentLogic')}</TabsTrigger>
+            <TabsTrigger value="stages">{t('playlists.tabStageDelivery')}</TabsTrigger>
+            <TabsTrigger value="completion">{t('playlists.tabCompletionActions')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6 mt-6">
@@ -658,7 +660,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
               {/* Content Structure */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Content Structure</CardTitle>
+                  <CardTitle>{t('playlists.contentStructure')}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {selectedPlaylist.description && (
@@ -676,7 +678,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   {!loadingPlaylistDetails && selectedPlaylist.playlist_albums?.length > 0 && (
                     <div className="space-y-2">
                       <p className="text-sm font-medium text-muted-foreground mb-2">
-                        Albums ({selectedPlaylist.playlist_albums.length})
+                        {t('playlists.albumsCount', { count: selectedPlaylist.playlist_albums.length })}
                       </p>
                       {selectedPlaylist.playlist_albums?.map((pa: any) => {
                         const albumId = pa.album?.id || pa.id;
@@ -701,10 +703,10 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                               <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isExpanded ? 'rotate-0' : '-rotate-90'}`} />
                               <AlbumIcon className="h-5 w-5 text-primary" />
                               <div className="flex-1 min-w-0">
-                                <p className="font-medium text-sm truncate">{pa.album?.title || 'Unnamed Album'}</p>
+                                <p className="font-medium text-sm truncate">{pa.album?.title || t('playlists.unnamedAlbum')}</p>
                                 <p className="text-xs text-muted-foreground">
-                                  {trackCount} tracks
-                                  {pa.album?.duration_minutes ? ` • ${pa.album.duration_minutes} min` : ''}
+                                  {trackCount} {t('playlists.tracks')}
+                                  {pa.album?.duration_minutes ? ` • ${pa.album.duration_minutes} ${t('playlists.min')}` : ''}
                                 </p>
                               </div>
                             </button>
@@ -726,7 +728,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                                       <p className="text-xs text-muted-foreground">{track.type}</p>
                                     </div>
                                     <span className="text-xs text-muted-foreground flex-shrink-0">
-                                      {track.duration_minutes || 0} min
+                                      {track.duration_minutes || 0} {t('playlists.min')}
                                     </span>
                                   </div>
                                 ))}
@@ -736,7 +738,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                             {/* Empty album state */}
                             {isExpanded && (!pa.album?.tracks || pa.album.tracks.length === 0) && (
                               <div className="border-t bg-background p-4 text-center text-sm text-muted-foreground">
-                                No tracks in this album
+                                {t('playlists.noTracksInAlbum')}
                               </div>
                             )}
                           </div>
@@ -749,7 +751,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   {!loadingPlaylistDetails && selectedPlaylist.tracks?.length > 0 && (
                     <div className="space-y-2 mt-4">
                       <p className="text-sm font-medium text-muted-foreground">
-                        Standalone Tracks ({selectedPlaylist.tracks.length})
+                        {t('playlists.standaloneTracksCount', { count: selectedPlaylist.tracks.length })}
                       </p>
                       {selectedPlaylist.tracks.map((pt: any) => (
                         <div key={pt.id} className="flex items-center space-x-3 p-3 bg-muted/50 rounded-lg border">
@@ -757,11 +759,11 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                             <Library className="h-4 w-4 text-muted-foreground" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm truncate">{pt.track?.title || 'Unnamed Track'}</p>
+                            <p className="text-sm truncate">{pt.track?.title || t('playlists.unnamed')}</p>
                             <p className="text-xs text-muted-foreground">{pt.track?.type}</p>
                           </div>
                           <span className="text-xs text-muted-foreground flex-shrink-0">
-                            {pt.track?.duration_minutes || 0} min
+                            {pt.track?.duration_minutes || 0} {t('playlists.min')}
                           </span>
                         </div>
                       ))}
@@ -772,7 +774,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   {(!selectedPlaylist.playlist_albums?.length && !selectedPlaylist.tracks?.length) && (
                     <div className="text-center py-8 text-muted-foreground">
                       <Library className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">No content added to this playlist yet</p>
+                      <p className="text-sm">{t('playlists.noContentInPlaylist')}</p>
                     </div>
                   )}
                 </CardContent>
@@ -781,17 +783,17 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
               {/* Assignment Rules */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Assignment Rules</CardTitle>
+                  <CardTitle>{t('playlists.assignmentRules')}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {selectedPlaylist.type === 'auto' && selectedPlaylist.trigger_rules && (
                     <>
                       <div>
-                        <p className="text-sm font-medium mb-2">Auto-Assignment Trigger</p>
+                        <p className="text-sm font-medium mb-2">{t('playlists.autoAssignmentTrigger')}</p>
                         <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-900/30">
-                          <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-1">This playlist automatically assigns when:</p>
+                          <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-1">{t('playlists.autoAssignsWhen')}</p>
                           <ul className="text-sm text-orange-800 dark:text-orange-200 space-y-1 ml-4">
-                            <li>→ {selectedPlaylist.trigger || 'Trigger conditions configured'}</li>
+                            <li>→ {selectedPlaylist.trigger || t('playlists.noTriggerConditions')}</li>
                           </ul>
                         </div>
                       </div>
@@ -800,43 +802,43 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   )}
                   
                   <div>
-                    <p className="text-sm font-medium mb-2">Training Start</p>
+                    <p className="text-sm font-medium mb-2">{t('playlists.trainingStart')}</p>
                     <p className="text-sm text-muted-foreground">
-                      Training begins immediately upon assignment
+                      {t('playlists.trainingStartDesc')}
                     </p>
                   </div>
                   
                   <Separator />
                   
                   <div>
-                    <p className="text-sm font-medium mb-2">Completion Requirements</p>
+                    <p className="text-sm font-medium mb-2">{t('playlists.completionReqs')}</p>
                     <p className="text-sm text-muted-foreground">
-                      Learners must complete 100% of tracks to finish this playlist
+                      {t('playlists.completionReqsDesc')}
                     </p>
                   </div>
                   
                   <Separator />
                   
                   <div>
-                    <p className="text-sm font-medium mb-2">Notifications Enabled</p>
+                    <p className="text-sm font-medium mb-2">{t('playlists.notificationsEnabled')}</p>
                     <div className="space-y-2 text-sm text-muted-foreground">
                       <div className="flex items-center space-x-2">
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        <span>At assignment</span>
+                        <span>{t('playlists.notifAtAssignment')}</span>
                       </div>
                       <div className="flex items-center space-x-2">
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        <span>When training starts</span>
+                        <span>{t('playlists.notifWhenTrainingStarts')}</span>
                       </div>
                       {selectedPlaylist.releaseType === 'progressive' && (
                         <div className="flex items-center space-x-2">
                           <CheckCircle2 className="h-4 w-4 text-green-500" />
-                          <span>Stage unlocks (progressive)</span>
+                          <span>{t('playlists.notifStageUnlocks')}</span>
                         </div>
                       )}
                       <div className="flex items-center space-x-2">
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        <span>3 days before due date</span>
+                        <span>{t('playlists.notifDaysBeforeDue')}</span>
                       </div>
                     </div>
                   </div>
@@ -847,14 +849,14 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
             {/* Recent Activity */}
             <Card>
               <CardHeader>
-                <CardTitle>Recent Activity</CardTitle>
+                <CardTitle>{t('playlists.recentActivity')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
                   <div className="flex items-start space-x-3 text-sm">
                     <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5" />
                     <div className="flex-1">
-                      <p className="font-medium">Playlist created</p>
+                      <p className="font-medium">{t('playlists.playlistCreated')}</p>
                       <p className="text-xs text-muted-foreground">{new Date(selectedPlaylist.created_at).toLocaleDateString()}</p>
                     </div>
                   </div>
@@ -867,19 +869,19 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
             {/* Trigger Rules Card */}
             <Card>
               <CardHeader>
-                <CardTitle>Assignment Logic</CardTitle>
+                <CardTitle>{t('playlists.assignmentLogic')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {selectedPlaylist.type === 'auto' && (
                   <>
                     <div>
-                      <p className="text-sm font-medium mb-2">Auto-Assignment Trigger</p>
+                      <p className="text-sm font-medium mb-2">{t('playlists.autoAssignmentTrigger')}</p>
                       <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-900/30">
-                        <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-2">This playlist automatically assigns when:</p>
+                        <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-2">{t('playlists.autoAssignsWhen')}</p>
                         {selectedPlaylist.trigger_rules?.role_ids?.length > 0 ? (
                           <div className="space-y-3">
                             <p className="text-sm text-orange-800 dark:text-orange-200">
-                              <span className="font-medium">Role equals:</span>
+                              <span className="font-medium">{t('playlists.roleEquals')}</span>
                             </p>
                             <div className="flex flex-wrap gap-2">
                               {selectedPlaylist.trigger_rules.role_ids.map((role: string, idx: number) => (
@@ -891,7 +893,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                           </div>
                         ) : (
                           <p className="text-sm text-orange-800 dark:text-orange-200">
-                            No trigger conditions configured
+                            {t('playlists.noTriggerConditions')}
                           </p>
                         )}
                       </div>
@@ -901,8 +903,8 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
 
                 {selectedPlaylist.type === 'manual' && (
                   <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-900/30">
-                    <p className="text-sm font-medium text-blue-900 dark:text-blue-100">Manual Assignment</p>
-                    <p className="text-sm text-blue-800 dark:text-blue-200 mt-1">This playlist is assigned manually by administrators</p>
+                    <p className="text-sm font-medium text-blue-900 dark:text-blue-100">{t('playlists.manualAssignment')}</p>
+                    <p className="text-sm text-blue-800 dark:text-blue-200 mt-1">{t('playlists.manualAssignmentDesc')}</p>
                   </div>
                 )}
               </CardContent>
@@ -914,11 +916,11 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <History className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-base">Assignment Activity</CardTitle>
+                    <CardTitle className="text-base">{t('playlists.assignmentActivity')}</CardTitle>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary">
-                      {selectedPlaylist.active_learners || assignmentHistory.length} total
+                      {t('playlists.totalBadge', { count: selectedPlaylist.active_learners || assignmentHistory.length })}
                     </Badge>
                     {assignmentHistory.length > 0 && (
                       <Button
@@ -928,7 +930,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                         className="h-8"
                       >
                         <Download className="h-3 w-3 mr-1" />
-                        Export CSV
+                        {t('playlists.exportCsv')}
                       </Button>
                     )}
                   </div>
@@ -942,11 +944,11 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                 ) : assignmentHistory.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <Users className="h-10 w-10 mx-auto mb-3 opacity-50" />
-                    <p className="text-sm font-medium">No assignments yet</p>
+                    <p className="text-sm font-medium">{t('playlists.noAssignmentsYet')}</p>
                     <p className="text-xs mt-1">
                       {selectedPlaylist.type === 'auto'
-                        ? 'Employees matching the trigger criteria will appear here when assigned'
-                        : 'Manually assigned employees will appear here'}
+                        ? t('playlists.noAssignmentsAutoDesc')
+                        : t('playlists.noAssignmentsManualDesc')}
                     </p>
                   </div>
                 ) : (
@@ -954,12 +956,12 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                     <table className="w-full text-sm">
                       <thead className="bg-muted">
                         <tr>
-                          <th className="text-left px-3 py-2 font-medium">Employee</th>
-                          <th className="text-left px-3 py-2 font-medium">Role</th>
-                          <th className="text-left px-3 py-2 font-medium">Location</th>
-                          <th className="text-left px-3 py-2 font-medium">Assigned</th>
-                          <th className="text-left px-3 py-2 font-medium">Progress</th>
-                          <th className="text-left px-3 py-2 font-medium">Status</th>
+                          <th className="text-left px-3 py-2 font-medium">{t('playlists.tableEmployee')}</th>
+                          <th className="text-left px-3 py-2 font-medium">{t('playlists.tableRole')}</th>
+                          <th className="text-left px-3 py-2 font-medium">{t('playlists.tableLocation')}</th>
+                          <th className="text-left px-3 py-2 font-medium">{t('playlists.tableAssigned')}</th>
+                          <th className="text-left px-3 py-2 font-medium">{t('playlists.tableProgress')}</th>
+                          <th className="text-left px-3 py-2 font-medium">{t('playlists.tableStatus')}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
@@ -999,9 +1001,9 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                                   ''
                                 }
                               >
-                                {entry.status === 'in_progress' ? 'In Progress' :
-                                 entry.status === 'completed' ? 'Completed' :
-                                 entry.status === 'assigned' ? 'Not Started' :
+                                {entry.status === 'in_progress' ? t('playlists.statusInProgress') :
+                                 entry.status === 'completed' ? t('playlists.statusCompleted') :
+                                 entry.status === 'assigned' ? t('playlists.statusNotStarted') :
                                  entry.status}
                               </Badge>
                             </td>
@@ -1011,7 +1013,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                     </table>
                     {assignmentHistory.length >= 20 && (
                       <div className="px-3 py-2 bg-muted/50 text-center text-sm text-muted-foreground border-t">
-                        Showing 20 most recent assignments • Download CSV for full history
+                        {t('playlists.showingRecent')}
                       </div>
                     )}
                   </div>
@@ -1023,7 +1025,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
           <TabsContent value="stages" className="space-y-6 mt-6">
             <Card>
               <CardHeader>
-                <CardTitle>Stage Delivery</CardTitle>
+                <CardTitle>{t('playlists.stageDelivery')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {selectedPlaylist.release_schedule?.stages?.length > 0 ? (
@@ -1069,17 +1071,17 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                                 )}
                               </div>
                               <div className="flex-1">
-                                <p className="font-medium">{stage.name || `Stage ${stageNum}`}</p>
+                                <p className="font-medium">{stage.name || t('playlists.stageNum', { num: stageNum })}</p>
                                 <p className="text-sm text-muted-foreground">
                                   {isFirst || stage.unlockDays === 0
-                                    ? 'Available immediately'
-                                    : `Unlocks after ${stage.unlockDays} days`}
+                                    ? t('playlists.availableImmediately')
+                                    : t('playlists.unlocksAfterDays', { count: stage.unlockDays })}
                                 </p>
                               </div>
                               <div className="text-right text-sm text-muted-foreground">
-                                {stageAlbums.length > 0 && <span>{stageAlbums.length} album{stageAlbums.length !== 1 ? 's' : ''}</span>}
+                                {stageAlbums.length > 0 && <span>{stageAlbums.length} {t('playlists.albums')}</span>}
                                 {stageAlbums.length > 0 && stageTracks.length > 0 && <span> • </span>}
-                                {stageTracks.length > 0 && <span>{stageTracks.length} track{stageTracks.length !== 1 ? 's' : ''}</span>}
+                                {stageTracks.length > 0 && <span>{stageTracks.length} {t('playlists.tracks')}</span>}
                               </div>
                             </div>
 
@@ -1090,7 +1092,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                                   <div key={pa.id} className="flex items-center space-x-2 text-sm">
                                     <AlbumIcon className="h-4 w-4 text-primary" />
                                     <span>{pa.album?.title}</span>
-                                    <span className="text-muted-foreground">({pa.album?.track_count || pa.album?.tracks?.length || 0} tracks)</span>
+                                    <span className="text-muted-foreground">({pa.album?.track_count || pa.album?.tracks?.length || 0} {t('playlists.tracks')})</span>
                                   </div>
                                 ))}
                                 {stageTracks.map((pt: any) => (
@@ -1105,7 +1107,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                             {/* Empty stage state */}
                             {stageAlbums.length === 0 && stageTracks.length === 0 && (
                               <div className="p-3 bg-background text-sm text-muted-foreground text-center">
-                                No content assigned to this stage
+                                {t('playlists.noContentInStage')}
                               </div>
                             )}
                           </div>
@@ -1117,8 +1119,8 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                                 <Clock className="h-3 w-3" />
                                 <span>
                                   {selectedPlaylist.release_schedule.stages[index + 1]?.unlockDays > 0
-                                    ? `Wait ${selectedPlaylist.release_schedule.stages[index + 1].unlockDays} days`
-                                    : 'Unlocks immediately after completion'}
+                                    ? t('playlists.waitDays', { count: selectedPlaylist.release_schedule.stages[index + 1].unlockDays })
+                                    : t('playlists.unlocksImmediately')}
                                 </span>
                               </div>
                             </div>
@@ -1134,8 +1136,8 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                         <CheckCircle2 className="h-5 w-5" />
                       </div>
                       <div>
-                        <p className="font-medium text-blue-900 dark:text-blue-100">Immediate Access</p>
-                        <p className="text-sm text-blue-800 dark:text-blue-200">All content is available immediately upon assignment</p>
+                        <p className="font-medium text-blue-900 dark:text-blue-100">{t('playlists.immediateAccess')}</p>
+                        <p className="text-sm text-blue-800 dark:text-blue-200">{t('playlists.immediateAccessDesc')}</p>
                       </div>
                     </div>
 
@@ -1146,7 +1148,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                           <div key={pa.id} className="flex items-center space-x-2 text-sm text-blue-800 dark:text-blue-200">
                             <AlbumIcon className="h-4 w-4" />
                             <span>{pa.album?.title}</span>
-                            <span className="opacity-75">({pa.album?.track_count || 0} tracks)</span>
+                            <span className="opacity-75">({pa.album?.track_count || 0} {t('playlists.tracks')})</span>
                           </div>
                         ))}
                         {selectedPlaylist.tracks?.map((pt: any) => (
@@ -1170,14 +1172,14 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                 <CardHeader>
                   <CardTitle className="flex items-center">
                     <Target className="h-5 w-5 mr-2 text-primary" />
-                    Completion Requirements
+                    {t('playlists.completionRequirements')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <p className="text-sm font-medium mb-2">Completion Threshold</p>
+                    <p className="text-sm font-medium mb-2">{t('playlists.completionThreshold')}</p>
                     <div className="p-3 bg-muted rounded-lg">
-                      <p className="text-sm">Learners must complete <span className="font-semibold text-primary">100%</span> of tracks</p>
+                      <p className="text-sm">{t('playlists.completionThresholdDesc')} <span className="font-semibold text-primary">100%</span> {t('playlists.completionThresholdOf')}</p>
                       <Progress value={100} className="h-2 mt-2" />
                     </div>
                   </div>
@@ -1189,16 +1191,16 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                 <CardHeader>
                   <CardTitle className="flex items-center">
                     <Award className="h-5 w-5 mr-2 text-primary" />
-                    Upon Completion Actions
+                    {t('playlists.uponCompletionActions')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <p className="text-sm text-muted-foreground">
-                    Configure actions to automatically trigger when learners complete this playlist
+                    {t('playlists.uponCompletionDesc')}
                   </p>
                   <Button variant="outline" className="w-full">
                     <Plus className="h-4 w-4 mr-2" />
-                    Add Completion Action
+                    {t('playlists.addCompletionAction')}
                   </Button>
                 </CardContent>
               </Card>
@@ -1215,9 +1217,9 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-foreground mb-2">Playlists & Albums</h1>
+          <h1 className="text-foreground mb-2">{t('playlists.pageTitle')}</h1>
           <p className="text-muted-foreground">
-            Organize and assign content to your team
+            {t('playlists.pageSubtitle')}
           </p>
         </div>
         <Button 
@@ -1225,7 +1227,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
           onClick={mainTab === 'playlists' ? onOpenPlaylistWizard : handleCreateAlbum}
         >
           <Plus className="h-4 w-4 mr-2" />
-          Create {mainTab === 'playlists' ? 'Playlist' : 'Album'}
+          {mainTab === 'playlists' ? t('playlists.createPlaylist') : t('playlists.createAlbum')}
         </Button>
       </div>
 
@@ -1239,7 +1241,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
               : 'text-muted-foreground hover:text-foreground'
           }`}
         >
-          Playlists
+          {t('playlists.tabPlaylists')}
         </button>
         <button
           onClick={() => setMainTab('albums')}
@@ -1249,7 +1251,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
               : 'text-muted-foreground hover:text-foreground'
           }`}
         >
-          Albums
+          {t('playlists.tabAlbums')}
         </button>
       </div>
 
@@ -1264,7 +1266,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Assignments</p>
+                  <p className="text-sm font-medium text-muted-foreground">{t('playlists.totalAssignments')}</p>
                   <p className="text-3xl font-bold mt-2">{playlists.reduce((sum, p) => sum + (p.assignedTo || 0), 0)}</p>
                 </div>
                 <div className="h-12 w-12 rounded-full bg-blue-100 dark:bg-blue-900/20 flex items-center justify-center">
@@ -1278,7 +1280,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Completed</p>
+                  <p className="text-sm font-medium text-muted-foreground">{t('playlists.completed')}</p>
                   <p className="text-3xl font-bold mt-2">
                     {playlists.reduce((sum, p) => {
                       const completed = Math.round((p.completionRate / 100) * (p.assignedTo || 0));
@@ -1297,7 +1299,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">In Progress</p>
+                  <p className="text-sm font-medium text-muted-foreground">{t('playlists.inProgress')}</p>
                   <p className="text-3xl font-bold mt-2">
                     {playlists.reduce((sum, p) => {
                       const completed = Math.round((p.completionRate / 100) * (p.assignedTo || 0));
@@ -1317,7 +1319,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Avg Completion</p>
+                  <p className="text-sm font-medium text-muted-foreground">{t('playlists.avgCompletion')}</p>
                   <p className="text-3xl font-bold mt-2">
                     {playlists.length > 0
                       ? Math.round(
@@ -1348,7 +1350,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search playlists..."
+                placeholder={t('playlists.searchPlaylists')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -1361,7 +1363,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                 onClick={() => setViewFilter('all')}
                 className={viewFilter === 'all' ? 'bg-brand-gradient' : ''}
               >
-                All Playlists
+                {t('playlists.allPlaylists')}
               </Button>
               <Button
                 variant={viewFilter === 'auto' ? 'default' : 'outline'}
@@ -1370,7 +1372,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                 className={viewFilter === 'auto' ? 'bg-brand-gradient' : ''}
               >
                 <Zap className="h-3 w-3 mr-1" />
-                Auto-Assigned
+                {t('playlists.autoAssigned')}
               </Button>
               <Button
                 variant={viewFilter === 'manual' ? 'default' : 'outline'}
@@ -1378,7 +1380,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                 onClick={() => setViewFilter('manual')}
                 className={viewFilter === 'manual' ? 'bg-brand-gradient' : ''}
               >
-                Manual
+                {t('playlists.manual')}
               </Button>
               <Button
                 variant={viewFilter === 'archived' ? 'default' : 'outline'}
@@ -1387,7 +1389,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                 className={viewFilter === 'archived' ? 'bg-brand-gradient' : ''}
               >
                 <Archive className="h-3 w-3 mr-1" />
-                Archived
+                {t('playlists.archived')}
               </Button>
             </div>
           </div>
@@ -1397,7 +1399,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
       {/* Results Count */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {loading ? 'Loading...' : `Showing ${filteredPlaylists.length} ${filteredPlaylists.length === 1 ? 'playlist' : 'playlists'}`}
+          {loading ? t('common.loading') : t('playlists.showingPlaylists', { count: filteredPlaylists.length })}
         </p>
         <div className="flex items-center gap-1 border rounded-lg p-1">
           <Button
@@ -1464,28 +1466,28 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                         fetchAndSelectPlaylist(playlist.id);
                       }}>
                         <Edit className="h-4 w-4 mr-2" />
-                        View
+                        {t('playlists.view')}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={(e) => handleDuplicatePlaylist(playlist.id, e)}>
                         <Copy className="h-4 w-4 mr-2" />
-                        Duplicate
+                        {t('playlists.duplicate')}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
                         <Users className="h-4 w-4 mr-2" />
-                        View Learners
+                        {t('playlists.viewLearners')}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
                         <BarChart3 className="h-4 w-4 mr-2" />
-                        View Analytics
+                        {t('playlists.viewAnalytics')}
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={(e) => handleOpenArchiveModal(playlist.id, playlist.title, e)}>
                         <Archive className="h-4 w-4 mr-2" />
-                        Archive
+                        {t('playlists.archive')}
                       </DropdownMenuItem>
                       <DropdownMenuItem className="text-red-600" onClick={(e) => handleDeletePlaylist(playlist.id, e)}>
                         <Trash2 className="h-4 w-4 mr-2" />
-                        Delete
+                        {t('playlists.delete')}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -1500,20 +1502,20 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                     {playlist.type === 'auto' ? (
                       <>
                         <Zap className="h-3 w-3 mr-1" />
-                        Auto-Assigned
+                        {t('playlists.autoAssigned')}
                       </>
                     ) : (
-                      'Manual Assignment'
+                      t('playlists.manualAssignment')
                     )}
                   </Badge>
                   <Badge variant="outline">
                     {playlist.releaseType === 'progressive' ? (
                       <>
                         <Lock className="h-3 w-3 mr-1" />
-                        Progressive • {playlist.stages} stages
+                        {t('playlists.progressiveRelease')} • {playlist.stages} {t('playlists.tabStageDelivery').toLowerCase()}
                       </>
                     ) : (
-                      'Immediate Access'
+                      t('playlists.immediateAccess')
                     )}
                   </Badge>
                 </div>
@@ -1523,20 +1525,20 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                   <div className="flex items-center gap-4 text-sm text-muted-foreground">
                     <div className="flex items-center gap-1.5">
                       <Library className="h-4 w-4" />
-                      <span className="font-medium">{playlist.totalTracks} tracks</span>
+                      <span className="font-medium">{playlist.totalTracks} {t('playlists.tracks')}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <Clock className="h-4 w-4" />
                       <span className="font-medium">
-                        {playlist.totalDuration >= 60 
-                          ? `${(playlist.totalDuration / 60).toFixed(1)} hrs`
-                          : `${playlist.totalDuration} min`
+                        {playlist.totalDuration >= 60
+                          ? `${(playlist.totalDuration / 60).toFixed(1)} ${t('playlists.hours')}`
+                          : `${playlist.totalDuration} ${t('playlists.min')}`
                         }
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <Users className="h-4 w-4" />
-                      <span className="font-medium">{playlist.assignedTo} learners</span>
+                      <span className="font-medium">{playlist.assignedTo} {t('playlists.learners')}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1555,18 +1557,18 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
         <Card>
           <CardContent className="p-12 text-center">
             <ListMusic className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-            <h3 className="font-semibold mb-2">No playlists found</h3>
+            <h3 className="font-semibold mb-2">{t('playlists.noPlaylistsFound')}</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              {searchQuery || viewFilter !== 'all' 
-                ? 'Try adjusting your search or filter criteria'
-                : 'Create your first playlist to get started'
+              {searchQuery || viewFilter !== 'all'
+                ? t('playlists.noPlaylistsAdjust')
+                : t('playlists.noPlaylistsCreate')
               }
             </p>
             <Button variant="outline" onClick={() => {
               setSearchQuery('');
               setViewFilter('all');
             }}>
-              Clear filters
+              {t('playlists.clearFilters')}
             </Button>
           </CardContent>
         </Card>
@@ -1583,7 +1585,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                 <div className="flex-1 relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search albums..."
+                    placeholder={t('playlists.searchAlbums')}
                     value={albumSearchQuery}
                     onChange={(e) => setAlbumSearchQuery(e.target.value)}
                     className="pl-10"
@@ -1596,7 +1598,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                     onClick={() => setAlbumStatusFilter('all')}
                     className={albumStatusFilter === 'all' ? 'bg-brand-gradient' : ''}
                   >
-                    All
+                    {t('common.all')}
                   </Button>
                   <Button
                     variant={albumStatusFilter === 'published' ? 'default' : 'outline'}
@@ -1605,7 +1607,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                     className={albumStatusFilter === 'published' ? 'bg-brand-gradient' : ''}
                   >
                     <CheckCircle2 className="h-3 w-3 mr-1" />
-                    Published
+                    {t('playlists.published')}
                   </Button>
                   <Button
                     variant={albumStatusFilter === 'draft' ? 'default' : 'outline'}
@@ -1614,7 +1616,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                     className={albumStatusFilter === 'draft' ? 'bg-brand-gradient' : ''}
                   >
                     <Edit className="h-3 w-3 mr-1" />
-                    Drafts
+                    {t('playlists.drafts')}
                   </Button>
                   <Button
                     variant={albumStatusFilter === 'archived' ? 'default' : 'outline'}
@@ -1623,7 +1625,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                     className={albumStatusFilter === 'archived' ? 'bg-brand-gradient' : ''}
                   >
                     <Archive className="h-3 w-3 mr-1" />
-                    Archived
+                    {t('playlists.archived')}
                   </Button>
                 </div>
               </div>
@@ -1632,7 +1634,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
 
           {/* Results Count */}
           <p className="text-sm text-muted-foreground">
-            {albumsLoading ? 'Loading...' : `Showing ${filteredAlbums.length} album${filteredAlbums.length !== 1 ? 's' : ''}`}
+            {albumsLoading ? t('common.loading') : t('playlists.showingAlbums', { count: filteredAlbums.length })}
           </p>
 
           {/* Albums Grid */}
@@ -1650,16 +1652,16 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
             <Card>
               <CardContent className="p-12 text-center">
                 <AlbumIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-                <h3 className="font-semibold mb-2">No albums found</h3>
+                <h3 className="font-semibold mb-2">{t('playlists.noAlbumsFound')}</h3>
                 <p className="text-sm text-muted-foreground mb-4">
                   {albumSearchQuery || albumStatusFilter !== 'all'
-                    ? 'Try adjusting your search or filter criteria'
-                    : 'Create your first album to organize tracks'
+                    ? t('playlists.noAlbumsAdjust')
+                    : t('playlists.noAlbumsCreate')
                   }
                 </p>
                 <Button variant="outline" onClick={handleCreateAlbum}>
                   <Plus className="h-4 w-4 mr-2" />
-                  Create Album
+                  {t('playlists.createAlbum')}
                 </Button>
               </CardContent>
             </Card>
@@ -1706,23 +1708,23 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                             }
                           }}>
                             <Edit className="h-4 w-4 mr-2" />
-                            Edit
+                            {t('common.edit')}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={(e) => handleDuplicateAlbum(album.id, e)}>
                             <Copy className="h-4 w-4 mr-2" />
-                            Duplicate
+                            {t('playlists.duplicate')}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={(e) => handleArchiveAlbum(album.id, e)}>
                             <Archive className="h-4 w-4 mr-2" />
-                            Archive
+                            {t('playlists.archive')}
                           </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            className="text-red-600" 
+                          <DropdownMenuItem
+                            className="text-red-600"
                             onClick={(e) => handleDeleteAlbum(album.id, e)}
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
+                            {t('playlists.delete')}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -1743,11 +1745,11 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                     <div className="flex items-center gap-4 pt-3 border-t text-sm text-muted-foreground">
                       <div className="flex items-center gap-1.5">
                         <AlbumIcon className="h-4 w-4" />
-                        <span className="font-medium">{album.track_count || 0} tracks</span>
+                        <span className="font-medium">{album.track_count || 0} {t('playlists.tracks')}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <Clock className="h-4 w-4" />
-                        <span className="font-medium">{album.total_duration_minutes || 0} min</span>
+                        <span className="font-medium">{album.total_duration_minutes || 0} {t('playlists.min')}</span>
                       </div>
                     </div>
                   </CardContent>

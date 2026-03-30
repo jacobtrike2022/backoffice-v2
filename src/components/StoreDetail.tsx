@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -108,6 +109,7 @@ const getActivityIcon = (type: string) => {
 };
 
 export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('overview');
   const [tags, setTags] = useState<string[]>([]);
   const [isTagSelectorOpen, setIsTagSelectorOpen] = useState(false);
@@ -144,7 +146,7 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
       ]);
     } catch (error) {
       console.error('Error loading store data:', error);
-      toast.error('Failed to load some store data');
+      toast.error(t('storeDetail.failedLoadStoreData'));
     }
   };
 
@@ -218,10 +220,10 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
       const tagIds = tagObjects.map(t => t.id);
       try {
         await unitTagCrud.replaceUnitTags(store.id, tagIds);
-        toast.success('Tags updated successfully');
+        toast.success(t('storeDetail.tagsUpdatedSuccess'));
       } catch (error) {
         console.error('Error updating tags:', error);
-        toast.error('Failed to update tags');
+        toast.error(t('storeDetail.failedUpdateTags'));
       }
     }
   };
@@ -258,13 +260,13 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
             className="hover:bg-accent"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Units
+            {t('storeDetail.backToUnits')}
           </Button>
           <Separator orientation="vertical" className="h-6" />
           <div>
-            <h1 className="text-foreground">Unit Details</h1>
+            <h1 className="text-foreground">{t('storeDetail.unitDetails')}</h1>
             <p className="text-muted-foreground mt-1">
-              Performance and training metrics for {store.name}
+              {t('storeDetail.performanceMetrics', { name: store.name })}
             </p>
           </div>
         </div>
@@ -275,7 +277,7 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
             className="bg-brand-gradient hover:opacity-90 text-white shadow-brand"
           >
             <Pencil className="w-4 h-4 mr-2" />
-            Edit Unit
+            {t('storeDetail.editUnit')}
           </Button>
         )}
       </div>
@@ -309,7 +311,7 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                       {store.performance.replace('-', ' ').toUpperCase()}
                     </Badge>
                   </div>
-                  <p className="text-muted-foreground mt-1">Store Manager: {store.manager}</p>
+                  <p className="text-muted-foreground mt-1">{t('storeDetail.storeManager', { name: store.manager })}</p>
                 </div>
 
                 <div className="flex items-center space-x-6 text-sm">
@@ -320,12 +322,12 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                   {currentRole === 'admin' && (
                     <div className="flex items-center space-x-2 text-muted-foreground">
                       <Target className="h-4 w-4" />
-                      <span>{store.district} District</span>
+                      <span>{t('storeDetail.district', { name: store.district })}</span>
                     </div>
                   )}
                   <div className="flex items-center space-x-2 text-muted-foreground">
                     <Users className="h-4 w-4" />
-                    <span>{store.employees} Employees</span>
+                    <span>{t('storeDetail.employees', { count: store.employees })}</span>
                   </div>
                   {store.timezone && currentRole === 'admin' && (
                     <div className="flex items-center space-x-2 text-muted-foreground">
@@ -339,11 +341,11 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                 {currentRole === 'admin' && (store.created_at || store.updated_at) && (
                   <div className="mt-2 text-xs text-muted-foreground">
                     {store.created_at && (
-                      <span>Created: {new Date(store.created_at).toLocaleDateString()}</span>
+                      <span>{t('storeDetail.created', { date: new Date(store.created_at).toLocaleDateString() })}</span>
                     )}
                     {store.created_at && store.updated_at && <span className="mx-2">•</span>}
                     {store.updated_at && (
-                      <span>Updated: {new Date(store.updated_at).toLocaleDateString()}</span>
+                      <span>{t('storeDetail.updated', { date: new Date(store.updated_at).toLocaleDateString() })}</span>
                     )}
                   </div>
                 )}
@@ -373,7 +375,7 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                         {store.address_line_2 && <div>{store.address_line_2}</div>}
                         <div>
                           {[store.city, store.state, store.zip].filter(Boolean).join(', ')}
-                          {store.county && ` (${store.county} County)`}
+                          {store.county && ` (${t('storeDetail.county', { name: store.county })})`}
                         </div>
                       </div>
                     </div>
@@ -400,7 +402,7 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                       className="h-6 px-2 text-xs"
                     >
                       <Plus className="h-3 w-3 mr-1" />
-                      Manage Tags
+                      {t('storeDetail.manageTags')}
                     </Button>
                   )}
                 </div>
@@ -412,7 +414,7 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
           <Separator className="my-6" />
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div>
-              <p className="text-sm text-muted-foreground mb-2">Avg. Training Progress</p>
+              <p className="text-sm text-muted-foreground mb-2">{t('storeDetail.avgTrainingProgress')}</p>
               <div className="flex items-center space-x-3">
                 <Progress 
                   value={store.avgProgress} 
@@ -424,17 +426,17 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
             </div>
 
             <div className="text-center border-l border-border pl-6">
-              <p className="text-sm text-muted-foreground mb-1">Compliance Score</p>
+              <p className="text-sm text-muted-foreground mb-1">{t('storeDetail.complianceScore')}</p>
               <p className="text-3xl font-bold text-green-600 dark:text-green-400">{store.compliance}%</p>
             </div>
 
             <div className="text-center border-l border-border pl-6">
-              <p className="text-sm text-muted-foreground mb-1">Active Employees</p>
+              <p className="text-sm text-muted-foreground mb-1">{t('storeDetail.activeEmployees')}</p>
               <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{store.employees}</p>
             </div>
 
             <div className="text-center border-l border-border pl-6">
-              <p className="text-sm text-muted-foreground mb-1">Engagement Score</p>
+              <p className="text-sm text-muted-foreground mb-1">{t('storeDetail.engagementScore')}</p>
               <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">{engagementScore}</p>
             </div>
           </div>
@@ -446,15 +448,15 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
         <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-grid">
           <TabsTrigger value="overview">
             <BarChart3 className="w-4 h-4 mr-2" />
-            Performance
+            {t('storeDetail.tabPerformance')}
           </TabsTrigger>
           <TabsTrigger value="activity">
             <Activity className="w-4 h-4 mr-2" />
-            Activity Feed
+            {t('storeDetail.tabActivityFeed')}
           </TabsTrigger>
           <TabsTrigger value="reports">
             <BarChart3 className="w-4 h-4 mr-2" />
-            Reports
+            {t('storeDetail.tabReports')}
           </TabsTrigger>
         </TabsList>
 
@@ -467,17 +469,17 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <TrendingUp className="w-5 h-5 mr-2 text-primary" />
-                  Performance Trends
+                  {t('storeDetail.performanceTrends')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {loadingPerformance ? (
                   <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                    Loading performance data...
+                    {t('storeDetail.loadingPerformanceData')}
                   </div>
                 ) : performanceData.length === 0 ? (
                   <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                    No performance data available
+                    {t('storeDetail.noPerformanceData')}
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height={300}>
@@ -503,21 +505,21 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                       }} 
                     />
                     <Legend />
-                    <Area 
-                      type="monotone" 
-                      dataKey="progress" 
-                      stroke="#F74A05" 
-                      fillOpacity={1} 
+                    <Area
+                      type="monotone"
+                      dataKey="progress"
+                      stroke="#F74A05"
+                      fillOpacity={1}
                       fill="url(#colorProgress)"
-                      name="Training Progress"
+                      name={t('storeDetail.trainingProgress')}
                     />
-                    <Area 
-                      type="monotone" 
-                      dataKey="compliance" 
-                      stroke="#10b981" 
-                      fillOpacity={1} 
+                    <Area
+                      type="monotone"
+                      dataKey="compliance"
+                      stroke="#10b981"
+                      fillOpacity={1}
                       fill="url(#colorCompliance)"
-                      name="Compliance"
+                      name={t('storeDetail.compliance')}
                     />
                   </AreaChart>
                   </ResponsiveContainer>
@@ -530,17 +532,17 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <Users className="w-5 h-5 mr-2 text-primary" />
-                  Employee Progress
+                  {t('storeDetail.employeeProgress')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {loadingEmployees ? (
                   <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                    Loading employee data...
+                    {t('storeDetail.loadingEmployeeData')}
                   </div>
                 ) : employeeProgressData.length === 0 ? (
                   <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                    No employee progress data available
+                    {t('storeDetail.noEmployeeProgressData')}
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height={300}>
@@ -555,7 +557,7 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                         borderRadius: '8px'
                       }} 
                     />
-                    <Bar dataKey="progress" fill="#F74A05" name="Progress %" radius={[0, 8, 8, 0]} />
+                    <Bar dataKey="progress" fill="#F74A05" name={t('storeDetail.progressPct')} radius={[0, 8, 8, 0]} />
                   </BarChart>
                   </ResponsiveContainer>
                 )}
@@ -567,17 +569,17 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <Activity className="w-5 h-5 mr-2 text-primary" />
-                  Engagement Trend
+                  {t('storeDetail.engagementTrend')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {loadingPerformance ? (
                   <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                    Loading engagement data...
+                    {t('storeDetail.loadingEngagementData')}
                   </div>
                 ) : performanceData.length === 0 ? (
                   <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                    No engagement data available
+                    {t('storeDetail.noEngagementData')}
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height={300}>
@@ -598,7 +600,7 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                       stroke="#8B5CF6" 
                       strokeWidth={3}
                       dot={{ fill: '#8B5CF6', r: 5 }}
-                      name="Engagement %"
+                      name={t('storeDetail.engagementPct')}
                     />
                   </LineChart>
                   </ResponsiveContainer>
@@ -611,7 +613,7 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <Target className="w-5 h-5 mr-2 text-primary" />
-                  Quick Statistics
+                  {t('storeDetail.quickStatistics')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -622,8 +624,8 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                         <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-foreground">Completion Rate</p>
-                        <p className="text-xs text-muted-foreground">Last 30 days</p>
+                        <p className="text-sm font-medium text-foreground">{t('storeDetail.completionRate')}</p>
+                        <p className="text-xs text-muted-foreground">{t('storeDetail.last30Days')}</p>
                       </div>
                     </div>
                     {loadingStats ? (
@@ -639,8 +641,8 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                         <Award className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-foreground">Certifications</p>
-                        <p className="text-xs text-muted-foreground">Active certifications</p>
+                        <p className="text-sm font-medium text-foreground">{t('storeDetail.certifications')}</p>
+                        <p className="text-xs text-muted-foreground">{t('storeDetail.activeCertifications')}</p>
                       </div>
                     </div>
                     {loadingStats ? (
@@ -656,8 +658,8 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                         <Clock className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-foreground">Learning Hours</p>
-                        <p className="text-xs text-muted-foreground">Total this month</p>
+                        <p className="text-sm font-medium text-foreground">{t('storeDetail.learningHours')}</p>
+                        <p className="text-xs text-muted-foreground">{t('storeDetail.totalThisMonth')}</p>
                       </div>
                     </div>
                     {loadingStats ? (
@@ -673,8 +675,8 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                         <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-foreground">Overdue Items</p>
-                        <p className="text-xs text-muted-foreground">Requires attention</p>
+                        <p className="text-sm font-medium text-foreground">{t('storeDetail.overdueItems')}</p>
+                        <p className="text-xs text-muted-foreground">{t('storeDetail.requiresAttention')}</p>
                       </div>
                     </div>
                     {loadingStats ? (
@@ -695,17 +697,17 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
             <CardHeader>
               <CardTitle className="flex items-center">
                 <Activity className="w-5 h-5 mr-2 text-primary" />
-                Recent Store Activity
+                {t('storeDetail.recentStoreActivity')}
               </CardTitle>
             </CardHeader>
             <CardContent>
               {loadingActivity ? (
                 <div className="py-8 text-center text-muted-foreground">
-                  Loading activity feed...
+                  {t('storeDetail.loadingActivityFeed')}
                 </div>
               ) : storeActivity.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground">
-                  No recent activity
+                  {t('storeDetail.noRecentActivity')}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -758,7 +760,7 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
             <CardHeader>
               <CardTitle className="flex items-center">
                 <BarChart3 className="w-5 h-5 mr-2 text-primary" />
-                Store Reports - {store.name} {store.storeNumber}
+                {t('storeDetail.storeReports', { name: store.name, number: store.storeNumber })}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -766,10 +768,9 @@ export function StoreDetail({ store, onBack, currentRole, onEdit }: StoreDetailP
                 <div className="flex items-start space-x-2">
                   <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="text-sm text-blue-900 dark:text-blue-100 font-medium">Auto-Filtered Report</p>
+                    <p className="text-sm text-blue-900 dark:text-blue-100 font-medium">{t('storeDetail.autoFilteredReport')}</p>
                     <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">
-                      This report is automatically filtered to show data for <span className="font-semibold">{store.name}</span> only. 
-                      You can add additional filters below.
+                      {t('storeDetail.autoFilteredDesc', { name: store.name })}
                     </p>
                   </div>
                 </div>
