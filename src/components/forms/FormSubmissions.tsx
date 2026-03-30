@@ -347,7 +347,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 h-full min-h-[600px]">
+    <div className="flex flex-col lg:flex-row gap-4 min-h-[600px]">
       {/* ── Left pane: form selector + submission list ── */}
       <div className="w-full lg:w-80 flex flex-col gap-3 shrink-0">
         {/* Form selector */}
@@ -501,7 +501,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
       {/* ── Right pane: submission detail ── */}
       <div className="flex-1 min-w-0">
         {!selectedSubmission ? (
-          <Card className="h-full flex items-center justify-center">
+          <Card className="min-h-[400px] flex items-center justify-center">
             <CardContent className="text-center text-muted-foreground py-16">
               <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
                 <FileText className="h-7 w-7 opacity-40" />
@@ -511,7 +511,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
             </CardContent>
           </Card>
         ) : (
-          <Card className="h-full overflow-auto">
+          <Card className="overflow-auto">
             <CardHeader className="pb-3">
               {/* Header row: submitter + status + export */}
               <div className="flex items-start justify-between gap-3 flex-wrap">
