@@ -449,7 +449,7 @@ export function RequirementsManager({ useOrgScope = false }: RequirementsManager
               <TableRow>
                 <TableHead>{t('compliance.req.colRequirement')}</TableHead>
                 <TableHead>{t('compliance.auth.colState')}</TableHead>
-                <TableHead>{t('compliance.topics.title')}</TableHead>
+                <TableHead>{t('compliance.topicsMgr.title')}</TableHead>
                 <TableHead>{t('compliance.authorities')}</TableHead>
                 <TableHead>{t('compliance.req.colRecert')}</TableHead>
                 <TableHead>{t('compliance.req.status')}</TableHead>

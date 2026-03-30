@@ -260,21 +260,21 @@ export function TopicsManager() {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Tag className="h-5 w-5 text-primary" />
-                {t('compliance.topics.title')}
+                {t('compliance.topicsMgr.title')}
               </CardTitle>
               <CardDescription>
-                {t('compliance.topics.description')}
+                {t('compliance.topicsMgr.description')}
                 {isReordering && (
                   <span className="ml-2 inline-flex items-center text-primary">
                     <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                    {t('compliance.topics.savingOrder')}
+                    {t('compliance.topicsMgr.savingOrder')}
                   </span>
                 )}
               </CardDescription>
             </div>
             <Button onClick={openCreateDialog}>
               <Plus className="h-4 w-4 mr-2" />
-              {t('compliance.topics.addTopic')}
+              {t('compliance.topicsMgr.addTopic')}
             </Button>
           </div>
         </CardHeader>
@@ -283,9 +283,9 @@ export function TopicsManager() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12"></TableHead>
-                <TableHead>{t('compliance.topics.colName')}</TableHead>
-                <TableHead>{t('compliance.topics.colDescription')}</TableHead>
-                <TableHead className="w-24">{t('compliance.topics.colOrder')}</TableHead>
+                <TableHead>{t('compliance.topicsMgr.colName')}</TableHead>
+                <TableHead>{t('compliance.topicsMgr.colDescription')}</TableHead>
+                <TableHead className="w-24">{t('compliance.topicsMgr.colOrder')}</TableHead>
                 <TableHead className="w-24">{t('compliance.colActions')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -293,7 +293,7 @@ export function TopicsManager() {
               {topics.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                    {t('compliance.topics.empty')}
+                    {t('compliance.topicsMgr.empty')}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -355,36 +355,36 @@ export function TopicsManager() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {editingTopic ? t('compliance.topics.editTopic') : t('compliance.topics.createTopic')}
+              {editingTopic ? t('compliance.topicsMgr.editTopic') : t('compliance.topicsMgr.createTopic')}
             </DialogTitle>
             <DialogDescription>
               {editingTopic
-                ? t('compliance.topics.editTopicDesc')
-                : t('compliance.topics.createTopicDesc')}
+                ? t('compliance.topicsMgr.editTopicDesc')
+                : t('compliance.topicsMgr.createTopicDesc')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="name">{t('compliance.topics.labelName')}</Label>
+              <Label htmlFor="name">{t('compliance.topicsMgr.labelName')}</Label>
               <Input
                 id="name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder={t('compliance.topics.namePlaceholder')}
+                placeholder={t('compliance.topicsMgr.namePlaceholder')}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="description">{t('compliance.topics.labelDescription')}</Label>
+              <Label htmlFor="description">{t('compliance.topicsMgr.labelDescription')}</Label>
               <Textarea
                 id="description"
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder={t('compliance.topics.descriptionPlaceholder')}
+                placeholder={t('compliance.topicsMgr.descriptionPlaceholder')}
                 rows={3}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="sort_order">{t('compliance.topics.labelSortOrder')}</Label>
+              <Label htmlFor="sort_order">{t('compliance.topicsMgr.labelSortOrder')}</Label>
               <Input
                 id="sort_order"
                 type="number"
@@ -416,9 +416,9 @@ export function TopicsManager() {
       <AlertDialog open={!!deletingTopic} onOpenChange={() => setDeletingTopic(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('compliance.topics.deleteTitle')}</AlertDialogTitle>
+            <AlertDialogTitle>{t('compliance.topicsMgr.deleteTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('compliance.topics.deleteDesc', { name: deletingTopic?.name })}
+              {t('compliance.topicsMgr.deleteDesc', { name: deletingTopic?.name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

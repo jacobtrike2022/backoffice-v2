@@ -339,16 +339,16 @@ export function EmployeePerformance() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Bell className="h-5 w-5 text-primary" />
-              Send Reminder to {selectedEmployee?.name}
+              {t('people.sendReminderTo', { name: selectedEmployee?.name })}
             </DialogTitle>
             <DialogDescription>
-              Choose how to send this training reminder
+              {t('people.chooseReminderMethod')}
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
             <div className="text-sm font-medium text-foreground mb-2">
-              Select notification channels:
+              {t('people.selectNotificationChannels')}
             </div>
             
             <div className="space-y-3">
@@ -364,8 +364,8 @@ export function EmployeePerformance() {
                 >
                   <Mail className="h-4 w-4 text-primary" />
                   <div>
-                    <div className="font-medium text-sm">Email</div>
-                    <div className="text-xs text-muted-foreground">Send via work email</div>
+                    <div className="font-medium text-sm">{t('people.emailChannel')}</div>
+                    <div className="text-xs text-muted-foreground">{t('people.emailChannelDesc')}</div>
                   </div>
                 </Label>
               </div>
@@ -382,8 +382,8 @@ export function EmployeePerformance() {
                 >
                   <MessageSquare className="h-4 w-4 text-primary" />
                   <div>
-                    <div className="font-medium text-sm">SMS</div>
-                    <div className="text-xs text-muted-foreground">Send text message</div>
+                    <div className="font-medium text-sm">{t('people.smsChannel')}</div>
+                    <div className="text-xs text-muted-foreground">{t('people.smsChannelDesc')}</div>
                   </div>
                 </Label>
               </div>
@@ -400,8 +400,8 @@ export function EmployeePerformance() {
                 >
                   <Smartphone className="h-4 w-4 text-primary" />
                   <div>
-                    <div className="font-medium text-sm">Push Notification</div>
-                    <div className="text-xs text-muted-foreground">Send to mobile app</div>
+                    <div className="font-medium text-sm">{t('people.pushChannel')}</div>
+                    <div className="text-xs text-muted-foreground">{t('people.pushChannelDesc')}</div>
                   </div>
                 </Label>
               </div>
@@ -409,20 +409,20 @@ export function EmployeePerformance() {
           </div>
           
           <DialogFooter className="gap-2">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={handleCancelNotification}
               className="flex-1 sm:flex-none"
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
-            <Button 
+            <Button
               onClick={handleSendNotification}
               className="flex-1 sm:flex-none"
               disabled={!sendEmail && !sendSMS && !sendPush}
             >
               <Send className="h-4 w-4 mr-2" />
-              Send Reminder
+              {t('people.sendReminder')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -43,6 +44,7 @@ export function ArchivePlaylistModal({
   playlistTitle,
   onArchive
 }: ArchivePlaylistModalProps) {
+  const { t } = useTranslation();
   const [assignmentStrategy, setAssignmentStrategy] = useState<AssignmentStrategy>('keep-active');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -103,14 +105,14 @@ export function ArchivePlaylistModal({
         <DialogHeader>
           <DialogTitle className="text-xl flex items-center gap-2">
             <Archive className="h-5 w-5 text-muted-foreground" />
-            Archive Playlist
+            {t('playlists.archivePlaylistTitle')}
           </DialogTitle>
           <DialogDescription className="space-y-1.5 pt-2" asChild>
             <div>
-              <div>You're archiving "{playlistTitle}".</div>
+              <div>{t('playlists.archivingPlaylist', { title: playlistTitle })}</div>
               <div className="flex items-center text-primary text-sm">
                 <Info className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />
-                <span>Completion records will be preserved for reporting.</span>
+                <span>{t('playlists.completionRecordsPreserved')}</span>
               </div>
             </div>
           </DialogDescription>
@@ -124,7 +126,7 @@ export function ArchivePlaylistModal({
                 <div className="flex items-center gap-2 mb-4">
                   <Users className="h-4 w-4 text-muted-foreground" />
                   <span className="font-medium text-sm">
-                    {stats.totalAssignments} {stats.totalAssignments === 1 ? 'assignment' : 'assignments'} found
+                    {t('playlists.assignmentsFound', { count: stats.totalAssignments })}
                   </span>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
@@ -133,21 +135,21 @@ export function ArchivePlaylistModal({
                       <CheckCircle2 className="h-4 w-4 text-green-600" />
                       <div className="text-xl font-bold text-green-600">{stats.completedCount}</div>
                     </div>
-                    <div className="text-xs text-muted-foreground">Completed</div>
+                    <div className="text-xs text-muted-foreground">{t('playlists.statusCompleted')}</div>
                   </div>
                   <div className="text-center p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200">
                     <div className="flex items-center justify-center space-x-1 mb-1">
                       <Clock className="h-4 w-4 text-yellow-600" />
                       <div className="text-xl font-bold text-yellow-600">{stats.inProgressCount}</div>
                     </div>
-                    <div className="text-xs text-muted-foreground">In Progress</div>
+                    <div className="text-xs text-muted-foreground">{t('playlists.statusInProgress')}</div>
                   </div>
                   <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200">
                     <div className="flex items-center justify-center space-x-1 mb-1">
                       <Users className="h-4 w-4 text-blue-600" />
                       <div className="text-xl font-bold text-blue-600">{stats.notStartedCount}</div>
                     </div>
-                    <div className="text-xs text-muted-foreground">Not Started</div>
+                    <div className="text-xs text-muted-foreground">{t('playlists.statusNotStarted')}</div>
                   </div>
                 </div>
               </CardContent>
@@ -160,7 +162,7 @@ export function ArchivePlaylistModal({
               <CardContent className="pt-5 pb-5 text-center">
                 <Users className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
                 <p className="text-sm text-muted-foreground">
-                  No active assignments for this playlist.
+                  {t('playlists.noActiveAssignments')}
                 </p>
               </CardContent>
             </Card>
@@ -171,10 +173,10 @@ export function ArchivePlaylistModal({
             <div className="space-y-3">
               <div>
                 <h3 className="font-semibold text-base mb-1">
-                  What should happen to active assignments?
+                  {t('playlists.whatHappenToActiveAssignments')}
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  {activeAssignments} {activeAssignments === 1 ? 'learner has' : 'learners have'} an active assignment to this playlist.
+                  {t('playlists.learnersHaveActiveAssignment', { count: activeAssignments })}
                 </p>
               </div>
 
@@ -188,10 +190,10 @@ export function ArchivePlaylistModal({
                       <RadioGroupItem value="keep-active" id="keep-active" className="mt-0.5" />
                       <div className="flex-1">
                         <Label htmlFor="keep-active" className="cursor-pointer font-medium">
-                          Keep assignments active <span className="text-muted-foreground">(recommended)</span>
+                          {t('playlists.keepAssignmentsActive')} <span className="text-muted-foreground">({t('playlists.recommended')})</span>
                         </Label>
                         <p className="text-sm text-muted-foreground mt-1">
-                          Learners can still complete their assignments. The playlist won't appear for new assignments.
+                          {t('playlists.keepAssignmentsActiveDesc')}
                         </p>
                       </div>
                     </div>
@@ -204,16 +206,16 @@ export function ArchivePlaylistModal({
                       <RadioGroupItem value="archive-assignments" id="archive-assignments" className="mt-0.5" />
                       <div className="flex-1">
                         <Label htmlFor="archive-assignments" className="cursor-pointer font-medium">
-                          Archive all assignments
+                          {t('playlists.archiveAllAssignments')}
                         </Label>
                         <p className="text-sm text-muted-foreground mt-1">
-                          All {activeAssignments} active {activeAssignments === 1 ? 'assignment' : 'assignments'} will be archived. Learners won't see this in their to-do list.
+                          {t('playlists.archiveAllAssignmentsDesc', { count: activeAssignments })}
                         </p>
                         {assignmentStrategy === 'archive-assignments' && (
                           <div className="mt-3 p-2.5 bg-orange-50 dark:bg-orange-900/20 rounded border border-orange-200 dark:border-orange-800">
                             <div className="flex items-start space-x-2 text-sm text-orange-800 dark:text-orange-200">
                               <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                              <span>This will remove {activeAssignments} {activeAssignments === 1 ? 'assignment' : 'assignments'} from learners' dashboards.</span>
+                              <span>{t('playlists.archiveAssignmentsWarning', { count: activeAssignments })}</span>
                             </div>
                           </div>
                         )}
@@ -228,19 +230,19 @@ export function ArchivePlaylistModal({
           {/* What We'll Handle */}
           <Card className="bg-accent/30 border">
             <CardContent className="pt-4 pb-4">
-              <h4 className="text-sm font-semibold mb-2">What happens when you archive:</h4>
+              <h4 className="text-sm font-semibold mb-2">{t('playlists.whatHappensWhenArchive')}</h4>
               <ul className="space-y-1.5 text-sm text-muted-foreground">
                 <li className="flex items-start">
                   <span className="text-primary mr-2">•</span>
-                  <span>Playlist won't appear in new assignment dropdowns</span>
+                  <span>{t('playlists.archiveEffect1')}</span>
                 </li>
                 <li className="flex items-start">
                   <span className="text-primary mr-2">•</span>
-                  <span>All completion records are preserved for reporting</span>
+                  <span>{t('playlists.archiveEffect2')}</span>
                 </li>
                 <li className="flex items-start">
                   <span className="text-primary mr-2">•</span>
-                  <span>You can unarchive the playlist at any time</span>
+                  <span>{t('playlists.archiveEffect3')}</span>
                 </li>
               </ul>
             </CardContent>
@@ -249,7 +251,7 @@ export function ArchivePlaylistModal({
           {/* Actions */}
           <div className="flex items-center justify-end space-x-3 pt-2">
             <Button variant="outline" onClick={onClose} disabled={isSaving}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={handleArchive}
@@ -259,12 +261,12 @@ export function ArchivePlaylistModal({
               {isSaving ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                  Archiving...
+                  {t('playlists.archiving')}
                 </>
               ) : (
                 <>
                   <Archive className="h-4 w-4 mr-2" />
-                  Archive Playlist
+                  {t('playlists.archivePlaylistBtn')}
                 </>
               )}
             </Button>

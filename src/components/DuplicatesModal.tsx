@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -23,6 +24,7 @@ export function DuplicatesModal({
   onRolesChanged,
   roles,
 }: DuplicatesModalProps) {
+  const { t } = useTranslation();
   const [duplicates, setDuplicates] = useState<DuplicateRoleSuggestion[]>([]);
   const [loadingDuplicates, setLoadingDuplicates] = useState(false);
   const [showMergeWizard, setShowMergeWizard] = useState(false);
@@ -111,25 +113,25 @@ export function DuplicatesModal({
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Duplicate Roles Detected</DialogTitle>
+            <DialogTitle>{t('content.duplicateRolesDetected')}</DialogTitle>
             <DialogDescription>
-              We found {duplicates.length} potential duplicate role{duplicates.length !== 1 ? 's' : ''}. Review each pair and merge if appropriate.
+              {t('content.duplicateRolesFound', { count: duplicates.length })}
             </DialogDescription>
           </DialogHeader>
 
           {loadingDuplicates ? (
             <div className="text-center py-12">
               <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
-              <p className="text-gray-600">Scanning for duplicate roles...</p>
+              <p className="text-gray-600">{t('content.scanningDuplicates')}</p>
             </div>
           ) : duplicates.length === 0 ? (
             <div className="text-center py-12">
               <div className="text-6xl mb-4">✅</div>
               <h3 className="text-lg font-medium text-gray-900 mb-2">
-                No duplicates found!
+                {t('content.noDuplicatesFound')}
               </h3>
               <p className="text-gray-500">
-                Your roles are clean and unique.
+                {t('content.rolesCleanAndUnique')}
               </p>
             </div>
           ) : (
@@ -159,7 +161,7 @@ export function DuplicatesModal({
                             <div className="flex items-center gap-2 mt-2">
                               <Users className="w-4 h-4 text-muted-foreground" />
                               <span className="text-sm text-muted-foreground">
-                                {role1Users} user{role1Users !== 1 ? 's' : ''}
+                                {t('content.usersCount', { count: role1Users })}
                               </span>
                             </div>
                           </div>
@@ -191,7 +193,7 @@ export function DuplicatesModal({
                             <div className="flex items-center gap-2 mt-2">
                               <Users className="w-4 h-4 text-muted-foreground" />
                               <span className="text-sm text-muted-foreground">
-                                {role2Users} user{role2Users !== 1 ? 's' : ''}
+                                {t('content.usersCount', { count: role2Users })}
                               </span>
                             </div>
                           </div>
@@ -203,8 +205,7 @@ export function DuplicatesModal({
                             <div className="flex items-start gap-2">
                               <AlertCircle className="w-4 h-4 text-yellow-600 mt-0.5" />
                               <p className="text-sm text-yellow-700">
-                                ⚠️ These roles have different departments:{' '}
-                                {role1Dept} → {role2Dept}
+                                {t('content.differentDepartments', { dept1: role1Dept, dept2: role2Dept })}
                               </p>
                             </div>
                           </div>
@@ -214,8 +215,7 @@ export function DuplicatesModal({
                         {role2Users > 0 && (
                           <div className="bg-blue-50 border-l-4 border-blue-400 p-3 rounded">
                             <p className="text-sm text-blue-700">
-                              {role2Users} user{role2Users !== 1 ? 's' : ''} will be moved to{' '}
-                              {duplicate.role_name}
+                              {t('content.usersWillBeMoved', { count: role2Users, roleName: duplicate.role_name })}
                             </p>
                           </div>
                         )}
@@ -233,13 +233,13 @@ export function DuplicatesModal({
                               );
                             }}
                           >
-                            Ignore
+                            {t('content.ignore')}
                           </Button>
                           <Button
                             className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
                             onClick={() => handleMergeClick(duplicate)}
                           >
-                            Merge These Roles
+                            {t('content.mergeTheseRoles')}
                           </Button>
                         </div>
                       </div>
@@ -256,11 +256,11 @@ export function DuplicatesModal({
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-5 h-5 text-muted-foreground mt-0.5" />
                 <div className="text-sm text-muted-foreground">
-                  <p className="font-medium mb-1">💡 What happens when you merge:</p>
+                  <p className="font-medium mb-1">{t('content.whatHappensMerge')}</p>
                   <ul className="list-disc list-inside space-y-1 ml-2">
-                    <li>All users from the second role will be moved to the first role</li>
-                    <li>The second role will be archived</li>
-                    <li>An alias will be created for future matching</li>
+                    <li>{t('content.mergeEffect1')}</li>
+                    <li>{t('content.mergeEffect2')}</li>
+                    <li>{t('content.mergeEffect3')}</li>
                   </ul>
                 </div>
               </div>
@@ -270,7 +270,7 @@ export function DuplicatesModal({
           {/* Footer Actions */}
           <div className="flex justify-end gap-2 mt-6">
             <Button variant="outline" onClick={onClose}>
-              Done
+              {t('common.close')}
             </Button>
             {duplicates.length > 0 && (
               <Button
@@ -278,7 +278,7 @@ export function DuplicatesModal({
                 onClick={scanForDuplicates}
                 disabled={loadingDuplicates}
               >
-                Scan Again
+                {t('content.scanAgain')}
               </Button>
             )}
           </div>

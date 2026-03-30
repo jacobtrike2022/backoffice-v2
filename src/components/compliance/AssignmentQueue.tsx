@@ -268,9 +268,9 @@ function AssignPlaylistDialog({ assignment, open, onOpenChange, onAssign }: Assi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t('compliance.queue.assignPlaylistTitle')}</DialogTitle>
+          <DialogTitle>{t('compliance.queueSection.assignPlaylistTitle')}</DialogTitle>
           <DialogDescription>
-            {t('compliance.queue.assignPlaylistDesc', {
+            {t('compliance.queueSection.assignPlaylistDesc', {
               requirement: assignment?.requirement?.requirement_name,
               firstName: assignment?.employee?.first_name,
               lastName: assignment?.employee?.last_name
@@ -286,17 +286,17 @@ function AssignPlaylistDialog({ assignment, open, onOpenChange, onAssign }: Assi
             </div>
           ) : playlists.length === 0 ? (
             <div className="text-center py-6 text-muted-foreground">
-              <p>{t('compliance.queue.noPlaylistsLinked')}</p>
+              <p>{t('compliance.queueSection.noPlaylistsLinked')}</p>
               <p className="text-sm mt-2">
-                {t('compliance.queue.noPlaylistsLinkedHint')}
+                {t('compliance.queueSection.noPlaylistsLinkedHint')}
               </p>
             </div>
           ) : (
             <div className="space-y-2">
-              <Label>{t('compliance.queue.selectPlaylist')}</Label>
+              <Label>{t('compliance.queueSection.selectPlaylist')}</Label>
               <Select value={selectedPlaylist} onValueChange={setSelectedPlaylist}>
                 <SelectTrigger>
-                  <SelectValue placeholder={t('compliance.queue.choosePlaylist')} />
+                  <SelectValue placeholder={t('compliance.queueSection.choosePlaylist')} />
                 </SelectTrigger>
                 <SelectContent>
                   {playlists.map((playlist) => (
@@ -313,7 +313,7 @@ function AssignPlaylistDialog({ assignment, open, onOpenChange, onAssign }: Assi
             <Card className="bg-muted/50">
               <CardContent className="p-4 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">{t('compliance.queue.requirement')}:</span>
+                  <span className="text-muted-foreground">{t('compliance.queueSection.requirement')}:</span>
                   <span className="font-medium">{assignment.requirement.requirement_name}</span>
                 </div>
                 <div className="flex items-center justify-between mt-2">
@@ -324,7 +324,7 @@ function AssignPlaylistDialog({ assignment, open, onOpenChange, onAssign }: Assi
                 </div>
                 {assignment.due_date && (
                   <div className="flex items-center justify-between mt-2">
-                    <span className="text-muted-foreground">{t('compliance.queue.dueDate')}:</span>
+                    <span className="text-muted-foreground">{t('compliance.queueSection.dueDate')}:</span>
                     <span>{formatDate(assignment.due_date)}</span>
                   </div>
                 )}
@@ -342,7 +342,7 @@ function AssignPlaylistDialog({ assignment, open, onOpenChange, onAssign }: Assi
             onClick={handleAssign}
             disabled={!selectedPlaylist || submitting}
           >
-            {submitting ? t('compliance.queue.assigning') : t('compliance.queue.assignPlaylist')}
+            {submitting ? t('compliance.queueSection.assigning') : t('compliance.queueSection.assignPlaylist')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -384,17 +384,17 @@ function SuppressDialog({ assignment, open, onOpenChange, onSuppress }: Suppress
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t('compliance.queue.suppressTitle')}</DialogTitle>
+          <DialogTitle>{t('compliance.queueSection.suppressTitle')}</DialogTitle>
           <DialogDescription>
-            {t('compliance.queue.suppressDesc')}
+            {t('compliance.queueSection.suppressDesc')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label>{t('compliance.queue.suppressReason')}</Label>
+            <Label>{t('compliance.queueSection.suppressReason')}</Label>
             <Textarea
-              placeholder={t('compliance.queue.suppressReasonPlaceholder')}
+              placeholder={t('compliance.queueSection.suppressReasonPlaceholder')}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               rows={3}
@@ -405,13 +405,13 @@ function SuppressDialog({ assignment, open, onOpenChange, onSuppress }: Suppress
             <Card className="bg-muted/50">
               <CardContent className="p-4 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">{t('compliance.queue.employee')}:</span>
+                  <span className="text-muted-foreground">{t('compliance.queueSection.employee')}:</span>
                   <span className="font-medium">
                     {assignment.employee?.first_name} {assignment.employee?.last_name}
                   </span>
                 </div>
                 <div className="flex items-center justify-between mt-2">
-                  <span className="text-muted-foreground">{t('compliance.queue.requirement')}:</span>
+                  <span className="text-muted-foreground">{t('compliance.queueSection.requirement')}:</span>
                   <span>{assignment.requirement?.requirement_name}</span>
                 </div>
               </CardContent>
@@ -428,7 +428,7 @@ function SuppressDialog({ assignment, open, onOpenChange, onSuppress }: Suppress
             onClick={handleSuppress}
             disabled={!reason.trim() || submitting}
           >
-            {submitting ? t('compliance.queue.suppressing') : t('compliance.queue.suppressAssignment')}
+            {submitting ? t('compliance.queueSection.suppressing') : t('compliance.queueSection.suppressAssignment')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -567,9 +567,9 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">{t('compliance.queue.title')}</h2>
+          <h2 className="text-xl font-semibold">{t('compliance.queueSection.title')}</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            {t('compliance.queue.subtitle')}
+            {t('compliance.queueSection.subtitle')}
           </p>
         </div>
         <Button
@@ -579,7 +579,7 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
           disabled={refreshing}
         >
           <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-          {t('compliance.queue.refresh')}
+          {t('compliance.queueSection.refresh')}
         </Button>
       </div>
 
@@ -596,7 +596,7 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
             isActive={activeTab === 'pending'}
           />
           <StatCard
-            title={t('compliance.queue.assigned')}
+            title={t('compliance.queueSection.assigned')}
             value={stats.assigned}
             icon={<PlayCircle />}
             iconBgClass="bg-blue-100 dark:bg-blue-900/30"
@@ -613,7 +613,7 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
             onClick={() => setActiveTab('all')}
           />
           <StatCard
-            title={t('compliance.queue.suppressed')}
+            title={t('compliance.queueSection.suppressed')}
             value={stats.suppressed}
             icon={<Ban />}
             iconBgClass="bg-gray-100 dark:bg-gray-900/30"
@@ -621,7 +621,7 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
             onClick={() => setActiveTab('all')}
           />
           <StatCard
-            title={t('compliance.queue.overdue')}
+            title={t('compliance.queueSection.overdue')}
             value={stats.overdue}
             icon={<AlertTriangle />}
             iconBgClass="bg-red-100 dark:bg-red-900/30"
@@ -644,14 +644,14 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
               )}
             </TabsTrigger>
             <TabsTrigger value="assigned">
-              {t('compliance.queue.assigned')}
+              {t('compliance.queueSection.assigned')}
               {stats && stats.assigned > 0 && (
                 <Badge variant="secondary" className="ml-2 text-xs">
                   {stats.assigned}
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="all">{t('compliance.queue.all')}</TabsTrigger>
+            <TabsTrigger value="all">{t('compliance.queueSection.all')}</TabsTrigger>
           </TabsList>
         </Tabs>
 
@@ -659,7 +659,7 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder={t('compliance.queue.searchPlaceholder')}
+              placeholder={t('compliance.queueSection.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9 w-64"
@@ -668,15 +668,15 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
           <Select value={triggerFilter} onValueChange={setTriggerFilter}>
             <SelectTrigger className="w-40">
               <Filter className="h-4 w-4 mr-2" />
-              <SelectValue placeholder={t('compliance.queue.trigger')} />
+              <SelectValue placeholder={t('compliance.queueSection.trigger')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">{t('compliance.queue.allTriggers')}</SelectItem>
-              <SelectItem value="onboarding">{t('compliance.queue.triggerOnboarding')}</SelectItem>
-              <SelectItem value="transfer">{t('compliance.queue.triggerTransfer')}</SelectItem>
-              <SelectItem value="promotion">{t('compliance.queue.triggerPromotion')}</SelectItem>
-              <SelectItem value="expiration">{t('compliance.queue.triggerExpiration')}</SelectItem>
-              <SelectItem value="manual">{t('compliance.queue.triggerManual')}</SelectItem>
+              <SelectItem value="all">{t('compliance.queueSection.allTriggers')}</SelectItem>
+              <SelectItem value="onboarding">{t('compliance.queueSection.triggerOnboarding')}</SelectItem>
+              <SelectItem value="transfer">{t('compliance.queueSection.triggerTransfer')}</SelectItem>
+              <SelectItem value="promotion">{t('compliance.queueSection.triggerPromotion')}</SelectItem>
+              <SelectItem value="expiration">{t('compliance.queueSection.triggerExpiration')}</SelectItem>
+              <SelectItem value="manual">{t('compliance.queueSection.triggerManual')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -688,10 +688,10 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('compliance.queue.employee')}</TableHead>
-                <TableHead>{t('compliance.queue.requirement')}</TableHead>
-                <TableHead>{t('compliance.queue.trigger')}</TableHead>
-                <TableHead>{t('compliance.queue.dueDate')}</TableHead>
+                <TableHead>{t('compliance.queueSection.employee')}</TableHead>
+                <TableHead>{t('compliance.queueSection.requirement')}</TableHead>
+                <TableHead>{t('compliance.queueSection.trigger')}</TableHead>
+                <TableHead>{t('compliance.queueSection.dueDate')}</TableHead>
                 <TableHead>{t('compliance.req.status')}</TableHead>
                 <TableHead className="text-right">{t('compliance.colActions')}</TableHead>
               </TableRow>
@@ -701,8 +701,8 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
                     {searchQuery || triggerFilter !== 'all'
-                      ? t('compliance.queue.noMatchFilters')
-                      : t('compliance.queue.empty')}
+                      ? t('compliance.queueSection.noMatchFilters')
+                      : t('compliance.queueSection.empty')}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -765,13 +765,13 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => openSuppressDialog(assignment)}>
                                 <Ban className="h-4 w-4 mr-2" />
-                                {t('compliance.queue.suppress')}
+                                {t('compliance.queueSection.suppress')}
                               </DropdownMenuItem>
                               {onAssignmentClick && (
                                 <>
                                   <DropdownMenuSeparator />
                                   <DropdownMenuItem onClick={() => onAssignmentClick(assignment)}>
-                                    {t('compliance.queue.viewDetails')}
+                                    {t('compliance.queueSection.viewDetails')}
                                   </DropdownMenuItem>
                                 </>
                               )}
@@ -789,12 +789,12 @@ export function AssignmentQueue({ onAssignmentClick, defaultTab = 'pending' }: A
                             {assignment.status === 'assigned' && (
                               <DropdownMenuItem onClick={() => openSuppressDialog(assignment)}>
                                 <Ban className="h-4 w-4 mr-2" />
-                                {t('compliance.queue.suppress')}
+                                {t('compliance.queueSection.suppress')}
                               </DropdownMenuItem>
                             )}
                             {onAssignmentClick && (
                               <DropdownMenuItem onClick={() => onAssignmentClick(assignment)}>
-                                {t('compliance.queue.viewDetails')}
+                                {t('compliance.queueSection.viewDetails')}
                               </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>

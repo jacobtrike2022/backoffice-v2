@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { 
-  ListChecks, 
+import {
+  ListChecks,
   Users,
   ExternalLink
 } from 'lucide-react';
@@ -13,6 +14,7 @@ interface AssociatedPlaylistsProps {
 }
 
 export function AssociatedPlaylists({ trackId, onPlaylistClick }: AssociatedPlaylistsProps) {
+  const { t } = useTranslation();
   const [playlists, setPlaylists] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -40,13 +42,13 @@ export function AssociatedPlaylists({ trackId, onPlaylistClick }: AssociatedPlay
         <CardHeader>
           <CardTitle className="text-base flex items-center">
             <ListChecks className="h-4 w-4 mr-2" />
-            Associated Playlists
+            {t('contentAuthoring.associatedPlaylists')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-center py-6">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
-            <p className="text-sm text-muted-foreground">Loading playlists...</p>
+            <p className="text-sm text-muted-foreground">{t('contentAuthoring.loadingPlaylists')}</p>
           </div>
         </CardContent>
       </Card>
@@ -59,14 +61,14 @@ export function AssociatedPlaylists({ trackId, onPlaylistClick }: AssociatedPlay
         <CardHeader>
           <CardTitle className="text-base flex items-center">
             <ListChecks className="h-4 w-4 mr-2" />
-            Associated Playlists
+            {t('contentAuthoring.associatedPlaylists')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-center py-6">
             <ListChecks className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">Not assigned to any playlists</p>
-            <p className="text-xs text-muted-foreground mt-1">This track can be edited freely</p>
+            <p className="text-sm text-muted-foreground">{t('contentAuthoring.notInAnyPlaylist')}</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('contentAuthoring.trackCanBeEditedFreely')}</p>
           </div>
         </CardContent>
       </Card>
@@ -78,7 +80,7 @@ export function AssociatedPlaylists({ trackId, onPlaylistClick }: AssociatedPlay
       <CardHeader>
         <CardTitle className="text-base flex items-center">
           <ListChecks className="h-4 w-4 mr-2" />
-          Associated Playlists
+          {t('contentAuthoring.associatedPlaylists')}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -112,7 +114,7 @@ export function AssociatedPlaylists({ trackId, onPlaylistClick }: AssociatedPlay
                 <div className="flex items-center space-x-1">
                   <Users className="h-3 w-3 text-orange-500" />
                   <span className="text-muted-foreground">{playlist.pendingCount}</span>
-                  <span className="text-muted-foreground/60">pending</span>
+                  <span className="text-muted-foreground/60">{t('contentAuthoring.pending')}</span>
                 </div>
 
                 {/* Separator */}
@@ -122,7 +124,7 @@ export function AssociatedPlaylists({ trackId, onPlaylistClick }: AssociatedPlay
                 <div className="flex items-center space-x-1">
                   <Users className="h-3 w-3 text-green-500" />
                   <span className="text-muted-foreground">{playlist.completedCount}</span>
-                  <span className="text-muted-foreground/60">completed</span>
+                  <span className="text-muted-foreground/60">{t('contentAuthoring.completed')}</span>
                 </div>
 
                 {/* Separator */}
@@ -144,7 +146,7 @@ export function AssociatedPlaylists({ trackId, onPlaylistClick }: AssociatedPlay
             ) : (
               <div className="flex items-center space-x-2 text-xs text-muted-foreground/60">
                 <Users className="h-3 w-3" />
-                <span>No assignments yet</span>
+                <span>{t('contentAuthoring.noAssignmentsYet')}</span>
               </div>
             )}
           </div>
@@ -154,7 +156,7 @@ export function AssociatedPlaylists({ trackId, onPlaylistClick }: AssociatedPlay
         {playlists.length > 0 && (
           <div className="pt-3 mt-3 border-t border-border">
             <p className="text-xs text-center text-muted-foreground">
-              Assigned to {playlists.length} {playlists.length === 1 ? 'playlist' : 'playlists'}
+              {t('contentAuthoring.assignedToPlaylists', { count: playlists.length })}
             </p>
           </div>
         )}

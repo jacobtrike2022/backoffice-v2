@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -18,11 +19,12 @@ interface VersionHistoryProps {
   onVersionClick?: (versionTrackId: string) => void;
 }
 
-export function VersionHistory({ 
-  trackId, 
+export function VersionHistory({
+  trackId,
   currentVersion,
-  onVersionClick 
+  onVersionClick
 }: VersionHistoryProps) {
+  const { t } = useTranslation();
   const [versions, setVersions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
@@ -55,24 +57,24 @@ export function VersionHistory({
       <CardHeader>
         <CardTitle className="text-base flex items-center">
           <History className="h-4 w-4 mr-2" />
-          Version History
+          {t('contentAuthoring.versionHistory')}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {isLoading ? (
           <div className="text-center py-6">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">Loading versions...</p>
+            <p className="text-sm text-muted-foreground">{t('contentAuthoring.loadingVersions')}</p>
           </div>
         ) : hasError ? (
           <div className="text-center py-6">
             <History className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">Error loading versions</p>
+            <p className="text-sm text-muted-foreground">{t('contentAuthoring.errorLoadingVersions')}</p>
           </div>
         ) : versions.length === 0 ? (
           <div className="text-center py-6">
             <History className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">No version history</p>
+            <p className="text-sm text-muted-foreground">{t('contentAuthoring.noVersionHistory')}</p>
           </div>
         ) : (
           <>
@@ -102,7 +104,7 @@ export function VersionHistory({
                     {isLatest && (
                       <Badge variant="outline" className="bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400">
                         <CheckCircle className="h-3 w-3 mr-1" />
-                        Current
+                        {t('contentAuthoring.versionCurrent')}
                       </Badge>
                     )}
                   </div>
@@ -163,7 +165,7 @@ export function VersionHistory({
         {versions.length > 1 && (
           <div className="pt-3 mt-3 border-t border-border">
             <p className="text-xs text-center text-muted-foreground">
-              Total: {versions.length} {versions.length === 1 ? 'version' : 'versions'}
+              {t('contentAuthoring.versionTotal', { count: versions.length })}
             </p>
           </div>
         )}

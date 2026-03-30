@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -14,6 +15,7 @@ interface TrackRelationshipsProps {
 }
 
 export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: TrackRelationshipsProps) {
+  const { t } = useTranslation();
   const [sourceTracks, setSourceTracks] = useState<TrackRelationship[]>([]);
   const [derivedTracks, setDerivedTracks] = useState<TrackRelationship[]>([]);
   const [variants, setVariants] = useState<TrackRelationship[]>([]);
@@ -146,17 +148,17 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
     const config: Record<VariantType, { Icon: React.ElementType; label: string; className: string }> = {
       geographic: {
         Icon: MapPin,
-        label: 'Geographic',
+        label: t('contentAuthoring.variantTypeGeographic'),
         className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
       },
       company: {
         Icon: Building2,
-        label: 'Company',
+        label: t('contentAuthoring.variantTypeCompany'),
         className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
       },
       unit: {
         Icon: Store,
-        label: 'Unit',
+        label: t('contentAuthoring.variantTypeUnit'),
         className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
       },
     };
@@ -209,7 +211,9 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
           <CardHeader>
             <CardTitle className="text-base flex items-center">
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Sourced From{sourceTracks.length > 1 ? ` (${sourceTracks.length})` : ''}
+              {sourceTracks.length > 1
+                ? t('contentAuthoring.sourcedFromCount', { count: sourceTracks.length })
+                : t('contentAuthoring.sourcedFrom')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -252,7 +256,7 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
           <CardHeader>
             <CardTitle className="text-base flex items-center">
               <ArrowRight className="h-4 w-4 mr-2" />
-              Used as Source For ({derivedTracks.length})
+              {t('contentAuthoring.usedAsSourceFor', { count: derivedTracks.length })}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -293,7 +297,7 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
           <CardHeader>
             <CardTitle className="text-base flex items-center">
               <GitBranch className="h-4 w-4 mr-2" />
-              Variants ({variants.length})
+              {t('contentAuthoring.variantsCount', { count: variants.length })}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -335,14 +339,14 @@ export function TrackRelationships({ trackId, trackType, onNavigateToTrack }: Tr
           <CardHeader>
             <CardTitle className="text-base flex items-center">
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Variant Of
+              {t('contentAuthoring.variantOf')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              <span className="text-sm text-muted-foreground">This is a</span>
+              <span className="text-sm text-muted-foreground">{t('contentAuthoring.thisIsA')}</span>
               {getVariantTypeBadge(baseTrack.variant_type)}
-              <span className="text-sm text-muted-foreground">variant</span>
+              <span className="text-sm text-muted-foreground">{t('contentAuthoring.variantLabel')}</span>
               {getVariantContextBadge(baseTrack)}
             </div>
             <div

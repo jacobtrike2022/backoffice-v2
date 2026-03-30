@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Drawer,
   DrawerContent,
@@ -30,6 +31,8 @@ export function ProfilePreviewDrawer({
   isApplied = false,
 }: ProfilePreviewDrawerProps) {
 
+  const { t } = useTranslation();
+
   const getImportanceColor = (importance: number) => {
     if (importance >= 75) return 'bg-red-100 text-red-800 border-red-300';
     if (importance >= 50) return 'bg-orange-100 text-orange-800 border-orange-300';
@@ -52,19 +55,19 @@ export function ProfilePreviewDrawer({
         <DrawerHeader>
           {!profile ? (
             <>
-              <DrawerTitle>Loading Profile...</DrawerTitle>
-              <DrawerDescription>Please wait while we load the profile details.</DrawerDescription>
+              <DrawerTitle>{t('people.loadingProfile')}</DrawerTitle>
+              <DrawerDescription>{t('people.loadingProfileDesc')}</DrawerDescription>
             </>
           ) : (
             <>
               <DrawerTitle className="text-xl">{profile?.title || 'No Title'}</DrawerTitle>
               <div className="space-y-1 mt-2">
                 <Badge variant="outline" className="text-xs">
-                  Code: {profile?.onet_code || 'N/A'}
+                  {t('people.onetCode')}: {profile?.onet_code || 'N/A'}
                 </Badge>
                 {profile?.job_zone && (
                   <Badge variant="outline" className="text-xs ml-2">
-                    Job Zone {profile.job_zone}
+                    {t('people.jobZone')} {profile.job_zone}
                   </Badge>
                 )}
               </div>
@@ -84,7 +87,7 @@ export function ProfilePreviewDrawer({
                 {/* Description */}
                 {profile?.description && (
                   <div>
-                    <h3 className="font-semibold text-sm mb-2">What they do</h3>
+                    <h3 className="font-semibold text-sm mb-2">{t('people.whatTheyDo')}</h3>
                     <p className="text-sm text-muted-foreground leading-relaxed">
                       {profile.description}
                     </p>
@@ -94,7 +97,7 @@ export function ProfilePreviewDrawer({
             {/* Alternative Titles */}
             {profile?.also_called && profile.also_called.length > 0 && (
               <div>
-                <h3 className="font-semibold text-sm mb-2">Also known as</h3>
+                <h3 className="font-semibold text-sm mb-2">{t('people.alsoKnownAs')}</h3>
                 <div className="flex flex-wrap gap-2">
                   {profile.also_called.map((title, idx) => (
                     <Badge key={idx} variant="secondary" className="text-xs">
@@ -111,7 +114,7 @@ export function ProfilePreviewDrawer({
             {profile?.tasks && profile.tasks.length > 0 && (
               <div>
                 <h3 className="font-semibold text-sm mb-3">
-                  Key Tasks ({profile.tasks.length})
+                  {t('people.keyTasks')} ({profile.tasks.length})
                 </h3>
                 <ul className="space-y-2">
                   {profile.tasks.map((task) => (
@@ -133,7 +136,7 @@ export function ProfilePreviewDrawer({
             {profile?.skills && profile.skills.length > 0 && (
               <div>
                 <h3 className="font-semibold text-sm mb-3">
-                  Required Skills ({profile.skills.length})
+                  {t('people.requiredSkills')} ({profile.skills.length})
                 </h3>
                 <div className="space-y-2">
                   {profile.skills.map((skill) => (
@@ -169,7 +172,7 @@ export function ProfilePreviewDrawer({
             {profile?.knowledge && profile.knowledge.length > 0 && (
               <div>
                 <h3 className="font-semibold text-sm mb-3">
-                  Required Knowledge ({profile.knowledge.length})
+                  {t('people.requiredKnowledge')} ({profile.knowledge.length})
                 </h3>
                 <div className="space-y-2">
                   {profile.knowledge.map((know) => (
@@ -212,13 +215,13 @@ export function ProfilePreviewDrawer({
                 onClick={onSelect}
               >
                 <CheckCircle2 className="w-4 h-4 mr-2" />
-                {isApplied ? 'Profile Applied' : 'Apply Profile'}
+                {isApplied ? t('people.profileApplied') : t('people.applyProfile')}
               </Button>
             <Button
               variant="outline"
               onClick={onClose}
             >
-              Close
+              {t('common.close')}
             </Button>
             </DrawerFooter>
           </>

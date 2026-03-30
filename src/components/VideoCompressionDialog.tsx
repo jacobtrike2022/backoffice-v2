@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -24,16 +25,17 @@ export function VideoCompressionDialog({
   fileName,
   originalSizeMB,
 }: VideoCompressionDialogProps) {
+  const { t } = useTranslation();
   return (
     <Dialog open={isOpen}>
       <DialogContent className="sm:max-w-md [&>button]:hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">
             <Film className="h-5 w-5 text-primary" />
-            <span>Processing Video</span>
+            <span>{t('contentAuthoring.processingVideo')}</span>
           </DialogTitle>
           <DialogDescription>
-            Optimizing your video for faster uploads and storage...
+            {t('contentAuthoring.optimizingVideo')}
           </DialogDescription>
         </DialogHeader>
         
@@ -57,7 +59,7 @@ export function VideoCompressionDialog({
           
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
             <p className="text-xs text-blue-800 dark:text-blue-200">
-              💡 This happens automatically in your browser. Large videos are compressed to stay under the 25MB limit while maintaining quality.
+              {t('contentAuthoring.videoCompressionNote')}
             </p>
           </div>
         </div>

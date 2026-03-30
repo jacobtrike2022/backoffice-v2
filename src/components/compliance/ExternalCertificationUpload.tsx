@@ -299,10 +299,10 @@ export function ExternalCertificationUpload({
 
           {/* Certificate Type */}
           <div className="space-y-2">
-            <Label htmlFor="certificateType">Certificate Type *</Label>
+            <Label htmlFor="certificateType">{t('compliance.upload.labelCertType')}</Label>
             <Select value={certificateType} onValueChange={setCertificateType}>
               <SelectTrigger>
-                <SelectValue placeholder="Select certificate type" />
+                <SelectValue placeholder={t('compliance.upload.selectCertType')} />
               </SelectTrigger>
               <SelectContent>
                 {CERTIFICATE_TYPES.map((type) => (
@@ -314,7 +314,7 @@ export function ExternalCertificationUpload({
             </Select>
             {certificateType === 'Other' && (
               <Input
-                placeholder="Enter certificate type"
+                placeholder={t('compliance.upload.enterCertType')}
                 value={customType}
                 onChange={(e) => setCustomType(e.target.value)}
                 className="mt-2"
@@ -324,7 +324,7 @@ export function ExternalCertificationUpload({
 
           {/* Certificate Number */}
           <div className="space-y-2">
-            <Label htmlFor="certificateNumber">Certificate Number</Label>
+            <Label htmlFor="certificateNumber">{t('compliance.upload.labelCertNumber')}</Label>
             <Input
               id="certificateNumber"
               placeholder="e.g., ABC123456"
@@ -335,10 +335,10 @@ export function ExternalCertificationUpload({
 
           {/* Name on Certificate */}
           <div className="space-y-2">
-            <Label htmlFor="nameOnCertificate">Name on Certificate *</Label>
+            <Label htmlFor="nameOnCertificate">{t('compliance.upload.labelNameOnCert')}</Label>
             <Input
               id="nameOnCertificate"
-              placeholder="Name as it appears on the certificate"
+              placeholder={t('compliance.upload.nameOnCertPlaceholder')}
               value={nameOnCertificate}
               onChange={(e) => setNameOnCertificate(e.target.value)}
               required
@@ -349,11 +349,11 @@ export function ExternalCertificationUpload({
           <div className="space-y-2">
             <Label htmlFor="issuingAuthority">
               <Building2 className="h-4 w-4 inline mr-1" />
-              Issuing Authority *
+              {t('compliance.upload.labelIssuingAuthority')}
             </Label>
             <Input
               id="issuingAuthority"
-              placeholder="e.g., TABC, ServSafe, State Health Department"
+              placeholder={t('compliance.upload.issuingAuthorityPlaceholder')}
               value={issuingAuthority}
               onChange={(e) => setIssuingAuthority(e.target.value)}
               required
@@ -362,10 +362,10 @@ export function ExternalCertificationUpload({
 
           {/* Training Provider */}
           <div className="space-y-2">
-            <Label htmlFor="trainingProvider">Training Provider</Label>
+            <Label htmlFor="trainingProvider">{t('compliance.upload.labelTrainingProvider')}</Label>
             <Input
               id="trainingProvider"
-              placeholder="Organization that provided the training"
+              placeholder={t('compliance.upload.trainingProviderPlaceholder')}
               value={trainingProvider}
               onChange={(e) => setTrainingProvider(e.target.value)}
             />
@@ -375,11 +375,11 @@ export function ExternalCertificationUpload({
           <div className="space-y-2">
             <Label htmlFor="stateIssued">
               <MapPin className="h-4 w-4 inline mr-1" />
-              State Issued
+              {t('compliance.upload.labelStateIssued')}
             </Label>
             <Select value={stateIssued} onValueChange={setStateIssued}>
               <SelectTrigger>
-                <SelectValue placeholder="Select state (if applicable)" />
+                <SelectValue placeholder={t('compliance.upload.selectStateIfApplicable')} />
               </SelectTrigger>
               <SelectContent>
                 {US_STATES.map((state) => (
@@ -396,7 +396,7 @@ export function ExternalCertificationUpload({
             <div className="space-y-2">
               <Label htmlFor="issueDate">
                 <Calendar className="h-4 w-4 inline mr-1" />
-                Issue Date *
+                {t('compliance.upload.labelIssueDate')}
               </Label>
               <Input
                 id="issueDate"
@@ -409,7 +409,7 @@ export function ExternalCertificationUpload({
             <div className="space-y-2">
               <Label htmlFor="expiryDate">
                 <Calendar className="h-4 w-4 inline mr-1" />
-                Expiry Date
+                {t('compliance.upload.labelExpiryDate')}
               </Label>
               <Input
                 id="expiryDate"
@@ -422,7 +422,7 @@ export function ExternalCertificationUpload({
 
           {/* File Upload */}
           <div className="space-y-2">
-            <Label>Certificate Document *</Label>
+            <Label>{t('compliance.upload.labelCertDocument')}</Label>
             <div
               className={`
                 border-2 border-dashed rounded-lg p-6 text-center transition-colors
@@ -460,10 +460,10 @@ export function ExternalCertificationUpload({
                 <>
                   <Upload className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
                   <p className="text-sm text-muted-foreground mb-2">
-                    Drag and drop your certificate here, or click to browse
+                    {t('compliance.upload.dropzone')}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Supported formats: PDF, JPEG, PNG, WebP (max 10MB)
+                    {t('compliance.upload.dropzoneFormats')}
                   </p>
                   <input
                     type="file"
@@ -481,7 +481,7 @@ export function ExternalCertificationUpload({
             <div className="space-y-2">
               <Progress value={uploadProgress} />
               <p className="text-sm text-muted-foreground text-center">
-                Uploading... {uploadProgress}%
+                {t('compliance.upload.uploading')} {uploadProgress}%
               </p>
             </div>
           )}
@@ -496,7 +496,7 @@ export function ExternalCertificationUpload({
                 disabled={uploading}
                 className="flex-1"
               >
-                Cancel
+                {t('compliance.cancel')}
               </Button>
             )}
             <Button
@@ -507,12 +507,12 @@ export function ExternalCertificationUpload({
               {uploading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Uploading...
+                  {t('compliance.upload.uploading')}...
                 </>
               ) : (
                 <>
                   <Upload className="h-4 w-4 mr-2" />
-                  Submit for Review
+                  {t('compliance.upload.submitForReview')}
                 </>
               )}
             </Button>

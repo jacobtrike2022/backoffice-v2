@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -90,6 +91,7 @@ export function CertificationApprovalQueue({
   showAllStatuses = false,
   onCountChange
 }: CertificationApprovalQueueProps) {
+  const { t } = useTranslation();
   const [uploads, setUploads] = useState<CertificationUpload[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -266,7 +268,7 @@ export function CertificationApprovalQueue({
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by name, type, employee, or authority..."
+                placeholder={t('compliance.approvalQueue.searchPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -279,10 +281,10 @@ export function CertificationApprovalQueue({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
+                  <SelectItem value="all">{t('compliance.req.allStatuses')}</SelectItem>
+                  <SelectItem value="pending">{t('compliance.pending')}</SelectItem>
+                  <SelectItem value="approved">{t('compliance.approvalQueue.approved')}</SelectItem>
+                  <SelectItem value="rejected">{t('compliance.approvalQueue.rejected')}</SelectItem>
                 </SelectContent>
               </Select>
             )}
@@ -295,10 +297,10 @@ export function CertificationApprovalQueue({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Clock className="h-5 w-5 text-primary" />
-            Certification Uploads ({filteredUploads.length})
+            {t('compliance.approvalQueue.title', { count: filteredUploads.length })}
           </CardTitle>
           <CardDescription>
-            Review and approve external certification uploads
+            {t('compliance.approvalQueue.subtitle')}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -306,13 +308,13 @@ export function CertificationApprovalQueue({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Employee</TableHead>
-                  <TableHead>Certificate Type</TableHead>
-                  <TableHead>Issuing Authority</TableHead>
-                  <TableHead>Issue Date</TableHead>
-                  <TableHead>Expiry Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>{t('compliance.queue.employee')}</TableHead>
+                  <TableHead>{t('compliance.approvalQueue.colCertType')}</TableHead>
+                  <TableHead>{t('compliance.upload.labelIssuingAuthority')}</TableHead>
+                  <TableHead>{t('compliance.upload.labelIssueDate')}</TableHead>
+                  <TableHead>{t('compliance.upload.labelExpiryDate')}</TableHead>
+                  <TableHead>{t('compliance.req.status')}</TableHead>
+                  <TableHead>{t('compliance.colActions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -320,8 +322,8 @@ export function CertificationApprovalQueue({
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       {statusFilter === 'pending'
-                        ? 'No pending certification uploads'
-                        : 'No certification uploads found'}
+                        ? t('compliance.approvalQueue.noPending')
+                        : t('compliance.approvalQueue.noUploads')}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -394,7 +396,7 @@ export function CertificationApprovalQueue({
                             </span>
                           </div>
                         ) : (
-                          <span className="text-muted-foreground text-sm">No expiry</span>
+                          <span className="text-muted-foreground text-sm">{t('compliance.approvalQueue.noExpiry')}</span>
                         )}
                       </TableCell>
 
@@ -467,7 +469,7 @@ export function CertificationApprovalQueue({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
-              Certificate Document
+              {t('compliance.approvalQueue.certDocument')}
             </DialogTitle>
           </DialogHeader>
           <div className="flex-1 overflow-auto">
@@ -491,11 +493,11 @@ export function CertificationApprovalQueue({
             <Button variant="outline" asChild>
               <a href={viewingDocument || ''} target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="h-4 w-4 mr-2" />
-                Open in New Tab
+                {t('compliance.approvalQueue.openInNewTab')}
               </a>
             </Button>
             <Button onClick={() => setViewingDocument(null)}>
-              Close
+              {t('compliance.approvalQueue.close')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -505,10 +507,9 @@ export function CertificationApprovalQueue({
       <Dialog open={!!rejectingUpload} onOpenChange={() => setRejectingUpload(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reject Certification</DialogTitle>
+            <DialogTitle>{t('compliance.approvalQueue.rejectTitle')}</DialogTitle>
             <DialogDescription>
-              Please provide a reason for rejecting this certification upload.
-              The employee will be notified.
+              {t('compliance.approvalQueue.rejectDesc')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -516,15 +517,15 @@ export function CertificationApprovalQueue({
               <div className="p-3 bg-muted rounded-lg">
                 <p className="font-medium">{rejectingUpload.certificate_type}</p>
                 <p className="text-sm text-muted-foreground">
-                  Submitted by {rejectingUpload.user.name}
+                  {t('compliance.approvalQueue.submittedBy')} {rejectingUpload.user.name}
                 </p>
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="rejectionReason">Rejection Reason *</Label>
+              <Label htmlFor="rejectionReason">{t('compliance.approvalQueue.rejectionReason')}</Label>
               <Textarea
                 id="rejectionReason"
-                placeholder="e.g., Document is illegible, certificate has expired, name does not match employee record..."
+                placeholder={t('compliance.approvalQueue.rejectionReasonPlaceholder')}
                 value={rejectionReason}
                 onChange={(e) => setRejectionReason(e.target.value)}
                 rows={4}
@@ -533,7 +534,7 @@ export function CertificationApprovalQueue({
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRejectingUpload(null)}>
-              Cancel
+              {t('compliance.cancel')}
             </Button>
             <Button
               variant="destructive"
@@ -543,12 +544,12 @@ export function CertificationApprovalQueue({
               {actionLoading === rejectingUpload?.id ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Rejecting...
+                  {t('compliance.approvalQueue.rejecting')}
                 </>
               ) : (
                 <>
                   <XCircle className="h-4 w-4 mr-2" />
-                  Reject
+                  {t('compliance.approvalQueue.reject')}
                 </>
               )}
             </Button>

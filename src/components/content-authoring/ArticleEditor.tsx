@@ -407,43 +407,43 @@ export function ArticleEditor({ onClose, onSave, onPublishAndAssign, initialData
                 className="w-full"
               >
                 <Upload className="h-4 w-4 mr-2" />
-                Add Objective
+                {t('contentAuthoring.addObjective')}
               </Button>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Publishing Info</CardTitle>
+              <CardTitle>{t('contentAuthoring.publishingInfo')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div>
-                <p className="text-muted-foreground">Status</p>
-                <p className="font-medium text-foreground">Draft</p>
+                <p className="text-muted-foreground">{t('common.status')}</p>
+                <p className="font-medium text-foreground">{t('common.draft')}</p>
               </div>
               <Separator />
               <div>
-                <p className="text-muted-foreground">Content Type</p>
-                <p className="font-medium text-foreground">Article</p>
+                <p className="text-muted-foreground">{t('contentAuthoring.contentType')}</p>
+                <p className="font-medium text-foreground">{t('contentAuthoring.typeArticleName')}</p>
               </div>
               <Separator />
               <div>
-                <p className="text-muted-foreground mb-2">Quick Actions</p>
+                <p className="text-muted-foreground mb-2">{t('contentAuthoring.quickActions')}</p>
                 <div className="space-y-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     className="w-full"
                     onClick={handlePublish}
                   >
-                    Publish Now
+                    {t('contentAuthoring.publishNow')}
                   </Button>
-                  <Button 
-                    size="sm" 
+                  <Button
+                    size="sm"
                     className="w-full bg-brand-gradient text-white shadow-brand"
                     onClick={handlePublishAndAssign}
                   >
-                    Publish & Assign to Users
+                    {t('contentAuthoring.publishAndAssignToUsers')}
                   </Button>
                 </div>
               </div>

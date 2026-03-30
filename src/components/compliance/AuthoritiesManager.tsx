@@ -349,7 +349,7 @@ export function AuthoritiesManager() {
             <TableHeader>
               <TableRow>
                 <TableHead>{t('compliance.auth.colState')}</TableHead>
-                <TableHead>{t('compliance.topics.colName')}</TableHead>
+                <TableHead>{t('compliance.topicsMgr.colName')}</TableHead>
                 <TableHead>{t('compliance.auth.colType')}</TableHead>
                 <TableHead>{t('compliance.auth.colContact')}</TableHead>
                 <TableHead className="w-24">{t('compliance.colActions')}</TableHead>
@@ -494,7 +494,7 @@ export function AuthoritiesManager() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="name">{t('compliance.topics.labelName')}</Label>
+              <Label htmlFor="name">{t('compliance.topicsMgr.labelName')}</Label>
               <Input
                 id="name"
                 value={formData.name}

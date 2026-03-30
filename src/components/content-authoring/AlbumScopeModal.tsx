@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -24,15 +25,7 @@ import {
 import { getOrganizationsForScope } from '../../lib/crud/trackScopes';
 import { toast } from 'sonner';
 
-const SCOPE_LABELS: Record<AlbumScopeLevel, string> = {
-  UNIVERSAL: 'Universal (all organizations)',
-  SECTOR: 'Sector',
-  INDUSTRY: 'Industry',
-  STATE: 'State',
-  COMPANY: 'Company',
-  PROGRAM: 'Program',
-  UNIT: 'Unit (location)',
-};
+// SCOPE_LABELS are now rendered via i18n in the component
 
 interface AlbumScopeModalProps {
   isOpen: boolean;
@@ -53,6 +46,7 @@ export function AlbumScopeModal({
   allowAllOrgs = false,
   onSaved,
 }: AlbumScopeModalProps) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [scopeLevel, setScopeLevel] = useState<AlbumScopeLevel>('UNIVERSAL');
@@ -83,7 +77,7 @@ export function AlbumScopeModal({
         }
       })
       .catch((e) => {
-        toast.error(e?.message || 'Failed to load scope');
+        toast.error(e?.message || t('contentAuthoring.albumScopeLoadFailed'));
       })
       .finally(() => setLoading(false));
   }, [isOpen, albumId, allowAllOrgs]);
@@ -98,11 +92,11 @@ export function AlbumScopeModal({
         state_id: scopeLevel === 'STATE' && stateId ? stateId : null,
         company_id: scopeLevel === 'COMPANY' && companyId ? companyId : null,
       });
-      toast.success('Album scope updated');
+      toast.success(t('contentAuthoring.albumScopeUpdated'));
       onSaved();
       onClose();
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to save scope');
+      toast.error(e?.message || t('contentAuthoring.albumScopeSaveFailed'));
     } finally {
       setSaving(false);
     }
@@ -112,17 +106,17 @@ export function AlbumScopeModal({
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Album scope</DialogTitle>
+          <DialogTitle>{t('contentAuthoring.albumScopeTitle')}</DialogTitle>
           <DialogDescription>
-            Set who can see this album. Universal = all orgs. State = orgs that operate in that state. Company = one org only.
+            {t('contentAuthoring.albumScopeDesc')}
           </DialogDescription>
         </DialogHeader>
         {loading ? (
-          <div className="py-6 text-center text-muted-foreground">Loading…</div>
+          <div className="py-6 text-center text-muted-foreground">{t('common.loading')}</div>
         ) : (
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>Scope level</Label>
+              <Label>{t('contentAuthoring.albumScopeLevel')}</Label>
               <Select
                 value={scopeLevel}
                 onValueChange={(v) => {
@@ -135,22 +129,22 @@ export function AlbumScopeModal({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="UNIVERSAL">{SCOPE_LABELS.UNIVERSAL}</SelectItem>
-                  <SelectItem value="STATE">{SCOPE_LABELS.STATE}</SelectItem>
-                  <SelectItem value="COMPANY">{SCOPE_LABELS.COMPANY}</SelectItem>
+                  <SelectItem value="UNIVERSAL">{t('contentAuthoring.scopeUniversal')}</SelectItem>
+                  <SelectItem value="STATE">{t('contentAuthoring.scopeState')}</SelectItem>
+                  <SelectItem value="COMPANY">{t('contentAuthoring.scopeCompany')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             {scopeLevel === 'STATE' && (
               <div className="space-y-2">
-                <Label>State</Label>
+                <Label>{t('contentAuthoring.albumScopeStateLabel')}</Label>
                 <Select value={stateId || 'none'} onValueChange={(v) => setStateId(v === 'none' ? '' : v)}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select state" />
+                    <SelectValue placeholder={t('contentAuthoring.selectStatePlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Select state</SelectItem>
+                    <SelectItem value="none">{t('contentAuthoring.selectStatePlaceholder')}</SelectItem>
                     {usStates.map((s) => (
                       <SelectItem key={s.id} value={s.id}>
                         {s.code} – {s.name}
@@ -163,13 +157,13 @@ export function AlbumScopeModal({
 
             {scopeLevel === 'COMPANY' && (
               <div className="space-y-2">
-                <Label>Company (organization)</Label>
+                <Label>{t('contentAuthoring.albumScopeCompanyLabel')}</Label>
                 <Select value={companyId || 'none'} onValueChange={(v) => setCompanyId(v === 'none' ? '' : v)}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select organization" />
+                    <SelectValue placeholder={t('contentAuthoring.selectOrgPlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Select organization</SelectItem>
+                    <SelectItem value="none">{t('contentAuthoring.selectOrgPlaceholder')}</SelectItem>
                     {organizations.map((o) => (
                       <SelectItem key={o.id} value={o.id}>
                         {o.name}
@@ -182,10 +176,10 @@ export function AlbumScopeModal({
 
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={onClose}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving…' : 'Save'}
+                {saving ? t('common.saving') : t('common.save')}
               </Button>
             </div>
           </div>

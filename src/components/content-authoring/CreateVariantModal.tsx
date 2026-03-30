@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/button';
 import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
@@ -117,23 +118,17 @@ const US_STATES = [
   { code: 'WY', name: 'Wyoming' },
 ];
 
-const variantTypeConfig: Record<VariantType, { icon: React.ElementType; label: string; description: string; color: string }> = {
+const variantTypeConfigBase = {
   geographic: {
     icon: MapPin,
-    label: 'Geographic',
-    description: 'Adapt for state/regional regulations',
     color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
   },
   company: {
     icon: Building2,
-    label: 'Company',
-    description: 'Customize for your organization',
     color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
   },
   unit: {
     icon: Store,
-    label: 'Unit',
-    description: 'Customize for specific store/location',
     color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
   }
 };
@@ -144,7 +139,26 @@ export function CreateVariantModal({
   sourceTrack: initialSourceTrack,
   onVariantCreated
 }: CreateVariantModalProps) {
+  const { t } = useTranslation();
   const supabase = getSupabaseClient();
+
+  const variantTypeConfig: Record<VariantType, { icon: React.ElementType; label: string; description: string; color: string }> = {
+    geographic: {
+      ...variantTypeConfigBase.geographic,
+      label: t('contentAuthoring.variantTypeGeographic'),
+      description: t('contentAuthoring.variantTypeGeographicDesc'),
+    },
+    company: {
+      ...variantTypeConfigBase.company,
+      label: t('contentAuthoring.variantTypeCompany'),
+      description: t('contentAuthoring.variantTypeCompanyDesc'),
+    },
+    unit: {
+      ...variantTypeConfigBase.unit,
+      label: t('contentAuthoring.variantTypeUnit'),
+      description: t('contentAuthoring.variantTypeUnitDesc'),
+    },
+  };
 
   // State
   const [step, setStep] = useState<Step>(initialSourceTrack ? 'select-type' : 'select-track');
@@ -269,7 +283,7 @@ export function CreateVariantModal({
       setTracks(data || []);
     } catch (error: any) {
       console.error('Error loading tracks:', error);
-      toast.error('Failed to load tracks');
+      toast.error(t('contentAuthoring.variantLoadTracksFailed'));
     } finally {
       setIsLoadingTracks(false);
     }
@@ -282,7 +296,7 @@ export function CreateVariantModal({
       setStores(storesData || []);
     } catch (error: any) {
       console.error('Error loading stores:', error);
-      toast.error('Failed to load stores');
+      toast.error(t('contentAuthoring.variantLoadStoresFailed'));
     } finally {
       setIsLoadingStores(false);
     }
@@ -323,7 +337,7 @@ export function CreateVariantModal({
 
     const titleToUse = (generatedTitle || '').trim() || variantTitle.trim();
     if (!titleToUse) {
-      toast.error('Generated content needs a title');
+      toast.error(t('contentAuthoring.variantNeedsTitle'));
       return;
     }
 
@@ -403,7 +417,7 @@ export function CreateVariantModal({
         'source'
       );
 
-      toast.success('AI-Generated variant created successfully!');
+      toast.success(t('contentAuthoring.aiVariantCreatedSuccess'));
       onVariantCreated(newTrack.id);
     } catch (error: any) {
       console.error('Error creating AI variant:', error);
@@ -438,12 +452,12 @@ export function CreateVariantModal({
 
   async function handleCreateVariant() {
     if (!selectedTrack || !selectedVariantType) {
-      toast.error('Please complete all required steps');
+      toast.error(t('contentAuthoring.completeAllSteps'));
       return;
     }
 
     if (!variantTitle.trim()) {
-      toast.error('Please enter a variant title');
+      toast.error(t('contentAuthoring.variantTitleRequired'));
       return;
     }
 
@@ -542,7 +556,7 @@ export function CreateVariantModal({
 
       // Tags are already copied via the tags array in newTrackData
 
-      toast.success('Variant created successfully!');
+      toast.success(t('contentAuthoring.variantCreatedSuccess'));
       onVariantCreated(newTrack.id);
     } catch (error: any) {
       console.error('Error creating variant:', error);
@@ -648,9 +662,9 @@ export function CreateVariantModal({
         }}
       >
         <DialogHeader className="sr-only">
-          <DialogTitle>Create Variant</DialogTitle>
+          <DialogTitle>{t('contentAuthoring.createVariantTitle')}</DialogTitle>
           <DialogDescription>
-            Step {getStepNumber()} of {getTotalSteps()}. Choose source track, variant type, and context.
+            {t('contentAuthoring.createVariantStepDesc', { step: getStepNumber(), total: getTotalSteps() })}
           </DialogDescription>
         </DialogHeader>
         {/* Header */}
@@ -660,9 +674,9 @@ export function CreateVariantModal({
               <GitBranch className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-foreground">Create Variant</h2>
+              <h2 className="text-lg font-semibold text-foreground">{t('contentAuthoring.createVariantTitle')}</h2>
               <p className="text-sm text-muted-foreground">
-                Step {getStepNumber()} of {getTotalSteps()}
+                {t('contentAuthoring.stepOf', { step: getStepNumber(), total: getTotalSteps() })}
               </p>
             </div>
           </div>
@@ -697,7 +711,7 @@ export function CreateVariantModal({
           {step === 'select-track' && (
             <div>
               <Label className="text-sm font-medium mb-2 block">
-                Select Source Track
+                {t('contentAuthoring.selectSourceTrack')}
               </Label>
               {isLoadingTracks ? (
                 <div className="flex items-center justify-center py-8">
@@ -705,12 +719,12 @@ export function CreateVariantModal({
                 </div>
               ) : tracks.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground text-sm">
-                  <p>No tracks available.</p>
+                  <p>{t('contentAuthoring.noTracksAvailable')}</p>
                 </div>
               ) : (
                 <>
                 <Input
-                  placeholder="Search tracks by title, type, or status..."
+                  placeholder={t('contentAuthoring.searchTracksPlaceholder')}
                   value={trackSearch}
                   onChange={(e) => setTrackSearch(e.target.value)}
                   className="mb-2"
@@ -718,7 +732,7 @@ export function CreateVariantModal({
                 />
                 <div className="border border-border rounded-lg max-h-64 overflow-y-auto">
                   {filteredTracks.length === 0 ? (
-                    <div className="text-center py-6 text-muted-foreground text-sm">No matches.</div>
+                    <div className="text-center py-6 text-muted-foreground text-sm">{t('common.noResults')}</div>
                   ) : (
                     filteredTracks.map((track) => (
                       <button
@@ -766,7 +780,7 @@ export function CreateVariantModal({
           {step === 'select-type' && (
             <div>
               <Label className="text-sm font-medium mb-3 block">
-                Select Variant Type
+                {t('contentAuthoring.selectVariantType')}
               </Label>
               <div className="flex flex-col gap-3">
                 {(Object.keys(variantTypeConfig) as VariantType[]).map(type => {
@@ -803,17 +817,17 @@ export function CreateVariantModal({
           {step === 'configure-context' && selectedVariantType && (
             <div className="space-y-4">
               <Label className="text-sm font-medium block">
-                Configure {variantTypeConfig[selectedVariantType].label} Variant
+                {t('contentAuthoring.configureVariant', { type: variantTypeConfig[selectedVariantType].label })}
               </Label>
 
               {selectedVariantType === 'geographic' && (
                 <div>
                   <Label htmlFor="state-select" className="text-sm mb-2 block">
-                    Select State
+                    {t('contentAuthoring.selectStateLabel')}
                   </Label>
                   <Select value={selectedState} onValueChange={setSelectedState}>
                     <SelectTrigger id="state-select">
-                      <SelectValue placeholder="Select a state..." />
+                      <SelectValue placeholder={t('contentAuthoring.selectStatePlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
                       {US_STATES.map(state => (
@@ -840,7 +854,7 @@ export function CreateVariantModal({
                     </div>
                     <div>
                       <p className="font-medium text-foreground">{organizationName || 'Your Organization'}</p>
-                      <p className="text-xs text-muted-foreground">Company variant will be customized for your organization</p>
+                      <p className="text-xs text-muted-foreground">{t('contentAuthoring.companyVariantHint')}</p>
                     </div>
                   </div>
                 </div>
@@ -849,7 +863,7 @@ export function CreateVariantModal({
               {selectedVariantType === 'unit' && (
                 <div>
                   <Label htmlFor="store-select" className="text-sm mb-2 block">
-                    Select Store/Location
+                    {t('contentAuthoring.selectStoreLabel')}
                   </Label>
                   {isLoadingStores ? (
                     <div className="flex items-center justify-center py-4">
@@ -857,12 +871,12 @@ export function CreateVariantModal({
                     </div>
                   ) : stores.length === 0 ? (
                     <div className="text-center py-4 text-muted-foreground text-sm">
-                      <p>No stores available.</p>
+                      <p>{t('contentAuthoring.noStoresAvailable')}</p>
                     </div>
                   ) : (
                     <Select value={selectedStore} onValueChange={setSelectedStore}>
                       <SelectTrigger id="store-select">
-                        <SelectValue placeholder="Select a store..." />
+                        <SelectValue placeholder={t('contentAuthoring.selectStorePlaceholder')} />
                       </SelectTrigger>
                       <SelectContent>
                         {stores.map(store => (
@@ -879,16 +893,16 @@ export function CreateVariantModal({
               {/* Variant Title */}
               <div className="pt-2">
                 <Label htmlFor="variant-title" className="text-sm mb-2 block">
-                  Variant Title
+                  {t('contentAuthoring.variantTitleLabel')}
                 </Label>
                 <Input
                   id="variant-title"
                   value={variantTitle}
                   onChange={(e) => setVariantTitle(e.target.value)}
-                  placeholder="Enter variant title..."
+                  placeholder={t('contentAuthoring.variantTitlePlaceholder')}
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Auto-generated based on your selection. You can customize it.
+                  {t('contentAuthoring.variantTitleHint')}
                 </p>
               </div>
             </div>
@@ -899,7 +913,7 @@ export function CreateVariantModal({
             <div className={`space-y-4 flex flex-col ${generationMethod === 'ai' ? 'h-full' : ''}`}>
               <div className="flex-shrink-0">
                 <Label className="text-sm font-medium block mb-1">
-                  Generation Method
+                  {t('contentAuthoring.generationMethod')}
                 </Label>
                 {selectedVariantType === 'geographic' && (
                   <p className="text-xs text-muted-foreground mb-3">
@@ -933,11 +947,11 @@ export function CreateVariantModal({
                       </div>
                       <div className="flex-1">
                         <p className="font-semibold text-foreground flex items-center gap-2">
-                          State Research & Redline
-                          <Badge className="bg-primary/10 text-primary text-[10px] border-0">Recommended</Badge>
+                          {t('contentAuthoring.stateResearchRedline')}
+                          <Badge className="bg-primary/10 text-primary text-[10px] border-0">{t('contentAuthoring.recommended')}</Badge>
                         </p>
                         <p className="text-sm text-muted-foreground mt-0.5">
-                          AI researches state regulations and generates a redline draft with citations
+                          {t('contentAuthoring.stateResearchDesc')}
                         </p>
                       </div>
                       <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
@@ -967,10 +981,10 @@ export function CreateVariantModal({
                       </div>
                       <div>
                         <p className="font-medium text-sm text-foreground flex items-center gap-1">
-                          AI Chat
+                          {t('contentAuthoring.aiChat')}
                           <Zap className="w-3 h-3 text-orange-500" />
                         </p>
-                        <p className="text-[10px] text-muted-foreground">Interactive adaptation</p>
+                        <p className="text-[10px] text-muted-foreground">{t('contentAuthoring.aiChatDesc')}</p>
                       </div>
                     </div>
                   </button>
@@ -991,8 +1005,8 @@ export function CreateVariantModal({
                         {generationMethod === 'manual' && <Check className="w-2 h-2 text-white" />}
                       </div>
                       <div>
-                        <p className="font-medium text-sm text-foreground">Manual Copy</p>
-                        <p className="text-[10px] text-muted-foreground">Direct clone of source</p>
+                        <p className="font-medium text-sm text-foreground">{t('contentAuthoring.manualCopy')}</p>
+                        <p className="text-[10px] text-muted-foreground">{t('contentAuthoring.manualCopyDesc')}</p>
                       </div>
                     </div>
                   </button>
@@ -1019,11 +1033,11 @@ export function CreateVariantModal({
                 </div>
               ) : (
                 <div className="bg-muted/50 border border-border rounded-lg p-4">
-                  <h4 className="text-sm font-medium text-foreground mb-2">Summary</h4>
+                  <h4 className="text-sm font-medium text-foreground mb-2">{t('contentAuthoring.variantSummary')}</h4>
                   <div className="space-y-1 text-sm text-muted-foreground">
-                    <p><span className="font-medium">Source:</span> {selectedTrack?.title}</p>
-                    <p><span className="font-medium">Type:</span> {selectedVariantType && variantTypeConfig[selectedVariantType].label}</p>
-                    <p><span className="font-medium">New Title:</span> {variantTitle}</p>
+                    <p><span className="font-medium">{t('contentAuthoring.variantSummarySource')}:</span> {selectedTrack?.title}</p>
+                    <p><span className="font-medium">{t('contentAuthoring.variantSummaryType')}:</span> {selectedVariantType && variantTypeConfig[selectedVariantType].label}</p>
+                    <p><span className="font-medium">{t('contentAuthoring.variantSummaryNewTitle')}:</span> {variantTitle}</p>
                   </div>
                 </div>
               )}
@@ -1034,8 +1048,8 @@ export function CreateVariantModal({
           {step === 'creating' && (
             <div className="flex flex-col items-center justify-center py-12">
               <Loader2 className="w-10 h-10 animate-spin text-orange-500 mb-4" />
-              <p className="text-lg font-medium text-foreground">Creating Variant...</p>
-              <p className="text-sm text-muted-foreground mt-1">This may take a moment</p>
+              <p className="text-lg font-medium text-foreground">{t('contentAuthoring.creatingVariant')}</p>
+              <p className="text-sm text-muted-foreground mt-1">{t('contentAuthoring.thisMayTakeAMoment')}</p>
             </div>
           )}
         </div>
@@ -1051,11 +1065,11 @@ export function CreateVariantModal({
               disabled={isCreating}
             >
               {step === 'select-track' || (step === 'select-type' && initialSourceTrack) ? (
-                'Cancel'
+                t('common.cancel')
               ) : (
                 <>
                   <ChevronLeft className="w-4 h-4 mr-1" />
-                  Back
+                  {t('common.back')}
                 </>
               )}
             </Button>
@@ -1067,11 +1081,11 @@ export function CreateVariantModal({
               {step === 'generation-method' ? (
                 <>
                   <GitBranch className="w-4 h-4 mr-2" />
-                  Create Variant
+                  {t('contentAuthoring.createVariantTitle')}
                 </>
               ) : (
                 <>
-                  Next
+                  {t('common.next')}
                   <ChevronRight className="w-4 h-4 ml-1" />
                 </>
               )}

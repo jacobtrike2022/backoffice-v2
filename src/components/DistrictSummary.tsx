@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -33,6 +34,7 @@ interface DistrictData {
 const COLORS = ['#F74A05', '#FF733C', '#10b981', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#06B6D4'];
 
 export function DistrictSummary({ currentRole }: DistrictSummaryProps) {
+  const { t } = useTranslation();
   const { orgId: effectiveOrgId } = useEffectiveOrgId();
   const [districts, setDistricts] = useState<DistrictData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -187,9 +189,9 @@ export function DistrictSummary({ currentRole }: DistrictSummaryProps) {
   return (
     <Card className="border-border/50 shadow-sm w-full flex flex-col">
       <CardHeader className="pb-3 flex-shrink-0">
-        <CardTitle className="text-base">District Summary</CardTitle>
+        <CardTitle className="text-base">{t('units.districtSummary')}</CardTitle>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Performance overview by district
+          {t('units.districtSummarySubtitle')}
         </p>
       </CardHeader>
       <CardContent className="pb-4 flex-1 flex flex-col min-h-0">
@@ -205,7 +207,7 @@ export function DistrictSummary({ currentRole }: DistrictSummaryProps) {
         ) : districts.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <Building className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>No districts found</p>
+            <p>{t('units.noDistrictsFound')}</p>
           </div>
         ) : (
           <>
@@ -224,7 +226,7 @@ export function DistrictSummary({ currentRole }: DistrictSummaryProps) {
                   <YAxis 
                     domain={[0, 100]}
                     tick={{ fontSize: 12 }}
-                    label={{ value: 'Completion %', angle: -90, position: 'insideLeft' }}
+                    label={{ value: t('units.completionPct'), angle: -90, position: 'insideLeft' }}
                   />
                   <Tooltip 
                     contentStyle={{ 
@@ -240,7 +242,7 @@ export function DistrictSummary({ currentRole }: DistrictSummaryProps) {
                     dataKey="completion" 
                     fill="#F74A05" 
                     radius={[4, 4, 0, 0]}
-                    name="Completion %"
+                    name={t('units.completionPct')}
                   />
                 </BarChart>
               </ResponsiveContainer>
@@ -285,7 +287,7 @@ export function DistrictSummary({ currentRole }: DistrictSummaryProps) {
                   
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Completion</span>
+                      <span className="text-muted-foreground">{t('units.completion')}</span>
                       <span className="font-semibold text-sm">{district.completion}%</span>
                     </div>
                     <Progress 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogOverlay, DialogPortal } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -16,6 +17,7 @@ interface PinManagementDialogProps {
 }
 
 export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinManagementDialogProps) {
+  const { t } = useTranslation();
   const [currentPin, setCurrentPin] = useState<string | null>(null);
   const [showPin, setShowPin] = useState(false);
   const [newPin, setNewPin] = useState('');
@@ -140,10 +142,10 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Key className="h-5 w-5" />
-            Manage PIN for {userName}
+            {t('knowledgeBase.managePinFor', { name: userName })}
           </DialogTitle>
           <DialogDescription>
-            View, reveal, or reset the employee's 4-digit PIN used for KB viewer access
+            {t('knowledgeBase.managePinDesc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -151,7 +153,7 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
           {/* Current PIN Section */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">Current PIN</Label>
+              <Label className="text-sm font-medium">{t('knowledgeBase.currentPin')}</Label>
               {currentPin !== null && (
                 <Button
                   variant="ghost"
@@ -161,7 +163,7 @@ export function PinManagementDialog({ isOpen, onClose, userId, userName }: PinMa
                   className="h-7 text-xs"
                 >
                   <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
-                  Generate New
+                  {t('knowledgeBase.generateNew')}
                 </Button>
               )}
             </div>

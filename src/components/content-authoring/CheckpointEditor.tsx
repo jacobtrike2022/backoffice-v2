@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -85,6 +86,7 @@ interface CheckpointEditorProps {
 }
 
 export function CheckpointEditor({ onClose, trackId, track, isNewContent = false, currentRole, onBack, onUpdate, onVersionClick, isSuperAdminAuthenticated, onNavigateToPlaylist, registerUnsavedChangesCheck, onArchive, onDuplicate, onCreateVariant }: CheckpointEditorProps) {
+  const { t } = useTranslation();
   const [isEditMode, setIsEditMode] = useState(isNewContent); // Start in edit mode only for new content
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -292,7 +294,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       });
     } catch (error: any) {
       console.error('Error loading checkpoint:', error);
-      toast.error('Failed to load checkpoint');
+      toast.error(t('contentAuthoring.failedLoadCheckpoint'));
     } finally {
       setIsLoading(false);
     }
@@ -567,7 +569,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
   const removeQuestion = (questionId: string) => {
     if (questions.length === 1) {
-      toast.error('Checkpoint must have at least one question');
+      toast.error(t('contentAuthoring.checkpointNeedsQuestion'));
       return;
     }
     setQuestions(questions.filter(q => q.id !== questionId));
@@ -598,7 +600,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
     setQuestions(questions.map(q => {
       if (q.id === questionId) {
         if (q.answers.length <= 2) {
-          toast.error('Question must have at least 2 answers');
+          toast.error(t('contentAuthoring.questionNeedsAnswers'));
           return q;
         }
         return {
@@ -671,7 +673,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
   // Handle save and navigate
   const handleSaveAndNavigate = async () => {
     if (isSystemContent) {
-      toast.error('Cannot edit Trike Library content');
+      toast.error(t('contentAuthoring.cannotEditTrikeLibrary'));
       setShowUnsavedDialog(false);
       return;
     }
@@ -711,10 +713,10 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
       if (currentTrackId) {
         await crud.updateTrack({ id: currentTrackId, ...trackData });
-        toast.success('Changes saved!');
+        toast.success(t('contentAuthoring.changesSaved'));
       } else {
         await crud.createTrack({ ...trackData, status: 'draft' as const });
-        toast.success('Checkpoint created as draft!');
+        toast.success(t('contentAuthoring.checkpointCreatedAsDraft'));
       }
 
       // Close dialog and navigate
@@ -731,7 +733,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       }
     } catch (error: any) {
       console.error('Error saving checkpoint:', error);
-      toast.error('Failed to save checkpoint');
+      toast.error(t('contentAuthoring.failedSaveCheckpoint'));
       setShowUnsavedDialog(false);
       setIsSaving(false);
     }
@@ -774,7 +776,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
   // Handle save draft without navigation
   const handleSaveDraft = async (silent = false) => {
     if (isSystemContent) {
-      if (!silent) toast.error('Cannot edit Trike Library content');
+      if (!silent) toast.error(t('contentAuthoring.cannotEditTrikeLibrary'));
       return;
     }
 
@@ -845,7 +847,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         }
 
         await crud.updateTrack({ id: currentTrackId, ...trackData });
-        if (!silent) toast.success('Changes saved!');
+        if (!silent) toast.success(t('contentAuthoring.changesSaved'));
         
         // Update initial state to reflect saved state
         setInitialState({
@@ -870,7 +872,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
         willNavigateAway = true;
         
         const newTrack = await crud.createTrack({ ...trackData, status: 'draft' as const });
-        if (!silent) toast.success('Checkpoint created as draft!');
+        if (!silent) toast.success(t('contentAuthoring.checkpointCreatedAsDraft'));
         
         // Mark that we've created a track to prevent double-save
         setHasCreatedTrack(true);
@@ -931,7 +933,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       }
     } catch (error: any) {
       console.error('Error saving checkpoint:', error);
-      toast.error('Failed to save checkpoint');
+      toast.error(t('contentAuthoring.failedSaveCheckpoint'));
       // Reset flags on error so user can retry
       if (hasCreatedTrack && !currentTrackId) {
         setHasCreatedTrack(false);
@@ -948,7 +950,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
   const validateCheckpoint = () => {
     if (!title.trim()) {
-      toast.error('Please add a title');
+      toast.error(t('contentAuthoring.titleRequiredError'));
       return false;
     }
 
@@ -977,7 +979,7 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
 
   const handlePublish = async () => {
     if (isSystemContent) {
-      toast.error('Cannot edit Trike Library content');
+      toast.error(t('contentAuthoring.cannotEditTrikeLibrary'));
       return;
     }
 
@@ -1012,17 +1014,17 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
       if (trackId) {
         // Update and publish
         await crud.updateTrack({ id: trackId, ...trackData });
-        toast.success('Checkpoint published!');
+        toast.success(t('contentAuthoring.checkpointPublished'));
       } else {
         // Create and publish
         await crud.createTrack(trackData);
-        toast.success('Checkpoint published!');
+        toast.success(t('contentAuthoring.checkpointPublished'));
       }
       
       onClose();
     } catch (error: any) {
       console.error('Error publishing checkpoint:', error);
-      toast.error('Failed to publish checkpoint');
+      toast.error(t('contentAuthoring.failedPublishCheckpoint'));
     } finally {
       setIsSaving(false);
     }
@@ -1596,13 +1598,13 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                 tags: newTags
               });
               setTags(newTags); // Update local state
-              toast.success('Tags updated');
+              toast.success(t('contentAuthoring.tagsUpdated'));
               if (onUpdate) {
                 onUpdate(); // Refresh track data
               }
             } catch (error: any) {
               console.error('Error updating tags:', error);
-              toast.error('Failed to update tags', {
+              toast.error(t('contentAuthoring.failedUpdateTags'), {
                 description: error.message || 'Please try again'
               });
             }
@@ -1994,10 +1996,10 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                               setIsUploading(true);
                               const url = await crud.uploadTrackMedia(currentTrackId, file, 'thumbnail');
                               setThumbnailUrl(url);
-                              toast.success('Thumbnail updated!');
+                              toast.success(t('contentAuthoring.thumbnailUpdated'));
                             } catch (error: any) {
                               console.error('Error uploading thumbnail:', error);
-                              toast.error('Failed to upload thumbnail');
+                              toast.error(t('contentAuthoring.failedUploadThumbnail'));
                             } finally {
                               setIsUploading(false);
                             }
@@ -2036,10 +2038,10 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                           setIsUploading(true);
                           const url = await crud.uploadTrackMedia(currentTrackId, file, 'thumbnail');
                           setThumbnailUrl(url);
-                          toast.success('Thumbnail uploaded!');
+                          toast.success(t('contentAuthoring.thumbnailUploaded'));
                         } catch (error: any) {
                           console.error('Error uploading thumbnail:', error);
-                          toast.error('Failed to upload thumbnail');
+                          toast.error(t('contentAuthoring.failedUploadThumbnail'));
                         } finally {
                           setIsUploading(false);
                         }
@@ -2122,13 +2124,13 @@ export function CheckpointEditor({ onClose, trackId, track, isNewContent = false
                 tags: newTags
               });
               setTags(newTags); // Update local state
-              toast.success('Tags updated');
+              toast.success(t('contentAuthoring.tagsUpdated'));
               if (onUpdate) {
                 onUpdate(); // Refresh track data
               }
             } catch (error: any) {
               console.error('Error updating tags:', error);
-              toast.error('Failed to update tags', {
+              toast.error(t('contentAuthoring.failedUpdateTags'), {
                 description: error.message || 'Please try again'
               });
             }

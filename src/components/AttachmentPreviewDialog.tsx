@@ -134,7 +134,7 @@ export function AttachmentPreviewDialog({ isOpen, onClose, attachment }: Attachm
                 onClick={handleDownload}
               >
                 <Download className="h-4 w-4 mr-2" />
-                Download
+                {t('common.download')}
               </Button>
             </div>
           </div>

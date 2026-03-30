@@ -1172,7 +1172,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                         <SelectValue placeholder={t('playlists.wizard.filterByRole')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Roles</SelectItem>
+                        <SelectItem value="all">{t('playlists.wizard.allRoles')}</SelectItem>
                         {availableRoles.map(role => (
                           <SelectItem key={role} value={role}>{role}</SelectItem>
                         ))}
@@ -1180,10 +1180,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                     </Select>
                     <Select value={employeeFilterLocation} onValueChange={setEmployeeFilterLocation}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Filter by location" />
+                        <SelectValue placeholder={t('playlists.wizard.filterByLocation')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Locations</SelectItem>
+                        <SelectItem value="all">{t('playlists.wizard.allLocations')}</SelectItem>
                         {LOCATIONS.map(loc => (
                           <SelectItem key={loc} value={loc}>{loc}</SelectItem>
                         ))}
@@ -1195,7 +1195,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                   {selectedEmployees.length > 0 && (
                     <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-900/30">
                       <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-2">
-                        Selected: {selectedEmployees.length} employee{selectedEmployees.length !== 1 ? 's' : ''}
+                        {t('playlists.wizard.selectedEmployeesCount', { count: selectedEmployees.length })}
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {selectedEmployees.map(empId => {
@@ -1225,11 +1225,11 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                   <div className="border rounded-lg max-h-[400px] overflow-y-auto">
                     {loadingEmployees ? (
                       <div className="p-8 text-center text-muted-foreground">
-                        Loading employees...
+                        {t('playlists.wizard.loadingEmployees')}
                       </div>
                     ) : getFilteredEmployees().length === 0 ? (
                       <div className="p-8 text-center text-muted-foreground">
-                        No employees found matching your filters
+                        {t('playlists.wizard.noEmployeesFound')}
                       </div>
                     ) : (
                       getFilteredEmployees().map(emp => (
@@ -1259,24 +1259,24 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
             {assignmentType === 'manual' && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Training Start Timing</CardTitle>
-                  <CardDescription>When should training begin after assignment?</CardDescription>
+                  <CardTitle>{t('playlists.wizard.trainingStartTiming')}</CardTitle>
+                  <CardDescription>{t('playlists.wizard.trainingStartTimingDesc')}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center space-x-2">
-                    <Checkbox 
-                      id="start-immediately-manual" 
+                    <Checkbox
+                      id="start-immediately-manual"
                       checked={startImmediately}
                       onCheckedChange={(checked) => setStartImmediately(checked === true)}
                     />
                     <Label htmlFor="start-immediately-manual" className="cursor-pointer">
-                      Immediately at the time of assignment
+                      {t('playlists.wizard.immediatelyAtAssignment')}
                     </Label>
                   </div>
-                  
+
                   {!startImmediately && (
                     <div className="flex items-center space-x-4 ml-6">
-                      <Label htmlFor="startDelayManual">Delay (days)</Label>
+                      <Label htmlFor="startDelayManual">{t('playlists.wizard.delayDays')}</Label>
                       <Input
                         id="startDelayManual"
                         type="number"
@@ -1284,7 +1284,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                         onChange={(e) => setStartDelayDays(parseInt(e.target.value) || 14)}
                         className="w-24"
                       />
-                      <span className="text-sm text-muted-foreground">days after assignment</span>
+                      <span className="text-sm text-muted-foreground">{t('playlists.wizard.daysAfterAssignment')}</span>
                     </div>
                   )}
                 </CardContent>
@@ -1295,14 +1295,14 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
               <>
                 <Card>
                   <CardHeader>
-                    <CardTitle>Assignment Triggers</CardTitle>
-                    <CardDescription>Define the conditions that trigger automatic assignment</CardDescription>
+                    <CardTitle>{t('playlists.wizard.assignmentTriggers')}</CardTitle>
+                    <CardDescription>{t('playlists.wizard.assignmentTriggersDesc')}</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {(rolesLoading || isLoadingPlaylist) ? (
                       <div className="flex items-center justify-center py-6">
                         <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full mr-2" />
-                        <span className="text-sm text-muted-foreground">Loading trigger conditions...</span>
+                        <span className="text-sm text-muted-foreground">{t('playlists.wizard.loadingTriggerConditions')}</span>
                       </div>
                     ) : triggerConditions.map((condition, index) => (
                       <div key={index} className="flex items-center space-x-2">
@@ -1314,11 +1314,11 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                             <SelectValue placeholder="Select field" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="role">Role</SelectItem>
-                            <SelectItem value="department">Department</SelectItem>
-                            <SelectItem value="location">Location</SelectItem>
-                            <SelectItem value="hire-date">Hire Date</SelectItem>
-                            <SelectItem value="employment-type">Employment Type</SelectItem>
+                            <SelectItem value="role">{t('playlists.wizard.fieldRole')}</SelectItem>
+                            <SelectItem value="department">{t('playlists.wizard.fieldDepartment')}</SelectItem>
+                            <SelectItem value="location">{t('playlists.wizard.fieldLocation')}</SelectItem>
+                            <SelectItem value="hire-date">{t('playlists.wizard.fieldHireDate')}</SelectItem>
+                            <SelectItem value="employment-type">{t('playlists.wizard.fieldEmploymentType')}</SelectItem>
                           </SelectContent>
                         </Select>
 
@@ -1330,11 +1330,11 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                             <SelectValue placeholder="Operator" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="equals">Equals</SelectItem>
-                            <SelectItem value="not-equals">Not Equals</SelectItem>
-                            <SelectItem value="contains">Contains</SelectItem>
+                            <SelectItem value="equals">{t('playlists.wizard.opEquals')}</SelectItem>
+                            <SelectItem value="not-equals">{t('playlists.wizard.opNotEquals')}</SelectItem>
+                            <SelectItem value="contains">{t('playlists.wizard.opContains')}</SelectItem>
                             {condition.field === 'hire-date' && (
-                              <SelectItem value="within">Within (days)</SelectItem>
+                              <SelectItem value="within">{t('playlists.wizard.opWithinDays')}</SelectItem>
                             )}
                           </SelectContent>
                         </Select>
@@ -1342,7 +1342,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                         {condition.field === 'hire-date' ? (
                           <Input
                             type="number"
-                            placeholder="Days"
+                            placeholder={t('playlists.wizard.daysPlaceholder')}
                             value={condition.value}
                             onChange={(e) => updateTriggerCondition(index, 'value', e.target.value)}
                             className="flex-1"
@@ -1353,7 +1353,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                             onValueChange={(v) => updateTriggerCondition(index, 'value', v)}
                           >
                             <SelectTrigger className="flex-1">
-                              <SelectValue placeholder="Select value" />
+                              <SelectValue placeholder={t('playlists.wizard.selectValue')} />
                             </SelectTrigger>
                             <SelectContent>
                               {getFieldOptions(condition.field).map((option) => (
@@ -1381,13 +1381,13 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                       <>
                         <Button variant="outline" onClick={addTriggerCondition} className="w-full">
                           <Plus className="h-4 w-4 mr-2" />
-                          Add Condition
+                          {t('playlists.wizard.addCondition')}
                         </Button>
 
                         {triggerConditions.some(c => c.value !== '') && (
                           <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-900/30">
                             <p className="text-sm font-medium text-orange-900 dark:text-orange-100 mb-1">
-                              This playlist will auto-assign when:
+                              {t('playlists.autoAssignsWhen')}
                             </p>
                             <ul className="text-sm text-orange-800 dark:text-orange-200 space-y-1">
                               {triggerConditions.filter(c => c.value !== '').map((c, i) => (
@@ -1409,7 +1409,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                         <div className="flex items-center gap-2">
                           <UserCheck className="h-5 w-5 text-green-600" />
                           <CardTitle className="text-base">
-                            {mode === 'edit' && triggerRulesImpact ? 'New Employees to Assign' : 'Employees Matching Criteria'}
+                            {mode === 'edit' && triggerRulesImpact ? t('playlists.wizard.newEmployeesToAssign') : t('playlists.wizard.employeesMatchingCriteria')}
                           </CardTitle>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1437,8 +1437,8 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                       </div>
                       <CardDescription>
                         {mode === 'edit' && triggerRulesImpact
-                          ? 'These employees will be newly assigned when you save'
-                          : 'Preview of employees who will be assigned this playlist'}
+                          ? t('playlists.wizard.newlyAssignedOnSave')
+                          : t('playlists.wizard.previewAssignedEmployees')}
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -1449,17 +1449,17 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                       ) : matchingUsersCount === 0 ? (
                         <div className="text-center py-6 text-muted-foreground">
                           <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                          <p className="text-sm">No employees match the current criteria</p>
+                          <p className="text-sm">{t('playlists.wizard.noEmployeesMatchCriteria')}</p>
                         </div>
                       ) : (
                         <div className="border rounded-lg overflow-hidden">
                           <table className="w-full text-sm">
                             <thead className="bg-muted">
                               <tr>
-                                <th className="text-left px-3 py-2 font-medium">Name</th>
-                                <th className="text-left px-3 py-2 font-medium">Role</th>
-                                <th className="text-left px-3 py-2 font-medium">Location</th>
-                                <th className="text-left px-3 py-2 font-medium">Hire Date</th>
+                                <th className="text-left px-3 py-2 font-medium">{t('playlists.tableEmployee')}</th>
+                                <th className="text-left px-3 py-2 font-medium">{t('playlists.tableRole')}</th>
+                                <th className="text-left px-3 py-2 font-medium">{t('playlists.tableLocation')}</th>
+                                <th className="text-left px-3 py-2 font-medium">{t('playlists.wizard.hireDate')}</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y">
@@ -1486,7 +1486,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                           </table>
                           {matchingUsersCount > 20 && (
                             <div className="px-3 py-2 bg-muted/50 text-center text-sm text-muted-foreground border-t">
-                              Showing 20 of {matchingUsersCount} employees • Download CSV for full list
+                              {t('playlists.wizard.showing20ofN', { count: matchingUsersCount })}
                             </div>
                           )}
                         </div>
@@ -1503,7 +1503,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                         <div className="flex items-center gap-2">
                           <UserMinus className="h-5 w-5 text-amber-600" />
                           <CardTitle className="text-base text-amber-900 dark:text-amber-100">
-                            Employees No Longer Matching
+                            {t('playlists.wizard.employeesNoLongerMatching')}
                           </CardTitle>
                         </div>
                         <Badge variant="outline" className="border-amber-300 text-amber-700">
@@ -1511,7 +1511,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                         </Badge>
                       </div>
                       <CardDescription>
-                        These employees have active assignments but no longer match the new criteria
+                        {t('playlists.wizard.orphanedAssignmentsDesc')}
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -1519,10 +1519,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                         <table className="w-full text-sm">
                           <thead className="bg-amber-50 dark:bg-amber-900/20">
                             <tr>
-                              <th className="text-left px-3 py-2 font-medium">Name</th>
-                              <th className="text-left px-3 py-2 font-medium">Role</th>
-                              <th className="text-left px-3 py-2 font-medium">Status</th>
-                              <th className="text-left px-3 py-2 font-medium">Progress</th>
+                              <th className="text-left px-3 py-2 font-medium">{t('playlists.tableEmployee')}</th>
+                              <th className="text-left px-3 py-2 font-medium">{t('playlists.tableRole')}</th>
+                              <th className="text-left px-3 py-2 font-medium">{t('playlists.tableStatus')}</th>
+                              <th className="text-left px-3 py-2 font-medium">{t('playlists.tableProgress')}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y">
@@ -1548,18 +1548,18 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                         </table>
                         {triggerRulesImpact.orphaned.length > 10 && (
                           <div className="px-3 py-2 bg-amber-50/50 dark:bg-amber-900/10 text-center text-sm text-muted-foreground border-t">
-                            +{triggerRulesImpact.orphaned.length - 10} more employees
+                            +{triggerRulesImpact.orphaned.length - 10} {t('playlists.wizard.moreEmployees')}
                           </div>
                         )}
                       </div>
 
                       <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
                         <div>
-                          <p className="text-sm font-medium">What should happen to these assignments?</p>
+                          <p className="text-sm font-medium">{t('playlists.wizard.whatHappenOrphaned')}</p>
                           <p className="text-xs text-muted-foreground">
                             {keepOrphanedAssignments
-                              ? 'They will keep their active assignments and can complete them'
-                              : 'Their assignments will be archived/expired'}
+                              ? t('playlists.wizard.keepActiveDesc')
+                              : t('playlists.wizard.archiveDesc')}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1568,7 +1568,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                             size="sm"
                             onClick={() => setKeepOrphanedAssignments(true)}
                           >
-                            Keep Active
+                            {t('playlists.wizard.keepActive')}
                           </Button>
                           <Button
                             variant={!keepOrphanedAssignments ? 'default' : 'outline'}
@@ -1576,7 +1576,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                             onClick={() => setKeepOrphanedAssignments(false)}
                             className={!keepOrphanedAssignments ? 'bg-amber-600 hover:bg-amber-700' : ''}
                           >
-                            Archive
+                            {t('common.archive')}
                           </Button>
                         </div>
                       </div>
@@ -1586,24 +1586,24 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Training Start Timing</CardTitle>
-                    <CardDescription>When should training begin after assignment?</CardDescription>
+                    <CardTitle>{t('playlists.wizard.trainingStartTiming')}</CardTitle>
+                    <CardDescription>{t('playlists.wizard.trainingStartTimingDesc')}</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex items-center space-x-2">
-                      <Checkbox 
-                        id="start-immediately" 
+                      <Checkbox
+                        id="start-immediately"
                         checked={startImmediately}
                         onCheckedChange={(checked) => setStartImmediately(checked === true)}
                       />
                       <Label htmlFor="start-immediately" className="cursor-pointer">
-                        Immediately at the time of trigger
+                        {t('playlists.wizard.immediatelyAtTrigger')}
                       </Label>
                     </div>
-                    
+
                     {!startImmediately && (
                       <div className="flex items-center space-x-4 ml-6">
-                        <Label htmlFor="startDelay">Delay (days)</Label>
+                        <Label htmlFor="startDelay">{t('playlists.wizard.delayDays')}</Label>
                         <Input
                           id="startDelay"
                           type="number"
@@ -1611,7 +1611,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                           onChange={(e) => setStartDelayDays(parseInt(e.target.value) || 14)}
                           className="w-24"
                         />
-                        <span className="text-sm text-muted-foreground">days after trigger</span>
+                        <span className="text-sm text-muted-foreground">{t('playlists.wizard.daysAfterTrigger')}</span>
                       </div>
                     )}
                   </CardContent>
@@ -1625,32 +1625,32 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
         return (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-semibold mb-2">Playlist Details</h2>
+              <h2 className="text-2xl font-semibold mb-2">{t('playlists.wizard.stepPlaylistDetails')}</h2>
               <p className="text-muted-foreground">
-                Provide basic information about this playlist
+                {t('playlists.wizard.playlistDetailsDesc')}
               </p>
             </div>
 
             <Card>
               <CardHeader>
-                <CardTitle>Basic Information</CardTitle>
+                <CardTitle>{t('playlists.wizard.basicInformation')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Playlist Name *</Label>
+                  <Label htmlFor="name">{t('playlists.wizard.playlistName')}</Label>
                   <Input
                     id="name"
-                    placeholder="e.g., CSR Onboarding Playlist"
+                    placeholder={t('playlists.wizard.playlistNamePlaceholder')}
                     value={playlistName}
                     onChange={(e) => setPlaylistName(e.target.value)}
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
+                  <Label htmlFor="description">{t('common.description')}</Label>
                   <Textarea
                     id="description"
-                    placeholder="Describe the purpose and goals of this playlist... (optional)"
+                    placeholder={t('playlists.wizard.descriptionPlaceholder')}
                     rows={4}
                     value={playlistDescription}
                     onChange={(e) => setPlaylistDescription(e.target.value)}
@@ -1658,7 +1658,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Tags</Label>
+                  <Label>{t('playlists.wizard.tagsLabel')}</Label>
                   <div className="flex flex-wrap gap-2 mb-2">
                     {selectedTagObjects.map(tag => (
                       <Badge
@@ -1681,11 +1681,11 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                       className="h-7 text-xs rounded-full border-dashed border-primary/50 text-primary hover:text-primary hover:bg-primary/5"
                     >
                       <Plus className="h-3 w-3 mr-1" />
-                      {selectedTagObjects.length > 0 ? 'Edit Tags' : 'Add Tags'}
+                      {selectedTagObjects.length > 0 ? t('playlists.wizard.editTags') : t('playlists.wizard.addTags')}
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Organize this playlist with system tags for better discovery
+                    {t('playlists.wizard.tagsHint')}
                   </p>
                 </div>
               </CardContent>
@@ -1706,14 +1706,14 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-semibold mb-2">Content & Stage Builder</h2>
+                <h2 className="text-2xl font-semibold mb-2">{t('playlists.wizard.contentStageBuilder')}</h2>
                 <p className="text-muted-foreground">
-                  Choose the albums and tracks to include, organized by stage
+                  {t('playlists.wizard.contentStageBuilderDesc')}
                 </p>
               </div>
               <Button onClick={addStage} className="bg-brand-gradient">
                 <Plus className="h-4 w-4 mr-2" />
-                Add Stage
+                {t('playlists.wizard.addStage')}
               </Button>
             </div>
 
@@ -1752,7 +1752,7 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                         className="text-lg font-semibold border-0 p-0 h-auto focus-visible:ring-0"
                       />
                       <p className="text-sm text-muted-foreground mt-1">
-                        Select content for this stage
+                        {t('playlists.wizard.selectContentForStage')}
                       </p>
                     </div>
                     {stages.length > 1 && (
