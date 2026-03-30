@@ -434,7 +434,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       await performArchive(track.id, track.title);
     } catch (error: any) {
       console.error('❌ [Archive] Failed to archive:', error);
-      toast.error(`Failed to archive: ${error.message || 'Unknown error'}`);
+      toast.error(t('content.failedArchiveMsg', { message: error.message || 'Unknown error' }));
     }
   };
 
@@ -1232,14 +1232,14 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
               </PopoverTrigger>
               <PopoverContent className="w-48" align="end">
                 <div className="space-y-1">
-                  <div className="px-2 py-1.5 text-xs font-semibold">Sort by</div>
+                  <div className="px-2 py-1.5 text-xs font-semibold">{t('common.sortBy')}</div>
                   <Button
                     variant={sortBy === 'recent' ? 'secondary' : 'ghost'}
                     className="w-full justify-start"
                     onClick={() => setSortBy('recent')}
                   >
                     <Clock className="h-4 w-4 mr-2" />
-                    Most Recent
+                    {t('content.mostRecent')}
                   </Button>
                   <Button
                     variant={sortBy === 'title' ? 'secondary' : 'ghost'}
@@ -1247,7 +1247,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     onClick={() => setSortBy('title')}
                   >
                     <FileText className="h-4 w-4 mr-2" />
-                    Title (A-Z)
+                    {t('content.titleAZ')}
                   </Button>
                   <Button
                     variant={sortBy === 'views' ? 'secondary' : 'ghost'}
@@ -1255,7 +1255,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     onClick={() => setSortBy('views')}
                   >
                     <TrendingUp className="h-4 w-4 mr-2" />
-                    Most Viewed
+                    {t('content.mostViewed')}
                   </Button>
                 </div>
               </PopoverContent>
@@ -1267,13 +1267,13 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
       {/* Results Count */}
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">
-          {filteredTracks.length} {filteredTracks.length === 1 ? 'track' : 'tracks'} found
+          {t('content.trackCount', { count: filteredTracks.length })}
         </span>
         {filterByPlaylistId && (
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="flex items-center gap-1">
               <Play className="h-3 w-3" />
-              Filtered by: {filterPlaylistTitle}
+              {t('content.filteredBy')} {filterPlaylistTitle}
               <button
                 onClick={() => {
                   setFilterByPlaylistId(null);
@@ -1292,7 +1292,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="flex items-center gap-1">
               <FolderOpen className="h-3 w-3" />
-              Filtered by: {filterAlbumTitle}
+              {t('content.filteredBy')} {filterAlbumTitle}
               <button
                 onClick={() => {
                   setFilterByAlbumId(null);
@@ -1315,17 +1315,17 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           <CardContent className="py-12 text-center">
             <div className="flex flex-col items-center gap-2">
               <FileText className="h-12 w-12 text-muted-foreground/50" />
-              <h3 className="font-semibold">No tracks found</h3>
+              <h3 className="font-semibold">{t('content.noTracks')}</h3>
               <p className="text-sm text-muted-foreground">
                 {filterByPlaylistId && filterPlaylistTracks.length > 0
-                  ? `The playlist "${filterPlaylistTitle}" has ${filterPlaylistTracks.length} track(s), but none match the current "${statusFilter}" filter. Try changing the status filter above.`
+                  ? t('content.playlistHasTracksNoMatch', { title: filterPlaylistTitle, count: filterPlaylistTracks.length, status: statusFilter })
                   : filterByPlaylistId
-                  ? `"${filterPlaylistTitle}" has no tracks yet.`
+                  ? t('content.hasNoTracksYet', { title: filterPlaylistTitle })
                   : filterByAlbumId && filterAlbumTracks.length > 0
-                  ? `The album "${filterAlbumTitle}" has ${filterAlbumTracks.length} track(s), but none match the current "${statusFilter}" filter. Try changing the status filter above.`
+                  ? t('content.albumHasTracksNoMatch', { title: filterAlbumTitle, count: filterAlbumTracks.length, status: statusFilter })
                   : filterByAlbumId
-                  ? `"${filterAlbumTitle}" has no tracks yet.`
-                  : 'Try adjusting your search or filters'
+                  ? t('content.hasNoTracksYet', { title: filterAlbumTitle })
+                  : t('content.tryAdjusting')
                 }
               </p>
               {(filterByPlaylistId || filterByAlbumId) && (
@@ -1343,7 +1343,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                   }}
                 >
                   <X className="h-4 w-4 mr-2" />
-                  Clear filter
+                  {t('content.clearFilter')}
                 </Button>
               )}
             </div>
@@ -1387,7 +1387,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     <div className="absolute bottom-2 left-2">
                       <Badge className="bg-orange-500 hover:bg-orange-600 text-white animate-pulse border-none shadow-md flex items-center gap-1">
                         <Zap className="h-3 w-3 fill-current" />
-                        {aiSuggestionCounts[track.id]} AI Suggestion{aiSuggestionCounts[track.id] > 1 ? 's' : ''}
+                        {t('content.aiSuggestion', { count: aiSuggestionCounts[track.id] })}
                       </Badge>
                     </div>
                   )}
@@ -1406,7 +1406,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                           variant="secondary"
                           className="h-8 w-8 p-0 shadow-md"
                           onClick={(e) => e.stopPropagation()}
-                          title="More actions"
+                          title={t('content.moreActions')}
                         >
                           <MoreVertical className="h-4 w-4" />
                         </Button>
@@ -1423,7 +1423,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                             }}
                           >
                             <Edit className="h-4 w-4 mr-2" />
-                            Edit
+                            {t('common.edit')}
                           </Button>
                           <Button
                             variant="ghost"
@@ -1435,7 +1435,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                             }}
                           >
                             <Copy className="h-4 w-4 mr-2" />
-                            Duplicate
+                            {t('common.duplicate')}
                           </Button>
                           <Button
                             variant="ghost"
@@ -1447,7 +1447,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                             }}
                           >
                             <GitBranch className="h-4 w-4 mr-2" />
-                            Create Variant
+                            {t('content.createVariant')}
                           </Button>
                           <Separator className="my-1" />
                           {statusFilter === 'archived' ? (
@@ -1462,7 +1462,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                                 }}
                               >
                                 <FileText className="h-4 w-4 mr-2" />
-                                Move to Drafts
+                                {t('content.moveToDrafts')}
                               </Button>
                               <Button
                                 variant="ghost"
@@ -1474,7 +1474,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                                 }}
                               >
                                 <CheckCircle2 className="h-4 w-4 mr-2" />
-                                Move to Published
+                                {t('content.moveToPublished')}
                               </Button>
                               <Separator className="my-1" />
                               <Button
@@ -1487,7 +1487,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                                 }}
                               >
                                 <Trash2 className="h-4 w-4 mr-2" />
-                                Delete Permanently
+                                {t('content.deletePermanently')}
                               </Button>
                             </>
                           ) : (
@@ -1502,7 +1502,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                                 }}
                               >
                                 <FileText className="h-4 w-4 mr-2" />
-                                Move to Drafts
+                                {t('content.moveToDrafts')}
                               </Button>
                               <Button
                                 variant="ghost"
@@ -1514,7 +1514,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                                 }}
                               >
                                 <Archive className="h-4 w-4 mr-2" />
-                                Archive
+                                {t('common.archive')}
                               </Button>
                             </>
                           )}
@@ -1582,7 +1582,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     const hasKBTag = (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base;
                     if (hasKBTag) {
                       allTags.unshift({
-                        name: 'In Knowledge Base',
+                        name: t('content.inKnowledgeBase'),
                         isSystem: true
                       });
                     }
@@ -1699,7 +1699,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                             variant="ghost"
                             className="h-8 w-8 p-0"
                             onClick={(e) => e.stopPropagation()}
-                            title="More actions"
+                            title={t('content.moreActions')}
                           >
                             <MoreVertical className="h-4 w-4" />
                           </Button>
@@ -1716,7 +1716,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                               }}
                             >
                               <Edit className="h-4 w-4 mr-2" />
-                              Edit
+                              {t('common.edit')}
                             </Button>
                             <Button
                               variant="ghost"
@@ -1728,7 +1728,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                               }}
                             >
                               <Copy className="h-4 w-4 mr-2" />
-                              Duplicate
+                              {t('common.duplicate')}
                             </Button>
                             <Button
                               variant="ghost"
@@ -1740,7 +1740,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                               }}
                             >
                               <GitBranch className="h-4 w-4 mr-2" />
-                              Create Variant
+                              {t('content.createVariant')}
                             </Button>
                             <Separator className="my-1" />
                             {statusFilter === 'archived' ? (
@@ -1807,7 +1807,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                                   }}
                                 >
                                   <Archive className="h-4 w-4 mr-2" />
-                                  Archive
+                                  {t('common.archive')}
                                 </Button>
                               </>
                             )}
@@ -1825,7 +1825,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
                       <div className="flex items-center gap-1">
                         <Eye className="h-4 w-4" />
-                        {track.view_count || 0} views
+                        {track.view_count || 0} {t('content.views')}
                       </div>
                       {(track.duration_minutes || (track.type === 'article' && track.transcript)) && (
                         <div className="flex items-center gap-1">
@@ -1865,7 +1865,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       const hasKBTag = (track.tags || []).includes('system:show_in_knowledge_base') || track.show_in_knowledge_base;
                       if (hasKBTag) {
                         allTags.unshift({
-                          name: 'In Knowledge Base',
+                          name: t('content.inKnowledgeBase'),
                           isSystem: true
                         });
                       }
@@ -1941,29 +1941,29 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-yellow-600" />
-              Archive Track with Relationships
+              {t('content.archiveWithRelationships')}
             </DialogTitle>
             <DialogDescription>
-              This track has relationships with other tracks. Archiving it will not delete the related tracks, but the relationships may be affected.
+              {t('content.archiveDescription')}
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4 py-4">
             <div>
               <p className="text-sm font-medium mb-2">
-                You are about to archive: <span className="font-semibold text-foreground">"{archiveWarningDialog.track?.title}"</span>
+                {t('content.aboutToArchive')} <span className="font-semibold text-foreground">"{archiveWarningDialog.track?.title}"</span>
               </p>
               <p className="text-sm text-muted-foreground">
-                This {archiveWarningDialog.track?.type} has relationships with {archiveWarningDialog.relationships.length} other track(s):
+                {t('content.hasRelationshipsCount', { type: archiveWarningDialog.track?.type, count: archiveWarningDialog.relationships.length })}
               </p>
             </div>
-            
+
             <div className="border border-border rounded-lg p-4 max-h-64 overflow-y-auto">
               <div className="space-y-3">
                 {archiveWarningDialog.relationships.map((rel) => {
                   const derivedTrack = rel.derived_track;
                   if (!derivedTrack) return null;
-                  
+
                   const getTypeColor = (type: string) => {
                     switch (type) {
                       case 'checkpoint': return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400';
@@ -1973,10 +1973,10 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                       default: return 'bg-gray-100 text-gray-700 border-gray-200';
                     }
                   };
-                  
+
                   return (
-                    <div 
-                      key={rel.id} 
+                    <div
+                      key={rel.id}
                       className="flex items-center justify-between p-3 border border-border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer"
                       onClick={() => handleNavigateToRelatedTrack(derivedTrack.id)}
                     >
@@ -1987,7 +1987,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                         <div className="flex-1">
                           <p className="text-sm font-medium text-foreground">{derivedTrack.title || 'Untitled'}</p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Relationship: {rel.relationship_type}
+                            {t('content.relationship')} {rel.relationship_type}
                           </p>
                         </div>
                       </div>
@@ -2001,27 +2001,27 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                         className="ml-2"
                       >
                         <ExternalLink className="h-4 w-4 mr-1" />
-                        View
+                        {t('content.view')}
                       </Button>
                     </div>
                   );
                 })}
               </div>
             </div>
-            
+
             <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
               <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                <strong>Note:</strong> Archiving this track will not delete the related tracks above, but they will lose their source reference. The related tracks will continue to function independently.
+                <strong>{t('content.note')}</strong> {t('content.archiveNote')}
               </p>
             </div>
           </div>
-          
+
           <DialogFooter>
             <Button
               variant="outline"
               onClick={() => setArchiveWarningDialog({ open: false, track: null, relationships: [] })}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="destructive"
@@ -2029,7 +2029,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
               className="bg-red-600 hover:bg-red-700"
             >
               <Archive className="h-4 w-4 mr-2" />
-              Archive Anyway
+              {t('content.archiveAnyway')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2049,7 +2049,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           onVariantCreated={(newTrackId) => {
             setCreateVariantModal({ open: false, track: null });
             if (onNavigate) {
-              toast.success('Variant created! Opening editor...');
+              toast.success(t('content.variantCreated'));
               onNavigate('authoring', newTrackId);
             } else {
               refetch().then(() => {
@@ -2058,7 +2058,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
                   setSelectedTrack(newTrack);
                 }
               });
-              toast.success('Variant created successfully');
+              toast.success(t('content.variantCreatedSuccess'));
             }
           }}
         />

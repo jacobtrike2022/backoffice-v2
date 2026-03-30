@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FormAnalytics } from './forms/FormAnalytics';
 import { FormBuilder } from './forms/FormBuilder';
 import { FormLibrary } from './forms/FormLibrary';
@@ -24,6 +25,7 @@ interface FormsProps {
 type LegacyRole = 'admin' | 'district-manager' | 'store-manager';
 
 export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
+  const { t } = useTranslation();
   const legacyRole: LegacyRole =
     currentRole === 'trike-super-admin' ? 'admin' : (currentRole as LegacyRole);
 
@@ -86,9 +88,9 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-foreground mb-2">Forms Management</h1>
+          <h1 className="text-foreground mb-2">{t('forms.title')}</h1>
           <p className="text-muted-foreground">
-            Create, assign, and track form submissions across your organization
+            {t('forms.subtitle')}
           </p>
         </div>
 
@@ -110,9 +112,9 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-foreground mb-2">Forms Management</h1>
+        <h1 className="text-foreground mb-2">{t('forms.title')}</h1>
         <p className="text-muted-foreground">
-          Create, assign, and track form submissions across your organization
+          {t('forms.subtitle')}
         </p>
       </div>
 
@@ -120,11 +122,11 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <div className="overflow-x-auto -mx-1 px-1">
           <TabsList className="inline-flex w-auto min-w-full sm:min-w-0">
-            <TabsTrigger value="analytics" className="whitespace-nowrap">Analytics Dashboard</TabsTrigger>
-            <TabsTrigger value="builder" className="whitespace-nowrap">Form Builder</TabsTrigger>
-            <TabsTrigger value="library" className="whitespace-nowrap">Form Library</TabsTrigger>
-            <TabsTrigger value="assignments" className="whitespace-nowrap">Form Assignments</TabsTrigger>
-            <TabsTrigger value="submissions" className="whitespace-nowrap">Submissions</TabsTrigger>
+            <TabsTrigger value="analytics" className="whitespace-nowrap">{t('forms.analyticsDashboard')}</TabsTrigger>
+            <TabsTrigger value="builder" className="whitespace-nowrap">{t('forms.formBuilder')}</TabsTrigger>
+            <TabsTrigger value="library" className="whitespace-nowrap">{t('forms.formLibrary')}</TabsTrigger>
+            <TabsTrigger value="assignments" className="whitespace-nowrap">{t('forms.formAssignments')}</TabsTrigger>
+            <TabsTrigger value="submissions" className="whitespace-nowrap">{t('forms.submissions')}</TabsTrigger>
           </TabsList>
         </div>
 
