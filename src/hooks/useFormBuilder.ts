@@ -191,25 +191,21 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
 
       await bulkUpsertFormBlocks(form.id, blocksToUpsert);
 
-      if (newBlocks.length > 0) {
-        // Only re-fetch when there were _isNew blocks that need real DB IDs.
-        // Merge carefully: keep the current in-memory state for existing blocks
-        // (user may be actively editing them), only swap in DB versions for the
-        // formerly-new blocks so they now carry their real IDs.
-        const refreshed = await getFormWithSections(form.id, orgId);
-        if (refreshed) {
-          const refreshedBlocks = buildLocalBlocks(refreshed);
-          setBlocks(prev => {
-            // Build a lookup of current in-memory blocks by ID (non-new only)
-            const currentMap = new Map(prev.filter(b => !b._isNew).map(b => [b.id, b]));
-            // For each DB block: if we have a live in-memory version, keep it;
-            // otherwise use the DB version (covers the newly-inserted blocks).
-            return refreshedBlocks.map(rb => currentMap.get(rb.id) ?? rb);
-          });
-        }
-      } else {
-        // No new blocks — nothing to re-fetch. Just clear the _isNew/_isDirty flags.
-        setBlocks(prev => prev.map(b => ({ ...b, _isNew: false, _isDirty: false })));
+      // Always re-fetch so newly-inserted blocks get real DB IDs.
+      // Merge carefully: keep the live in-memory version for existing blocks
+      // (the user may be actively editing them) and only use the DB version
+      // for blocks that were _isNew (they now have real IDs in the response).
+      // This avoids stamping stale state onto blocks being typed into.
+      const refreshed = await getFormWithSections(form.id, orgId);
+      if (refreshed) {
+        const refreshedBlocks = buildLocalBlocks(refreshed);
+        setBlocks(prev => {
+          // Index current in-memory blocks by real DB ID (exclude temp _isNew IDs)
+          const currentMap = new Map(prev.filter(b => !b._isNew).map(b => [b.id, b]));
+          // For each DB block: prefer the live in-memory version if one exists
+          // (preserves unsaved typing); fall back to DB version for new blocks.
+          return refreshedBlocks.map(rb => currentMap.get(rb.id) ?? rb);
+        });
       }
 
       setIsDirty(false);
