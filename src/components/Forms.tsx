@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FormAnalytics } from './forms/FormAnalytics';
 import { FormBuilder } from './forms/FormBuilder';
 import { FormLibrary } from './forms/FormLibrary';
@@ -24,8 +25,15 @@ interface FormsProps {
 type LegacyRole = 'admin' | 'district-manager' | 'store-manager';
 
 export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
+  const { t } = useTranslation();
   const legacyRole: LegacyRole =
     currentRole === 'trike-super-admin' ? 'admin' : (currentRole as LegacyRole);
+
+  // In demo mode App.tsx sets viewingOrgId asynchronously from the URL, so orgId prop
+  // may arrive as '' on the first render. Read demo_org_id directly from the URL as
+  // an immediate fallback so child components never see an empty orgId.
+  const urlDemoOrgId = new URLSearchParams(window.location.search).get('demo_org_id') || '';
+  const effectiveOrgId = orgId || urlDemoOrgId;
 
   const [activeTab, setActiveTab] = useState('analytics');
 
@@ -80,15 +88,15 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-foreground mb-2">Forms Management</h1>
+          <h1 className="text-foreground mb-2">{t('forms.title')}</h1>
           <p className="text-muted-foreground">
-            Create, assign, and track form submissions across your organization
+            {t('forms.subtitle')}
           </p>
         </div>
 
         <FormDetail
           formId={selectedFormId}
-          orgId={orgId}
+          orgId={effectiveOrgId}
           onBack={handleBackToLibrary}
           onEdit={handleEditFromDetail}
           currentRole={legacyRole}
@@ -104,29 +112,31 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-foreground mb-2">Forms Management</h1>
+        <h1 className="text-foreground mb-2">{t('forms.title')}</h1>
         <p className="text-muted-foreground">
-          Create, assign, and track form submissions across your organization
+          {t('forms.subtitle')}
         </p>
       </div>
 
       {/* Tab Navigation */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
-          <TabsTrigger value="analytics">Analytics Dashboard</TabsTrigger>
-          <TabsTrigger value="builder">Form Builder</TabsTrigger>
-          <TabsTrigger value="library">Form Library</TabsTrigger>
-          <TabsTrigger value="assignments">Form Assignments</TabsTrigger>
-          <TabsTrigger value="submissions">Submissions</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto -mx-1 px-1">
+          <TabsList className="inline-flex w-auto min-w-full sm:min-w-0">
+            <TabsTrigger value="analytics" className="whitespace-nowrap">{t('forms.analyticsDashboard')}</TabsTrigger>
+            <TabsTrigger value="builder" className="whitespace-nowrap">{t('forms.formBuilder')}</TabsTrigger>
+            <TabsTrigger value="library" className="whitespace-nowrap">{t('forms.formLibrary')}</TabsTrigger>
+            <TabsTrigger value="assignments" className="whitespace-nowrap">{t('forms.formAssignments')}</TabsTrigger>
+            <TabsTrigger value="submissions" className="whitespace-nowrap">{t('forms.submissions')}</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="analytics" className="space-y-6">
-          <FormAnalytics orgId={orgId} currentRole={legacyRole} />
+          <FormAnalytics orgId={effectiveOrgId} currentRole={legacyRole} />
         </TabsContent>
 
         <TabsContent value="builder" className="space-y-6">
           <FormBuilder
-            orgId={orgId}
+            orgId={effectiveOrgId}
             formId={builderFormId}
             currentRole={legacyRole}
             onSaveDraft={() => setActiveTab('library')}
@@ -138,7 +148,7 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
 
         <TabsContent value="library" className="space-y-6">
           <FormLibrary
-            orgId={orgId}
+            orgId={effectiveOrgId}
             currentRole={currentRole}
             onNewForm={handleNewForm}
             onEditForm={handleEditForm}
@@ -147,11 +157,11 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
         </TabsContent>
 
         <TabsContent value="assignments" className="space-y-6">
-          <FormAssignments orgId={orgId} currentRole={legacyRole} />
+          <FormAssignments orgId={effectiveOrgId} currentRole={legacyRole} />
         </TabsContent>
 
         <TabsContent value="submissions" className="space-y-6">
-          <FormSubmissions orgId={orgId} currentRole={legacyRole} />
+          <FormSubmissions orgId={effectiveOrgId} currentRole={legacyRole} />
         </TabsContent>
       </Tabs>
       <Footer />

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { Plus, Eye, Tag, Users, Building2, Edit, Trash2, Globe, FileText } from 'lucide-react';
 import { TagsManagement } from './TagsManagement';
@@ -28,6 +29,7 @@ interface OrganizationProps {
 }
 
 export function Organization({ currentRole, role, initialRoleId, onBackToDashboard, onNavigate, onStartPlaybook, onNavigateToTrack }: OrganizationProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<OrganizationTab>(() =>
     initialRoleId ? 'roles' : 'tags',
   );
@@ -50,10 +52,10 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
   const [highlightChunkId, setHighlightChunkId] = useState<string | null>(null);
 
   const tabs = [
-    { id: 'tags' as OrganizationTab, label: 'Tags', icon: Tag },
-    { id: 'roles' as OrganizationTab, label: 'Roles', icon: Users },
-    { id: 'districts' as OrganizationTab, label: 'Districts', icon: Building2 },
-    { id: 'sources' as OrganizationTab, label: 'Sources', icon: FileText },
+    { id: 'tags' as OrganizationTab, label: t('organization.tags'), icon: Tag },
+    { id: 'roles' as OrganizationTab, label: t('organization.roles'), icon: Users },
+    { id: 'districts' as OrganizationTab, label: t('organization.districts'), icon: Building2 },
+    { id: 'sources' as OrganizationTab, label: t('organization.sources'), icon: FileText },
   ];
 
 
@@ -120,7 +122,7 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
       setDistricts(districtsData || []);
     } catch (error) {
       console.error('Error fetching districts:', error);
-      toast.error('Failed to load districts');
+      toast.error(t('organization.failedLoadDistricts'));
     }
   };
 
@@ -170,19 +172,19 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
 
       if (error) throw error;
 
-      toast.success('Store moved successfully');
+      toast.success(t('organization.storeMoved'));
       fetchDistricts();
       fetchUnassignedStores();
     } catch (error) {
       console.error('Error moving store:', error);
-      toast.error('Failed to move store');
+      toast.error(t('organization.failedMoveStore'));
     }
 
     setDraggedStore(null);
   };
 
   const handleDeleteDistrict = async (districtId: string) => {
-    if (!confirm('Are you sure you want to delete this district? Stores will be unassigned.')) {
+    if (!confirm(t('confirmations.deleteDistrict'))) {
       return;
     }
 
@@ -201,18 +203,18 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
 
       if (error) throw error;
 
-      toast.success('District deleted successfully');
+      toast.success(t('organization.districtDeleted'));
       fetchDistricts();
       fetchUnassignedStores();
     } catch (error) {
       console.error('Error deleting district:', error);
-      toast.error('Failed to delete district');
+      toast.error(t('organization.failedDeleteDistrict'));
     }
   };
 
   const handleCreateDistrict = async () => {
     if (!newDistrictName.trim()) {
-      toast.error('District name is required');
+      toast.error(t('organization.districtNameRequired'));
       return;
     }
 
@@ -229,19 +231,19 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
 
       if (error) throw error;
 
-      toast.success('District created successfully');
+      toast.success(t('organization.districtCreated'));
       setShowAddDistrictDialog(false);
       setNewDistrictName('');
       fetchDistricts();
     } catch (error: any) {
       console.error('Error creating district:', error);
-      toast.error('Failed to create district', { description: error.message });
+      toast.error(t('organization.failedCreateDistrict'), { description: error.message });
     }
   };
 
   const handleUpdateDistrict = async () => {
     if (!editDistrictName.trim()) {
-      toast.error('District name is required');
+      toast.error(t('organization.districtNameRequired'));
       return;
     }
 
@@ -255,14 +257,14 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
 
       if (error) throw error;
 
-      toast.success('District updated successfully');
+      toast.success(t('organization.districtUpdated'));
       setShowEditDistrictDialog(false);
       setEditingDistrict(null);
       setEditDistrictName('');
       fetchDistricts();
     } catch (error: any) {
       console.error('Error updating district:', error);
-      toast.error('Failed to update district', { description: error.message });
+      toast.error(t('organization.failedUpdateDistrict'), { description: error.message });
     }
   };
 
@@ -271,9 +273,9 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
       {/* Header - Match Dashboard Design */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl">Organization</h1>
+          <h1 className="text-3xl">{t('organization.title')}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Manage organization-wide settings, tags, and roles
+            {t('organization.subtitle')}
           </p>
         </div>
       </div>
@@ -368,9 +370,9 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
               <CardContent className="p-6">
                 <div className="flex items-center justify-between mb-6">
                   <div>
-                    <h3 className="text-lg font-semibold">Districts</h3>
+                    <h3 className="text-lg font-semibold">{t('organization.districts')}</h3>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Organize stores by district or region
+                      {t('organization.organizeByRegion')}
                     </p>
                   </div>
                   <Button
@@ -378,7 +380,7 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
                     onClick={() => setShowAddDistrictDialog(true)}
                   >
                     <Plus className="h-4 w-4 mr-2" />
-                    Add District
+                    {t('organization.addDistrict')}
                   </Button>
                 </div>
 
@@ -387,16 +389,16 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
                   {districts.length === 0 ? (
                     <div className="text-center py-12 border-2 border-dashed border-border rounded-lg">
                       <Building2 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <h3 className="font-semibold mb-2">No districts yet</h3>
+                      <h3 className="font-semibold mb-2">{t('organization.noDistrictsYet')}</h3>
                       <p className="text-sm text-muted-foreground mb-4">
-                        Create districts to organize your stores by region or area
+                        {t('organization.createDistrictsDesc')}
                       </p>
                       <Button
                         className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
                         onClick={() => setShowAddDistrictDialog(true)}
                       >
                         <Plus className="h-4 w-4 mr-2" />
-                        Add First District
+                        {t('organization.addFirstDistrict')}
                       </Button>
                     </div>
                   ) : (
@@ -415,7 +417,7 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
                             <div>
                               <h3 className="font-semibold">{district.name}</h3>
                               <p className="text-sm text-muted-foreground">
-                                {district.stores?.length || 0} store{district.stores?.length !== 1 ? 's' : ''}
+                                {t('organization.storeCount', { count: district.stores?.length || 0 })}
                               </p>
                             </div>
                           </div>
@@ -455,7 +457,7 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
                               </div>
                             ))
                           ) : (
-                            <p className="text-sm text-muted-foreground">No stores assigned</p>
+                            <p className="text-sm text-muted-foreground">{t('organization.noStoresAssigned')}</p>
                           )}
 
                           {/* Add Store button */}
@@ -467,7 +469,7 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
                             className="px-3 py-1.5 rounded-full border-2 border-dashed border-primary/50 text-primary text-sm font-medium hover:bg-primary/10 transition-colors flex items-center gap-1"
                           >
                             <Plus className="h-3 w-3" />
-                            Add Store
+                            {t('organization.addStore')}
                           </button>
                         </div>
                       </div>
@@ -510,9 +512,9 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
           ) : (
             <div className="space-y-6">
               <div>
-                <h2 className="text-lg font-semibold">Source Files</h2>
+                <h2 className="text-lg font-semibold">{t('organization.sourceFiles')}</h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Upload and manage source documents for content generation
+                  {t('organization.sourceFilesDesc')}
                 </p>
               </div>
               <SourcesManagement
@@ -527,19 +529,19 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
       <Dialog open={showAddDistrictDialog} onOpenChange={setShowAddDistrictDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add District</DialogTitle>
+            <DialogTitle>{t('organization.addDistrict')}</DialogTitle>
             <DialogDescription>
-              Create a new district to organize your stores
+              {t('organization.addDistrictDesc')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label htmlFor="districtName">District Name</Label>
+              <Label htmlFor="districtName">{t('organization.districtName')}</Label>
               <Input
                 id="districtName"
                 value={newDistrictName}
                 onChange={(e) => setNewDistrictName(e.target.value)}
-                placeholder="e.g., North Region, Texas District"
+                placeholder={t('organization.districtNamePlaceholder')}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && newDistrictName.trim()) {
                     handleCreateDistrict();
@@ -553,13 +555,13 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
               setShowAddDistrictDialog(false);
               setNewDistrictName('');
             }}>
-              Cancel
+              {t('common.cancel')}
             </Button>
-            <Button 
+            <Button
               className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
               onClick={handleCreateDistrict}
             >
-              Create District
+              {t('organization.createDistrict')}
             </Button>
           </div>
         </DialogContent>
@@ -569,19 +571,19 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
       <Dialog open={showEditDistrictDialog} onOpenChange={setShowEditDistrictDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit District</DialogTitle>
+            <DialogTitle>{t('organization.editDistrict')}</DialogTitle>
             <DialogDescription>
-              Update the district name
+              {t('organization.updateDistrictDesc')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label htmlFor="editDistrictName">District Name</Label>
+              <Label htmlFor="editDistrictName">{t('organization.districtName')}</Label>
               <Input
                 id="editDistrictName"
                 value={editDistrictName}
                 onChange={(e) => setEditDistrictName(e.target.value)}
-                placeholder="District name"
+                placeholder={t('organization.districtNameEditPlaceholder')}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && editDistrictName.trim()) {
                     handleUpdateDistrict();
@@ -596,13 +598,13 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
               setEditingDistrict(null);
               setEditDistrictName('');
             }}>
-              Cancel
+              {t('common.cancel')}
             </Button>
-            <Button 
+            <Button
               className="bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white shadow-sm hover:opacity-90 border-0"
               onClick={handleUpdateDistrict}
             >
-              Save Changes
+              {t('common.saveChanges')}
             </Button>
           </div>
         </DialogContent>
@@ -612,15 +614,15 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
       <Dialog open={showAddStoreDialog} onOpenChange={setShowAddStoreDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Store to District</DialogTitle>
+            <DialogTitle>{t('organization.addStoreToDistrict')}</DialogTitle>
             <DialogDescription>
-              Select a store to add to this district
+              {t('organization.selectStoreDesc')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             {unassignedStores.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">
-                No unassigned stores available
+                {t('organization.noUnassignedStores')}
               </p>
             ) : (
               <div className="space-y-2 max-h-96 overflow-y-auto">
@@ -636,13 +638,13 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
 
                         if (error) throw error;
 
-                        toast.success('Store added to district');
+                        toast.success(t('organization.storeAdded'));
                         setShowAddStoreDialog(false);
                         fetchDistricts();
                         fetchUnassignedStores();
                       } catch (error) {
                         console.error('Error adding store:', error);
-                        toast.error('Failed to add store');
+                        toast.error(t('organization.failedAddStore'));
                       }
                     }}
                     className="w-full p-3 border-2 border-border rounded-lg hover:border-primary hover:bg-accent transition-colors text-left"
@@ -660,7 +662,7 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
           </div>
           <div className="flex justify-end">
             <Button variant="outline" onClick={() => setShowAddStoreDialog(false)}>
-              Close
+              {t('common.close')}
             </Button>
           </div>
         </DialogContent>

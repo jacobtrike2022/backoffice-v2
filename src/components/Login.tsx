@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { signIn, signUp } from '../lib/hooks/useAuth';
 import trikeLogo from '../assets/trike-logo.png';
 
 export default function Login() {
+  const { t } = useTranslation();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -21,13 +23,13 @@ export default function Login() {
     try {
       if (isSignUp) {
         await signUp(email, password, firstName, lastName);
-        setMessage('Account created! Check your email to verify your account.');
+        setMessage(t('login.accountCreated'));
       } else {
         await signIn(email, password);
         // Navigation handled by auth state change
       }
     } catch (err: any) {
-      setError(err.message || 'An error occurred');
+      setError(err.message || t('login.genericError'));
     } finally {
       setLoading(false);
     }
@@ -97,7 +99,7 @@ export default function Login() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px', color: '#9ca3af' }}>
-                  First Name
+                  {t('login.firstName')}
                 </label>
                 <input
                   type="text"
@@ -118,7 +120,7 @@ export default function Login() {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px', color: '#9ca3af' }}>
-                  Last Name
+                  {t('login.lastName')}
                 </label>
                 <input
                   type="text"
@@ -142,7 +144,7 @@ export default function Login() {
 
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px', color: '#9ca3af' }}>
-              Email
+              {t('login.email')}
             </label>
             <input
               type="email"
@@ -159,13 +161,13 @@ export default function Login() {
                 backgroundColor: '#1f2937',
                 outline: 'none',
               }}
-              placeholder="you@company.com"
+              placeholder={t('login.emailPlaceholder')}
             />
           </div>
 
           <div style={{ marginBottom: '24px' }}>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px', color: '#9ca3af' }}>
-              Password
+              {t('login.password')}
             </label>
             <input
               type="password"
@@ -187,7 +189,7 @@ export default function Login() {
             />
             {isSignUp && (
               <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>
-                Must be at least 6 characters
+                {t('login.passwordMinLength')}
               </p>
             )}
           </div>
@@ -209,7 +211,7 @@ export default function Login() {
               letterSpacing: '0.025em',
             }}
           >
-            {loading ? 'Please wait...' : (isSignUp ? 'Create Account' : 'Sign In')}
+            {loading ? t('login.pleaseWait') : (isSignUp ? t('login.createAccount') : t('login.signIn'))}
           </button>
         </form>
 
@@ -230,7 +232,7 @@ export default function Login() {
               cursor: 'pointer',
             }}
           >
-            {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
+            {isSignUp ? t('login.alreadyHaveAccount') : t('login.dontHaveAccount')}
           </button>
         </div>
       </div>

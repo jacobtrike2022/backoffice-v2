@@ -191,11 +191,21 @@ export function useFormBuilder({ formId, orgId }: UseFormBuilderProps): UseFormB
 
       await bulkUpsertFormBlocks(form.id, blocksToUpsert);
 
-      // Reload blocks from DB to get real IDs for new blocks
+      // Always re-fetch so newly-inserted blocks get real DB IDs.
+      // Merge carefully: keep the live in-memory version for existing blocks
+      // (the user may be actively editing them) and only use the DB version
+      // for blocks that were _isNew (they now have real IDs in the response).
+      // This avoids stamping stale state onto blocks being typed into.
       const refreshed = await getFormWithSections(form.id, orgId);
       if (refreshed) {
         const refreshedBlocks = buildLocalBlocks(refreshed);
-        setBlocks(refreshedBlocks);
+        setBlocks(prev => {
+          // Index current in-memory blocks by real DB ID (exclude temp _isNew IDs)
+          const currentMap = new Map(prev.filter(b => !b._isNew).map(b => [b.id, b]));
+          // For each DB block: prefer the live in-memory version if one exists
+          // (preserves unsaved typing); fall back to DB version for new blocks.
+          return refreshedBlocks.map(rb => currentMap.get(rb.id) ?? rb);
+        });
       }
 
       setIsDirty(false);

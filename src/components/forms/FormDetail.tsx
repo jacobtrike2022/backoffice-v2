@@ -503,9 +503,9 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
                     <Line 
                       type="monotone" 
                       dataKey="submissions" 
-                      stroke="#F74A05" 
+                      stroke="hsl(var(--primary))" 
                       strokeWidth={2}
-                      dot={{ fill: '#F74A05', r: 4 }}
+                      dot={{ fill: 'hsl(var(--primary))', r: 4 }}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -584,7 +584,7 @@ export function FormDetail({ formId, orgId, onBack, onEdit, currentRole = 'admin
                       borderRadius: '6px'
                     }}
                   />
-                  <Bar dataKey="count" fill="#F74A05" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>

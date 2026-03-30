@@ -303,27 +303,30 @@ export function ContentAuthoring({
             registerUnsavedChangesCheck={handleRegisterLocal}
             onCreateVariant={(track) => setCreateVariantModal({ open: true, track })}
           />
-          <CreateVariantModal
-            isOpen={createVariantModal.open}
-            onClose={() => setCreateVariantModal({ open: false, track: null })}
-            sourceTrack={createVariantModal.track ? {
-              id: createVariantModal.track.id,
-              title: createVariantModal.track.title,
-              type: createVariantModal.track.type,
-              thumbnail_url: createVariantModal.track.thumbnail_url
-            } : undefined}
-            onVariantCreated={(newTrackId) => {
-              setCreateVariantModal({ open: false, track: null });
-              crud.getTrackById(newTrackId).then((updatedTrack) => {
-                setEditingTrack(updatedTrack);
-                setSelectedType(updatedTrack.type);
-              }).catch((err) => {
-                console.error('Error loading variant track:', err);
-                toast.error('Variant created but failed to load. Refresh to see it.');
-              });
-              toast.success('Variant created! Opening editor...');
-            }}
-          />
+          {createVariantModal.open && createVariantModal.track && (
+            <CreateVariantModal
+              key={createVariantModal.track.id}
+              isOpen
+              onClose={() => setCreateVariantModal({ open: false, track: null })}
+              sourceTrack={{
+                id: createVariantModal.track.id,
+                title: createVariantModal.track.title,
+                type: createVariantModal.track.type,
+                thumbnail_url: createVariantModal.track.thumbnail_url
+              }}
+              onVariantCreated={(newTrackId) => {
+                setCreateVariantModal({ open: false, track: null });
+                crud.getTrackById(newTrackId).then((updatedTrack) => {
+                  setEditingTrack(updatedTrack);
+                  setSelectedType(updatedTrack.type);
+                }).catch((err) => {
+                  console.error('Error loading variant track:', err);
+                  toast.error('Variant created but failed to load. Refresh to see it.');
+                });
+                toast.success('Variant created! Opening editor...');
+              }}
+            />
+          )}
         </>
       );
     } else if (editingTrack.type === 'video') {
@@ -339,27 +342,30 @@ export function ContentAuthoring({
             registerUnsavedChangesCheck={handleRegisterLocal}
             onCreateVariant={(track) => setCreateVariantModal({ open: true, track })}
           />
-          <CreateVariantModal
-            isOpen={createVariantModal.open}
-            onClose={() => setCreateVariantModal({ open: false, track: null })}
-            sourceTrack={createVariantModal.track ? {
-              id: createVariantModal.track.id,
-              title: createVariantModal.track.title,
-              type: createVariantModal.track.type,
-              thumbnail_url: createVariantModal.track.thumbnail_url
-            } : undefined}
-            onVariantCreated={(newTrackId) => {
-              setCreateVariantModal({ open: false, track: null });
-              crud.getTrackById(newTrackId).then((updatedTrack) => {
-                setEditingTrack(updatedTrack);
-                setSelectedType(updatedTrack.type);
-              }).catch((err) => {
-                console.error('Error loading variant track:', err);
-                toast.error('Variant created but failed to load. Refresh to see it.');
-              });
-              toast.success('Variant created! Opening editor...');
-            }}
-          />
+          {createVariantModal.open && createVariantModal.track && (
+            <CreateVariantModal
+              key={createVariantModal.track.id}
+              isOpen
+              onClose={() => setCreateVariantModal({ open: false, track: null })}
+              sourceTrack={{
+                id: createVariantModal.track.id,
+                title: createVariantModal.track.title,
+                type: createVariantModal.track.type,
+                thumbnail_url: createVariantModal.track.thumbnail_url
+              }}
+              onVariantCreated={(newTrackId) => {
+                setCreateVariantModal({ open: false, track: null });
+                crud.getTrackById(newTrackId).then((updatedTrack) => {
+                  setEditingTrack(updatedTrack);
+                  setSelectedType(updatedTrack.type);
+                }).catch((err) => {
+                  console.error('Error loading variant track:', err);
+                  toast.error('Variant created but failed to load. Refresh to see it.');
+                });
+                toast.success('Variant created! Opening editor...');
+              }}
+            />
+          )}
         </>
       );
     } else if (editingTrack.type === 'story') {
@@ -375,27 +381,30 @@ export function ContentAuthoring({
             registerUnsavedChangesCheck={handleRegisterLocal}
             onCreateVariant={(track) => setCreateVariantModal({ open: true, track })}
           />
-          <CreateVariantModal
-            isOpen={createVariantModal.open}
-            onClose={() => setCreateVariantModal({ open: false, track: null })}
-            sourceTrack={createVariantModal.track ? {
-              id: createVariantModal.track.id,
-              title: createVariantModal.track.title,
-              type: createVariantModal.track.type,
-              thumbnail_url: createVariantModal.track.thumbnail_url
-            } : undefined}
-            onVariantCreated={(newTrackId) => {
-              setCreateVariantModal({ open: false, track: null });
-              crud.getTrackById(newTrackId).then((updatedTrack) => {
-                setEditingTrack(updatedTrack);
-                setSelectedType(updatedTrack.type);
-              }).catch((err) => {
-                console.error('Error loading variant track:', err);
-                toast.error('Variant created but failed to load. Refresh to see it.');
-              });
-              toast.success('Variant created! Opening editor...');
-            }}
-          />
+          {createVariantModal.open && createVariantModal.track && (
+            <CreateVariantModal
+              key={createVariantModal.track.id}
+              isOpen
+              onClose={() => setCreateVariantModal({ open: false, track: null })}
+              sourceTrack={{
+                id: createVariantModal.track.id,
+                title: createVariantModal.track.title,
+                type: createVariantModal.track.type,
+                thumbnail_url: createVariantModal.track.thumbnail_url
+              }}
+              onVariantCreated={(newTrackId) => {
+                setCreateVariantModal({ open: false, track: null });
+                crud.getTrackById(newTrackId).then((updatedTrack) => {
+                  setEditingTrack(updatedTrack);
+                  setSelectedType(updatedTrack.type);
+                }).catch((err) => {
+                  console.error('Error loading variant track:', err);
+                  toast.error('Variant created but failed to load. Refresh to see it.');
+                });
+                toast.success('Variant created! Opening editor...');
+              }}
+            />
+          )}
         </>
       );
     } else if (editingTrack.type === 'checkpoint') {
@@ -411,27 +420,30 @@ export function ContentAuthoring({
             registerUnsavedChangesCheck={handleRegisterLocal}
             onCreateVariant={(track) => setCreateVariantModal({ open: true, track })}
           />
-          <CreateVariantModal
-            isOpen={createVariantModal.open}
-            onClose={() => setCreateVariantModal({ open: false, track: null })}
-            sourceTrack={createVariantModal.track ? {
-              id: createVariantModal.track.id,
-              title: createVariantModal.track.title,
-              type: createVariantModal.track.type,
-              thumbnail_url: createVariantModal.track.thumbnail_url
-            } : undefined}
-            onVariantCreated={(newTrackId) => {
-              setCreateVariantModal({ open: false, track: null });
-              crud.getTrackById(newTrackId).then((updatedTrack) => {
-                setEditingTrack(updatedTrack);
-                setSelectedType(updatedTrack.type);
-              }).catch((err) => {
-                console.error('Error loading variant track:', err);
-                toast.error('Variant created but failed to load. Refresh to see it.');
-              });
-              toast.success('Variant created! Opening editor...');
-            }}
-          />
+          {createVariantModal.open && createVariantModal.track && (
+            <CreateVariantModal
+              key={createVariantModal.track.id}
+              isOpen
+              onClose={() => setCreateVariantModal({ open: false, track: null })}
+              sourceTrack={{
+                id: createVariantModal.track.id,
+                title: createVariantModal.track.title,
+                type: createVariantModal.track.type,
+                thumbnail_url: createVariantModal.track.thumbnail_url
+              }}
+              onVariantCreated={(newTrackId) => {
+                setCreateVariantModal({ open: false, track: null });
+                crud.getTrackById(newTrackId).then((updatedTrack) => {
+                  setEditingTrack(updatedTrack);
+                  setSelectedType(updatedTrack.type);
+                }).catch((err) => {
+                  console.error('Error loading variant track:', err);
+                  toast.error('Variant created but failed to load. Refresh to see it.');
+                });
+                toast.success('Variant created! Opening editor...');
+              }}
+            />
+          )}
         </>
       );
     }

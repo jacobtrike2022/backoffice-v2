@@ -1,5 +1,6 @@
 
   import { createRoot } from "react-dom/client";
+  import './lib/i18n'; // Initialize i18next before rendering
   import App from "./App";
   import "./index.css";
 import { Analytics } from "@vercel/analytics/react";
