@@ -1058,32 +1058,35 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
           </DialogContent>
         </Dialog>
 
-        {/* Create Variant Modal - must be in track detail view for ... menu */}
-        <CreateVariantModal
-          isOpen={createVariantModal.open}
-          onClose={() => setCreateVariantModal({ open: false, track: null })}
-          sourceTrack={createVariantModal.track ? {
-            id: createVariantModal.track.id,
-            title: createVariantModal.track.title,
-            type: createVariantModal.track.type,
-            thumbnail_url: createVariantModal.track.thumbnail_url
-          } : undefined}
-          onVariantCreated={(newTrackId) => {
-            setCreateVariantModal({ open: false, track: null });
-            if (onNavigate) {
-              toast.success('Variant created! Opening editor...');
-              onNavigate('authoring', newTrackId);
-            } else {
-              refetch().then(() => {
-                const newTrack = tracks.find((t: any) => t.id === newTrackId);
-                if (newTrack) {
-                  setSelectedTrack(newTrack);
-                }
-              });
-              toast.success('Variant created successfully');
-            }
-          }}
-        />
+        {/* Create Variant Modal — mount only when open so Radix Dialog portal is not left mounted while closed (avoids removeChild DOM errors during concurrent updates). */}
+        {createVariantModal.open && createVariantModal.track && (
+          <CreateVariantModal
+            key={createVariantModal.track.id}
+            isOpen
+            onClose={() => setCreateVariantModal({ open: false, track: null })}
+            sourceTrack={{
+              id: createVariantModal.track.id,
+              title: createVariantModal.track.title,
+              type: createVariantModal.track.type,
+              thumbnail_url: createVariantModal.track.thumbnail_url
+            }}
+            onVariantCreated={(newTrackId) => {
+              setCreateVariantModal({ open: false, track: null });
+              if (onNavigate) {
+                toast.success('Variant created! Opening editor...');
+                onNavigate('authoring', newTrackId);
+              } else {
+                refetch().then(() => {
+                  const newTrack = tracks.find((t: any) => t.id === newTrackId);
+                  if (newTrack) {
+                    setSelectedTrack(newTrack);
+                  }
+                });
+                toast.success('Variant created successfully');
+              }
+            }}
+          />
+        )}
       </>
     );
   }
@@ -2030,34 +2033,34 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         </DialogContent>
       </Dialog>
 
-      {/* Create Variant Modal */}
-      <CreateVariantModal
-        isOpen={createVariantModal.open}
-        onClose={() => setCreateVariantModal({ open: false, track: null })}
-        sourceTrack={createVariantModal.track ? {
-          id: createVariantModal.track.id,
-          title: createVariantModal.track.title,
-          type: createVariantModal.track.type,
-          thumbnail_url: createVariantModal.track.thumbnail_url
-        } : undefined}
-        onVariantCreated={(newTrackId) => {
-          setCreateVariantModal({ open: false, track: null });
-          // Navigate to Content Authoring to edit the new variant track
-          if (onNavigate) {
-            toast.success('Variant created! Opening editor...');
-            onNavigate('authoring', newTrackId);
-          } else {
-            // Fallback: refresh tracks list then select new track
-            refetch().then(() => {
-              const newTrack = tracks.find(t => t.id === newTrackId);
-              if (newTrack) {
-                setSelectedTrack(newTrack);
-              }
-            });
-            toast.success('Variant created successfully');
-          }
-        }}
-      />
+      {createVariantModal.open && createVariantModal.track && (
+        <CreateVariantModal
+          key={createVariantModal.track.id}
+          isOpen
+          onClose={() => setCreateVariantModal({ open: false, track: null })}
+          sourceTrack={{
+            id: createVariantModal.track.id,
+            title: createVariantModal.track.title,
+            type: createVariantModal.track.type,
+            thumbnail_url: createVariantModal.track.thumbnail_url
+          }}
+          onVariantCreated={(newTrackId) => {
+            setCreateVariantModal({ open: false, track: null });
+            if (onNavigate) {
+              toast.success('Variant created! Opening editor...');
+              onNavigate('authoring', newTrackId);
+            } else {
+              refetch().then(() => {
+                const newTrack = tracks.find(t => t.id === newTrackId);
+                if (newTrack) {
+                  setSelectedTrack(newTrack);
+                }
+              });
+              toast.success('Variant created successfully');
+            }
+          }}
+        />
+      )}
 
         <Footer />
       </div>
