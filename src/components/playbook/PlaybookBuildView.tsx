@@ -919,6 +919,7 @@ interface ChunkCardProps {
 }
 
 function ChunkCard({ chunk, onDragStart }: ChunkCardProps) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
   if (!chunk) return null;
@@ -937,7 +938,7 @@ function ChunkCard({ chunk, onDragStart }: ChunkCardProps) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h4 className="text-sm font-medium text-foreground truncate">
-              {chunk.title || `Chunk ${chunk.chunk_index + 1}`}
+              {chunk.title || t('playbook.chunkLabel', { index: chunk.chunk_index + 1 })}
             </h4>
             <Badge variant="outline" className="text-xs bg-gradient-to-r from-[#F64A05] to-[#FF733C] text-white border-transparent">
               {chunk.content_class}
@@ -980,6 +981,7 @@ interface DraftPreviewViewProps {
 }
 
 function DraftPreviewView({ track, onBack, onApprove }: DraftPreviewViewProps) {
+  const { t } = useTranslation();
   const [approving, setApproving] = useState(false);
   const statusConfig = STATUS_CONFIG[track.status] || STATUS_CONFIG.suggestion;
 

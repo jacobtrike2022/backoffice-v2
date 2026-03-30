@@ -155,11 +155,11 @@ export function StoryTranscript({ storyData, trackId, projectId, publicAnonKey, 
       }
       
       if (data.errorCount > 0) {
-        setError(`${data.errorCount} video(s) failed to transcribe. See details below.`);
+        setError(t('contentAuthoring.transcribePartialError', { count: data.errorCount }));
       }
     } catch (err: any) {
       console.error('Story transcription error:', err);
-      setError(err.message || 'Failed to transcribe story videos');
+      setError(err.message || t('contentAuthoring.transcribeFailed'));
     } finally {
       setIsTranscribing(false);
     }
