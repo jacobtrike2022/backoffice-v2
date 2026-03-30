@@ -2954,7 +2954,10 @@
     "invoiceStatusPending": "Pending",
     "roleDescAdmin": "Full system access with all permissions",
     "roleDescDistrict": "Manage multiple stores within assigned district",
-    "roleDescStore": "Manage individual store operations"
+    "roleDescStore": "Manage individual store operations",
+    "roleNameAdmin": "Administrator",
+    "roleNameDistrict": "District Manager",
+    "roleNameStore": "Store Manager"
   },
   "knowledgeBase": {
     "title": "Knowledge Base",
@@ -3116,6 +3119,11 @@
     "publicViewType_video": "video",
     "publicViewType_article": "article",
     "publicViewType_story": "story",
+    "publicViewType_checkpoint": "checkpoint",
+    "publicTagsMore": "+{{n}} more",
+    "publicDurationMin": "{{n}} min",
+    "publicDurationHour": "{{n}}h",
+    "publicDurationHourMin": "{{n}}h {{m}}min",
     "pinDialogTitle": "Enter PIN to Continue",
     "pinTitle": "Enter Your PIN",
     "pinSubtitle": "Enter your 4-digit PIN to access this reference material",
