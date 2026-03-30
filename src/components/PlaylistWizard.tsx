@@ -191,6 +191,12 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
   const [minFinalScore, setMinFinalScore] = useState(85);
   const [completionDeadlineDays, setCompletionDeadlineDays] = useState(30);
 
+  // Required form state
+  const [requiredFormId, setRequiredFormId] = useState<string>('');
+  const [formCompletionMode, setFormCompletionMode] = useState<'optional' | 'required' | 'required_before_completion'>('optional');
+  const [availableForms, setAvailableForms] = useState<Array<{ id: string; title: string; type: string }>>([]);
+  const [loadingForms, setLoadingForms] = useState(false);
+
   // Matching users preview state
   const [matchingUsers, setMatchingUsers] = useState<MatchingUser[]>([]);
   const [matchingUsersCount, setMatchingUsersCount] = useState(0);
@@ -280,6 +286,23 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
     };
 
     fetchRoles();
+  }, [effectiveOrgId]);
+
+  // Fetch published forms for the required-form selector
+  useEffect(() => {
+    const fetchForms = async () => {
+      if (!effectiveOrgId) return;
+      setLoadingForms(true);
+      try {
+        const data = await crud.getForms({ status: 'published' });
+        setAvailableForms((data || []).map((f: any) => ({ id: f.id, title: f.title, type: f.type })));
+      } catch (err) {
+        console.error('Error fetching forms:', err);
+      } finally {
+        setLoadingForms(false);
+      }
+    };
+    fetchForms();
   }, [effectiveOrgId]);
 
   // Fetch real employees from database
@@ -572,6 +595,10 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
 
         setStages(loadedStages);
 
+        // Load required form settings
+        setRequiredFormId(playlist.required_form_id || '');
+        setFormCompletionMode(playlist.form_completion_mode || 'optional');
+
         // Save original state for unsaved changes detection
         setOriginalState({
           playlistName: playlist.title || '',
@@ -812,6 +839,8 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
           release_schedule: releaseSchedule,
           album_ids: allAlbumIds,
           track_ids: allTrackIds,
+          required_form_id: requiredFormId || null,
+          form_completion_mode: formCompletionMode,
         });
       } else {
         // Create new playlist
@@ -824,6 +853,8 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
           release_schedule: releaseSchedule,
           album_ids: allAlbumIds,
           track_ids: allTrackIds,
+          required_form_id: requiredFormId || null,
+          form_completion_mode: formCompletionMode,
         });
       }
 
@@ -2246,6 +2277,63 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
               </CardContent>
             </Card>
 
+            {/* Required Form */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-primary" />
+                  Required Form
+                </CardTitle>
+                <CardDescription>
+                  Attach a sign-off or OJT form that users must complete when they finish this playlist.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="required-form">Form</Label>
+                  <Select
+                    value={requiredFormId || 'none'}
+                    onValueChange={(v) => setRequiredFormId(v === 'none' ? '' : v)}
+                    disabled={loadingForms}
+                  >
+                    <SelectTrigger id="required-form">
+                      <SelectValue placeholder={loadingForms ? 'Loading forms…' : 'No form required'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No form required</SelectItem>
+                      {availableForms.map((form) => (
+                        <SelectItem key={form.id} value={form.id}>
+                          {form.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {requiredFormId && (
+                  <div className="space-y-2">
+                    <Label htmlFor="form-completion-mode">Completion Mode</Label>
+                    <Select
+                      value={formCompletionMode}
+                      onValueChange={(v) => setFormCompletionMode(v as 'optional' | 'required' | 'required_before_completion')}
+                    >
+                      <SelectTrigger id="form-completion-mode">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="optional">Optional — users are prompted but not blocked</SelectItem>
+                        <SelectItem value="required">Required — must be completed to mark playlist done</SelectItem>
+                        <SelectItem value="required_before_completion">Required before completion — blocks playlist completion</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Selecting a required form will prompt users to complete this form when they finish the playlist.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
                 <CardTitle>{t('playlists.wizard.uponCompletionActions')}</CardTitle>
@@ -2570,6 +2658,20 @@ export function PlaylistWizard({ onClose, mode = 'create', existingPlaylistId, i
                         <p className="text-sm text-muted-foreground">
                           {t('playlists.wizard.completionSummary', { threshold: completionThreshold, deadline: completionDeadlineDays })}
                         </p>
+                        {requiredFormId && (
+                          <div className="mt-2 flex items-center gap-1">
+                            <FileText className="h-3 w-3 text-primary" />
+                            <span className="text-xs text-primary font-medium">
+                              Includes sign-off form:{' '}
+                              {availableForms.find(f => f.id === requiredFormId)?.title || 'Selected form'}
+                              {formCompletionMode !== 'optional' && (
+                                <span className="ml-1 text-muted-foreground">
+                                  ({formCompletionMode === 'required' ? 'required' : 'blocks completion'})
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        )}
                         {completionActions.length > 0 && (
                           <div className="mt-2 space-y-1">
                             {completionActions.map((action, i) => (

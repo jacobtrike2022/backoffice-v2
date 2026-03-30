@@ -39,7 +39,8 @@ import {
   LayoutGrid,
   List,
   Download,
-  History
+  History,
+  FileText
 } from 'lucide-react';
 import {
   Select,
@@ -1518,6 +1519,12 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                       t('playlists.immediateAccess')
                     )}
                   </Badge>
+                  {playlist.required_form_id && (
+                    <Badge variant="secondary" className="gap-1">
+                      <FileText className="h-3 w-3" />
+                      Includes sign-off form
+                    </Badge>
+                  )}
                 </div>
 
                 {/* Content Summary - Just showing total tracks */}

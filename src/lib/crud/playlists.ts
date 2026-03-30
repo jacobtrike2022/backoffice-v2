@@ -5,6 +5,8 @@
 import { supabase, getCurrentUserOrgId, getCurrentUserProfile } from '../supabase';
 import { logActivity } from './activity';
 
+export type FormCompletionMode = 'optional' | 'required' | 'required_before_completion';
+
 export interface CreatePlaylistInput {
   title: string;
   description?: string;
@@ -14,6 +16,8 @@ export interface CreatePlaylistInput {
   release_schedule?: any;
   album_ids?: string[];
   track_ids?: string[];
+  required_form_id?: string | null;
+  form_completion_mode?: FormCompletionMode;
 }
 
 export interface UpdatePlaylistInput {
@@ -26,6 +30,8 @@ export interface UpdatePlaylistInput {
   is_active?: boolean;
   album_ids?: string[];
   track_ids?: string[];
+  required_form_id?: string | null;
+  form_completion_mode?: FormCompletionMode;
 }
 
 /**
@@ -598,6 +604,8 @@ export async function createPlaylist(input: CreatePlaylistInput) {
       release_schedule: input.release_schedule,
       is_active: true,
       created_by: userProfile.id,
+      required_form_id: input.required_form_id ?? null,
+      form_completion_mode: input.form_completion_mode ?? 'optional',
     })
     .select()
     .single();
