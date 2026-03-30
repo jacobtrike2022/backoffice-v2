@@ -29,7 +29,15 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   static getDerivedStateFromError(error: Error): State {
-    // Update state so the next render will show the fallback UI
+    // If it's a stale chunk error from a new Vercel deployment, auto-reload
+    const isChunkError =
+      error.message?.includes('Failed to fetch dynamically imported module') ||
+      error.message?.includes('Importing a module script failed') ||
+      error.message?.includes('error loading dynamically imported module');
+    if (isChunkError) {
+      window.location.reload();
+      return { hasError: false, error: null, errorInfo: null };
+    }
     return {
       hasError: true,
       error,
@@ -38,10 +46,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Log error to console for debugging
     console.error('ErrorBoundary caught an error:', error, errorInfo);
-    
-    // Update state with error info
     this.setState({
       error,
       errorInfo,
