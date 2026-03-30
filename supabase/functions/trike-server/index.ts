@@ -22085,7 +22085,7 @@ async function translateWithOpenAI(prompt: string): Promise<string | null> {
 
 async function handleTranslateTracks(req: Request): Promise<Response> {
   try {
-    const supabase = getSupabaseClient(req);
+    
     const body = await req.json();
     const { tracks, language } = body as { tracks: TrackToTranslate[]; language: string };
 
@@ -22245,7 +22245,7 @@ Facts: ${JSON.stringify(t.key_facts)}`;
 
 async function handleTranslateTags(req: Request): Promise<Response> {
   try {
-    const supabase = getSupabaseClient(req);
+    
     const body = await req.json();
     const { tagNames, language } = body as { tagNames: string[]; language: string };
 
@@ -22326,7 +22326,7 @@ Tag names to translate: ${JSON.stringify(toTranslate)}`;
 
 async function handleTranslateFacts(req: Request): Promise<Response> {
   try {
-    const supabase = getSupabaseClient(req);
+    
     const body = await req.json();
     const { facts, language } = body as { facts: any[]; language: string };
 
