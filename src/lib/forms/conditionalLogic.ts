@@ -210,6 +210,33 @@ export function evaluateConditions(
 }
 
 /**
+ * Section-level conditional logic stored in form_sections.settings.conditional_logic.
+ * Only supports 'show' and 'hide' actions (not skip_to_section).
+ */
+export type SectionConditionalLogic = Omit<ConditionalLogic, 'action' | 'target_section_id'> & {
+  action: 'show' | 'hide';
+};
+
+/**
+ * Determine whether a section should be visible given the current answers.
+ * Uses the same evaluation logic as isBlockVisible but reads from
+ * section.settings.conditional_logic.
+ *
+ * Returns true if the section should be shown, false if it should be hidden.
+ * If no conditional logic is set, the section is always visible.
+ */
+export function isSectionVisible(
+  sectionSettings: Record<string, unknown> | null | undefined,
+  answers: Record<string, unknown>
+): boolean {
+  if (!sectionSettings) return true;
+  const logic = sectionSettings.conditional_logic as SectionConditionalLogic | null | undefined;
+  if (!logic || !logic.conditions || logic.conditions.length === 0) return true;
+
+  return isBlockVisible(logic as ConditionalLogic, answers);
+}
+
+/**
  * Given a list of blocks with section_id and a list of sections ordered by display_order,
  * compute which section IDs should be skipped due to active skip_to_section rules.
  *

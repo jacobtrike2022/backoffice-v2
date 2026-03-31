@@ -40,6 +40,7 @@ export interface FormSection {
   description?: string;
   display_order: number;
   is_repeatable: boolean;
+  settings?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }
@@ -678,7 +679,7 @@ export async function createFormSection(
  */
 export async function updateFormSection(
   sectionId: string,
-  updates: Partial<{ title: string; description: string; display_order: number; is_repeatable: boolean }>
+  updates: Partial<{ title: string; description: string; display_order: number; is_repeatable: boolean; settings: Record<string, unknown> | null }>
 ): Promise<FormSection> {
   const { data, error } = await supabase
     .from('form_sections')

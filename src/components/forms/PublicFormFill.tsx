@@ -415,6 +415,7 @@ export function PublicFormFill() {
               title: s.title,
               description: s.description,
               display_order: s.order ?? i,
+              settings: s.settings ?? null,
             } as FormSectionData))}
             onSubmit={handleSubmit}
             readOnly={false}
