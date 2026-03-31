@@ -5,6 +5,28 @@
 // Source of truth: track_completions table (per ACTIVITY_TRACKING_SYSTEM.md)
 
 import { supabase } from '../supabase';
+import { checkPlaylistFormCompletion } from './playlists';
+
+/**
+ * Check if a playlist has a required form that blocks completion.
+ * Returns true if no form is required OR the form has been completed.
+ */
+async function isPlaylistFormFulfilled(playlistId: string, userId: string): Promise<boolean> {
+  const { data: playlist } = await supabase
+    .from('playlists')
+    .select('required_form_id, form_completion_mode')
+    .eq('id', playlistId)
+    .single();
+
+  if (!playlist?.required_form_id) return true;
+
+  const mode = playlist.form_completion_mode || 'optional';
+  if (mode === 'optional') return true;
+
+  // For 'required' and 'required_before_completion', check if form has been submitted
+  const submission = await checkPlaylistFormCompletion(playlistId, userId);
+  return !!submission;
+}
 
 /**
  * Calculate progress for a single assignment based on track completions
@@ -61,9 +83,27 @@ export async function updateAssignmentProgress(assignmentId: string): Promise<vo
   try {
     const progressPercent = await calculateAssignmentProgress(assignmentId);
 
+    // Get assignment details for form completion check
+    const { data: assignment } = await supabase
+      .from('assignments')
+      .select('playlist_id, user_id')
+      .eq('id', assignmentId)
+      .single();
+
     // Determine status based on progress
+    // If tracks are 100% complete but required form is not fulfilled, stay at in_progress
     let status = 'assigned';
-    if (progressPercent === 100) {
+    let isFullyComplete = progressPercent === 100;
+
+    if (isFullyComplete && assignment?.playlist_id && assignment?.user_id) {
+      const formFulfilled = await isPlaylistFormFulfilled(assignment.playlist_id, assignment.user_id);
+      if (!formFulfilled) {
+        // All tracks done but form not yet submitted — keep as in_progress
+        isFullyComplete = false;
+      }
+    }
+
+    if (isFullyComplete) {
       status = 'completed';
     } else if (progressPercent > 0) {
       status = 'in_progress';
@@ -71,11 +111,11 @@ export async function updateAssignmentProgress(assignmentId: string): Promise<vo
 
     const { error } = await supabase
       .from('assignments')
-      .update({ 
+      .update({
         progress_percent: progressPercent,
         status: status,
         updated_at: new Date().toISOString(),
-        completed_at: progressPercent === 100 ? new Date().toISOString() : null
+        completed_at: isFullyComplete ? new Date().toISOString() : null
       })
       .eq('id', assignmentId);
 

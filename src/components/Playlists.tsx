@@ -553,6 +553,15 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                     t('playlists.immediateAccess')
                   )}
                 </Badge>
+                {selectedPlaylist.required_form_id && (
+                  <>
+                    <span>•</span>
+                    <Badge variant="secondary" className="gap-1">
+                      <FileText className="h-3 w-3" />
+                      Includes sign-off form
+                    </Badge>
+                  </>
+                )}
                 <span>•</span>
                 <span>{t('playlists.playlistCreated')} {selectedPlaylist.created_at ? new Date(selectedPlaylist.created_at).toLocaleDateString() : ''}</span>
               </div>
@@ -1184,6 +1193,33 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                       <Progress value={100} className="h-2 mt-2" />
                     </div>
                   </div>
+
+                  {/* Required Form indicator */}
+                  {selectedPlaylist.required_form_id && (
+                    <div className="mt-4">
+                      <p className="text-sm font-medium mb-2">Required Form</p>
+                      <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-900/30">
+                        <div className="flex items-center gap-2 mb-1">
+                          <FileText className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                          <span className="text-sm font-medium text-orange-900 dark:text-orange-100">
+                            {(selectedPlaylist.required_form as any)?.title || 'Sign-off form attached'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-orange-800 dark:text-orange-200">
+                          {selectedPlaylist.form_completion_mode === 'required_before_completion'
+                            ? 'Blocks completion — learners must submit this form before the playlist is marked complete.'
+                            : selectedPlaylist.form_completion_mode === 'required'
+                            ? 'Required — learners will be prompted to complete this form when they finish all tracks.'
+                            : 'Optional — learners are prompted but not blocked.'}
+                        </p>
+                        <Badge variant="outline" className="mt-2 text-xs capitalize">
+                          {selectedPlaylist.form_completion_mode === 'required_before_completion'
+                            ? 'Blocks completion'
+                            : selectedPlaylist.form_completion_mode || 'optional'}
+                        </Badge>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 

@@ -368,7 +368,8 @@ export async function getPlaylistById(playlistId: string) {
     .from('playlists')
     .select(`
       *,
-      created_by_user:users!playlists_created_by_fkey(id, first_name, last_name, email)
+      created_by_user:users!playlists_created_by_fkey(id, first_name, last_name, email),
+      required_form:forms!playlists_required_form_id_fkey(id, title, type, status)
     `)
     .eq('id', playlistId)
     .single();
@@ -1052,4 +1053,76 @@ export async function reorderPlaylistAlbums(
   }
 
   return true;
+}
+
+/**
+ * Check if a user has completed the required form for a playlist.
+ * Returns the submission if found, or null.
+ */
+export async function checkPlaylistFormCompletion(
+  playlistId: string,
+  userId: string
+): Promise<{ id: string; submitted_at: string } | null> {
+  // First get the playlist's required_form_id
+  const { data: playlist, error: plError } = await supabase
+    .from('playlists')
+    .select('required_form_id, form_completion_mode')
+    .eq('id', playlistId)
+    .single();
+
+  if (plError || !playlist?.required_form_id) return null;
+
+  // Check if user has a submission for this form
+  const { data: submission } = await supabase
+    .from('form_submissions')
+    .select('id, submitted_at')
+    .eq('form_id', playlist.required_form_id)
+    .eq('submitted_by_id', userId)
+    .order('submitted_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return submission || null;
+}
+
+/**
+ * Determine if a playlist requires form completion and whether it's been fulfilled.
+ * Returns { required, completed, formId, formTitle, mode }
+ */
+export async function getPlaylistFormRequirement(
+  playlistId: string,
+  userId?: string
+): Promise<{
+  required: boolean;
+  completed: boolean;
+  formId: string | null;
+  formTitle: string | null;
+  mode: FormCompletionMode;
+}> {
+  const { data: playlist, error } = await supabase
+    .from('playlists')
+    .select('required_form_id, form_completion_mode, required_form:forms!playlists_required_form_id_fkey(id, title)')
+    .eq('id', playlistId)
+    .single();
+
+  if (error || !playlist) {
+    return { required: false, completed: false, formId: null, formTitle: null, mode: 'optional' };
+  }
+
+  const mode = (playlist.form_completion_mode as FormCompletionMode) || 'optional';
+  const formId = playlist.required_form_id;
+  const formTitle = (playlist.required_form as any)?.title || null;
+
+  if (!formId || mode === 'optional') {
+    return { required: false, completed: false, formId, formTitle, mode };
+  }
+
+  // If we have a userId, check if they completed the form
+  let completed = false;
+  if (userId) {
+    const submission = await checkPlaylistFormCompletion(playlistId, userId);
+    completed = !!submission;
+  }
+
+  return { required: true, completed, formId, formTitle, mode };
 }
