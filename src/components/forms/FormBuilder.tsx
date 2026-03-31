@@ -842,7 +842,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
   };
 
   return (
-    <div className={`shrink-0 h-full bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200 ${wide ? 'w-[640px]' : 'w-[520px]'}`}>
+    <div className="shrink-0 h-full bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200" style={{ width: wide ? 'min(40vw, 800px)' : '520px', minWidth: wide ? '640px' : '480px' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
@@ -880,7 +880,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
         </TabsList>
 
         {/* ── SETTINGS TAB ─────────────────────────────────── */}
-        <TabsContent value="settings" className="flex-1 overflow-y-auto p-4 space-y-4 mt-2">
+        <TabsContent value="settings" className="flex-1 overflow-y-auto px-5 py-4 space-y-4 mt-2">
         {/* Label */}
         <div className="space-y-1.5">
           <Label htmlFor="block-label" className="text-xs font-medium">{t('forms.propQuestionLabel')}</Label>
@@ -2430,8 +2430,8 @@ export function FormBuilder({
           }`}>
             {/* START node */}
             <div className="flex justify-center mb-0">
-              <div className="flex items-center gap-1.5 bg-green-500 text-white text-xs font-semibold tracking-wide uppercase px-5 py-2 rounded-full shadow-md shadow-green-500/25 border border-green-400/30">
-                <div className="w-1.5 h-1.5 rounded-full bg-white/80" />
+              <div className="inline-flex items-center justify-center gap-1.5 bg-green-500 text-white text-xs font-semibold tracking-wide uppercase pl-4 pr-5 py-2 rounded-full shadow-md shadow-green-500/25 border border-green-400/30">
+                <div className="w-1.5 h-1.5 rounded-full bg-white/80 shrink-0" />
                 {t('forms.builderStart')}
               </div>
             </div>
@@ -2561,13 +2561,13 @@ export function FormBuilder({
             {/* END node */}
             <div className="flex justify-center mt-0">
               {hook.form?.type === 'sign-off' && !hook.blocks.some(b => b.block_type === 'signature') ? (
-                <div className="flex items-center gap-1.5 bg-muted text-muted-foreground text-xs font-semibold tracking-wide uppercase px-5 py-2 rounded-full border border-border shadow-sm">
-                  <Pen className="h-3 w-3" />
+                <div className="inline-flex items-center justify-center gap-1.5 bg-muted text-muted-foreground text-xs font-semibold tracking-wide uppercase pl-4 pr-5 py-2 rounded-full border border-border shadow-sm">
+                  <Pen className="h-3 w-3 shrink-0" />
                   {t('forms.builderEnd')} — {t('forms.builderSignatureRequired')}
                 </div>
               ) : (
-                <div className="flex items-center gap-1.5 bg-muted text-muted-foreground text-xs font-semibold tracking-wide uppercase px-5 py-2 rounded-full border border-border shadow-sm">
-                  <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" />
+                <div className="inline-flex items-center justify-center gap-1.5 bg-muted text-muted-foreground text-xs font-semibold tracking-wide uppercase pl-4 pr-5 py-2 rounded-full border border-border shadow-sm">
+                  <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0" />
                   {t('forms.builderEnd')}
                 </div>
               )}
