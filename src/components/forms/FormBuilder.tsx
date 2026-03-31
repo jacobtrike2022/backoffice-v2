@@ -842,7 +842,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
   };
 
   return (
-    <div className={`absolute right-0 top-0 h-full bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200 ${wide ? 'w-[420px]' : 'w-[340px]'}`}>
+    <div className={`shrink-0 h-full bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200 ${wide ? 'w-[560px]' : 'w-[450px]'}`}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
@@ -2408,11 +2408,7 @@ export function FormBuilder({
         {/* Canvas */}
         <div
           ref={canvasRef}
-          className={`flex-1 overflow-y-auto py-8 transition-all relative ${
-            selectedBlock
-              ? fullPage ? 'pr-[440px]' : 'pr-[356px]'
-              : ''
-          }`}
+          className="flex-1 overflow-y-auto py-8 transition-all relative min-w-0"
         >
           {/* SVG dependency lines overlay */}
           {(showDependencies || selectedBlock) && (
