@@ -117,10 +117,13 @@ export function ImportFromPDF({ orgId, onImported, onCancel }: ImportFromPDFProp
         orgId
       );
 
-      // Store blocks in sessionStorage for the builder to pick up
+      // Store blocks + sections in sessionStorage for the builder to pick up
       sessionStorage.setItem(
         `imported_form_blocks_${newForm.id}`,
-        JSON.stringify(data.blocks.map((b, i) => ({ ...b, display_order: i })))
+        JSON.stringify({
+          blocks: data.blocks.map((b: any, i: number) => ({ ...b, display_order: i })),
+          sections: data.sections || [],
+        })
       );
 
       onImported(newForm.id);
