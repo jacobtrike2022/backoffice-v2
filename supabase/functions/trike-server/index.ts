@@ -15969,7 +15969,7 @@ async function handleFormsPublicSubmit(req: Request, path: string): Promise<Resp
       return jsonResponse({ error: 'Invalid JSON body' }, 400);
     }
 
-    const answers = (body.answers as Record<string, unknown>) || {};
+    const answers = (body.answers as Record<string, unknown>) || (body.responses as Record<string, unknown>) || {};
     const startTime = body.start_time ? new Date(body.start_time as string) : null;
     const completionSeconds = startTime
       ? Math.round((Date.now() - startTime.getTime()) / 1000)
@@ -15987,7 +15987,7 @@ async function handleFormsPublicSubmit(req: Request, path: string): Promise<Resp
       .insert({
         form_id: formId,
         organization_id: form.organization_id,
-        responses: answers,
+        answers: answers,
         status: submissionStatus,
         submitted_at: new Date().toISOString(),
         completion_time_seconds: completionSeconds,
