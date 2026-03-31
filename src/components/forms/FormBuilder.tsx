@@ -2078,8 +2078,8 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef }:
         const color = getDependencyLineColor(line.action);
         const markerId = `arrow-${line.action === 'show' || line.action === 'hide' || line.action === 'skip_to_section' ? line.action : 'default'}`;
 
-        // Draw a bezier curve to the right, capped within canvas
-        const offset = 20 + (i % 4) * 10;
+        // Draw a bezier curve to the right
+        const offset = 16 + (i % 4) * 8;
         const midX = Math.max(line.x1, line.x2) + offset;
         const path = `M${line.x1},${line.y1} C${midX},${line.y1} ${midX},${line.y2} ${line.x2},${line.y2}`;
         const labelX = midX + 4;
@@ -2622,10 +2622,10 @@ export function FormBuilder({
               canvasRef={canvasRef}
             />
           )}
-          <div className={`mx-auto w-full px-4 transition-all ${
+          <div className={`mx-auto w-full transition-all ${
             (selectedBlock || showDependencies)
-              ? 'max-w-full'
-              : fullPage ? 'max-w-[800px]' : 'max-w-[680px]'
+              ? 'max-w-full pl-4 pr-20'
+              : fullPage ? 'max-w-[800px] px-4' : 'max-w-[680px] px-4'
           }`}>
             {/* START node */}
             <div className="flex justify-center mb-0">
