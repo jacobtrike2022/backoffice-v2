@@ -3097,27 +3097,6 @@ const TRAINING_PATTERNS = [
   /test\s+your\s+knowledge/i
 ];
 
-// Form detection patterns - checklists, sign-off forms, acknowledgements, inspections
-const FORM_PATTERNS = [
-  /sign(ature)?\s*(here|below|line)/i,
-  /\binitial(s)?\s*(here|below)/i,
-  /i\s+(certify|acknowledge|agree|understand|confirm)\s+that/i,
-  /employee\s+signature/i,
-  /supervisor\s+signature/i,
-  /manager\s+signature/i,
-  /print(ed)?\s+name\s*:/i,
-  /\byes\s*[\/|]\s*no\b/i,
-  /\b(pass|fail)\s*[\/|]\s*(fail|pass)\b/i,
-  /acknowledgement|acknowledgment/i,
-  /sign[- ]off\s+(form|sheet)/i,
-  /inspection\s+(form|checklist|sheet|report)/i,
-  /audit\s+(form|checklist|sheet)/i,
-  /date\s*:\s*_{2,}/i,
-  /_{3,}\s*$/m,
-  /\[\s*\]\s+\S/,
-  /☐|☑/,
-];
-
 /**
  * Classify chunk content using pattern matching
  * Priority: job_description > form > procedure > policy > training_materials > other
@@ -15931,12 +15910,12 @@ async function handleFormsPublicGet(req: Request, path: string): Promise<Respons
     // Fetch org branding
     const { data: org, error: orgError } = await supabase
       .from('organizations')
-      .select('id, name, logo_dark_url, logo_light_url, primary_color')
+      .select('id, name, logo_dark_url, logo_light_url, brand_primary_color')
       .eq('id', form.organization_id)
       .single();
 
     if (orgError || !org) {
-      console.error('❌ Organization not found for form:', form.organization_id);
+      console.error('❌ Organization not found for form:', form.organization_id, orgError);
       return jsonResponse({ error: 'organization_not_found' }, 404);
     }
 
@@ -15949,7 +15928,7 @@ async function handleFormsPublicGet(req: Request, path: string): Promise<Respons
         name: org.name,
         logo_dark_url: org.logo_dark_url || null,
         logo_light_url: org.logo_light_url || null,
-        primary_color: org.primary_color || null,
+        primary_color: org.brand_primary_color || null,
       },
     });
   } catch (err) {
