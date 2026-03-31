@@ -818,9 +818,11 @@ interface PropertiesDrawerProps {
   initialTab?: string;
   /** Dependency map for the mini dependency graph */
   dependencyMap?: Record<string, string[]>;
+  /** Order issue error message for this block (dependency appears after it) */
+  orderIssueMessage?: string;
 }
 
-function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onUpdate, onDelete, onClose, wide = false, initialTab, dependencyMap = {} }: PropertiesDrawerProps) {
+function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onUpdate, onDelete, onClose, wide = false, initialTab, dependencyMap = {}, orderIssueMessage }: PropertiesDrawerProps) {
   const { t } = useTranslation();
   const typeDef = getBlockTypeDef(block.block_type);
   const Icon = typeDef?.icon ?? Type;
@@ -874,8 +876,8 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
           <TabsTrigger value="settings" className="text-xs h-7 px-3">{t('forms.propTabSettings')}</TabsTrigger>
           <TabsTrigger value="logic" className="text-xs h-7 px-3 relative">
             {t('forms.propTabLogic')}
-            {hasConditionalLogic && (
-              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-primary rounded-full" style={{ border: '2px solid var(--background)' }} />
+            {(hasConditionalLogic || orderIssueMessage) && (
+              <span className={`absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full ${orderIssueMessage ? 'bg-red-500' : 'bg-primary'}`} style={{ border: '2px solid var(--background)' }} />
             )}
           </TabsTrigger>
           {showScoringTab && (
@@ -1156,6 +1158,13 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
               <p className="text-sm font-medium">{t('forms.propConditionalLogic')}</p>
               <p className="text-xs text-muted-foreground mt-0.5">{t('forms.propConditionalLogicDesc')}</p>
             </div>
+
+            {orderIssueMessage && (
+              <div className="flex items-start gap-1.5 text-[11px] text-red-500 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>{t('forms.dragDependencyWarning')}: {orderIssueMessage}</span>
+              </div>
+            )}
 
             {!hasConditionalLogic ? (
               <Button
@@ -1955,12 +1964,13 @@ interface DependencyLinesOverlayProps {
   selectedBlockId: string | null;
   showAll: boolean;
   canvasRef: React.RefObject<HTMLDivElement | null>;
+  orderIssues?: Map<string, string>;
 }
 
-function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef }: DependencyLinesOverlayProps) {
+function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef, orderIssues }: DependencyLinesOverlayProps) {
   const [lines, setLines] = useState<Array<{
     x1: number; y1: number; x2: number; y2: number;
-    action: string; label: string;
+    action: string; label: string; targetId: string;
   }>>([]);
 
   const OPERATOR_SYMBOLS: Record<string, string> = {
@@ -2027,7 +2037,7 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef }:
       const x2 = targetRect.right - canvasRect.left + scrollLeft;
       const y2 = targetRect.top + targetRect.height / 2 - canvasRect.top + scrollTop;
 
-      newLines.push({ x1, y1, x2, y2, action: dep.action, label: dep.label });
+      newLines.push({ x1, y1, x2, y2, action: dep.action, label: dep.label, targetId: dep.targetId });
     }
     setLines(newLines);
   }, [dependencyLines, canvasRef]);
@@ -2075,7 +2085,8 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef }:
         </marker>
       </defs>
       {lines.map((line, i) => {
-        const color = getDependencyLineColor(line.action);
+        const hasOrderIssue = orderIssues?.has(line.targetId);
+        const color = hasOrderIssue ? '#ef4444' : getDependencyLineColor(line.action);
         const markerId = `arrow-${line.action === 'show' || line.action === 'hide' || line.action === 'skip_to_section' ? line.action : 'default'}`;
 
         // Draw a bezier curve to the right
@@ -2235,6 +2246,28 @@ export function FormBuilder({
   const [showDependencies, setShowDependencies] = useState(false);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+
+  // Track blocks with out-of-order dependency issues: blockId → error message
+  const orderIssues = useMemo(() => {
+    const issues = new Map<string, string>();
+    const positions = new Map(hook.blocks.map((b, i) => [b.id, i]));
+    for (const block of hook.blocks) {
+      const logic = block.conditional_logic as ConditionalLogic | null;
+      if (!logic?.conditions?.length) continue;
+      const blockPos = positions.get(block.id) ?? 0;
+      for (const cond of logic.conditions) {
+        if (!cond.source_block_id) continue;
+        const sourcePos = positions.get(cond.source_block_id);
+        if (sourcePos !== undefined && sourcePos > blockPos) {
+          const sourceBlock = hook.blocks.find(b => b.id === cond.source_block_id);
+          const sourceName = sourceBlock?.label || '?';
+          issues.set(block.id, `${t('forms.dragDependsOn')} "${sourceName}" ${t('forms.dragWhichIsNowBelow')}`);
+          break;
+        }
+      }
+    }
+    return issues;
+  }, [hook.blocks, t]);
 
   const addTag = useCallback((tag: string) => {
     const trimmed = tag.trim().replace(/,/g, '');
@@ -2664,6 +2697,7 @@ export function FormBuilder({
               selectedBlockId={hook.selectedBlockId}
               showAll={showDependencies}
               canvasRef={canvasRef}
+              orderIssues={orderIssues}
             />
           )}
           <div
@@ -2872,6 +2906,7 @@ export function FormBuilder({
             wide={fullPage}
             initialTab={drawerInitialTab}
             dependencyMap={blockDependencyMap}
+            orderIssueMessage={orderIssues.get(selectedBlock.id)}
           />
         )}
         {selectedSection && !selectedBlock && (
