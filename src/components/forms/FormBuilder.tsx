@@ -1289,16 +1289,15 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
       </Tabs>
 
       {/* Footer — delete */}
-      <div className="px-6 py-4 border-t border-border shrink-0">
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full text-destructive border-destructive/30 hover:bg-destructive/10"
+      <div className="px-6 py-3 border-t border-border shrink-0 flex justify-end">
+        <button
+          type="button"
           onClick={onDelete}
+          className="p-2 rounded-md text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-colors"
+          title={t('forms.propDeleteBlock')}
         >
-          <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-          {t('forms.propDeleteBlock')}
-        </Button>
+          <Trash2 className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );
