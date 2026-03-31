@@ -842,7 +842,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
   };
 
   return (
-    <div className={`shrink-0 h-full bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200 ${wide ? 'w-[560px]' : 'w-[450px]'}`}>
+    <div className={`shrink-0 h-full bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200 ${wide ? 'w-[640px]' : 'w-[520px]'}`}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
@@ -1703,7 +1703,11 @@ function SubmissionActionsPanel({ config, scoringEnabled, onChange }: Submission
 // ============================================================================
 
 function ConnectorLine() {
-  return <div className="w-px h-6 bg-border mx-auto" />;
+  return (
+    <div className="flex flex-col items-center py-1">
+      <div className="w-0.5 h-5 border-l-2 border-dashed border-muted-foreground/30" />
+    </div>
+  );
 }
 
 // ============================================================================
@@ -2426,7 +2430,8 @@ export function FormBuilder({
           }`}>
             {/* START node */}
             <div className="flex justify-center mb-0">
-              <div className="bg-green-500 text-white text-xs font-bold px-6 py-2 rounded-full shadow-sm">
+              <div className="flex items-center gap-1.5 bg-green-500 text-white text-xs font-semibold tracking-wide uppercase px-5 py-2 rounded-full shadow-md shadow-green-500/25 border border-green-400/30">
+                <div className="w-1.5 h-1.5 rounded-full bg-white/80" />
                 {t('forms.builderStart')}
               </div>
             </div>
@@ -2556,12 +2561,13 @@ export function FormBuilder({
             {/* END node */}
             <div className="flex justify-center mt-0">
               {hook.form?.type === 'sign-off' && !hook.blocks.some(b => b.block_type === 'signature') ? (
-                <div className="flex items-center gap-2 bg-muted text-muted-foreground text-xs font-bold px-6 py-2 rounded-full">
+                <div className="flex items-center gap-1.5 bg-muted text-muted-foreground text-xs font-semibold tracking-wide uppercase px-5 py-2 rounded-full border border-border shadow-sm">
                   <Pen className="h-3 w-3" />
                   {t('forms.builderEnd')} — {t('forms.builderSignatureRequired')}
                 </div>
               ) : (
-                <div className="bg-muted text-muted-foreground text-xs font-bold px-6 py-2 rounded-full">
+                <div className="flex items-center gap-1.5 bg-muted text-muted-foreground text-xs font-semibold tracking-wide uppercase px-5 py-2 rounded-full border border-border shadow-sm">
+                  <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50" />
                   {t('forms.builderEnd')}
                 </div>
               )}
