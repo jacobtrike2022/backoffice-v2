@@ -2115,41 +2115,6 @@ export function FormBuilder({
     display_order: s.display_order ?? i,
   }));
 
-  if (hook.isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (hook.error && !hook.form) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <FileText className="h-10 w-10 text-muted-foreground opacity-60" />
-        <div className="text-center">
-          <p className="font-semibold text-lg">{t('forms.builderNoFormSelected')}</p>
-          <p className="text-sm text-muted-foreground mt-1">
-            {t('forms.builderNoFormSelectedDesc')}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={onCancel}>
-            {t('forms.builderGoToLibrary')}
-          </Button>
-          <Button
-            className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
-            size="sm"
-            onClick={onCancel}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            {t('forms.builderCreateNew')}
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   const selectedBlock = hook.selectedBlockId
     ? hook.blocks.find(b => b.id === hook.selectedBlockId) ?? null
     : null;
@@ -2187,6 +2152,42 @@ export function FormBuilder({
     setDrawerInitialTab(undefined);
     hook.setSelectedBlockId(hook.selectedBlockId === blockId ? null : blockId);
   }, [hook]);
+
+  // ── Early returns (AFTER all hooks to satisfy Rules of Hooks) ──────────────
+  if (hook.isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (hook.error && !hook.form) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <FileText className="h-10 w-10 text-muted-foreground opacity-60" />
+        <div className="text-center">
+          <p className="font-semibold text-lg">{t('forms.builderNoFormSelected')}</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {t('forms.builderNoFormSelectedDesc')}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={onCancel}>
+            {t('forms.builderGoToLibrary')}
+          </Button>
+          <Button
+            className="bg-brand-gradient text-white shadow-brand hover:opacity-90"
+            size="sm"
+            onClick={onCancel}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            {t('forms.builderCreateNew')}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   // In fullPage mode the parent is a fixed inset-0 overlay; use 100% of that container.
   // In embedded tab mode keep the previous calc-based height so it fits inside the dashboard.
