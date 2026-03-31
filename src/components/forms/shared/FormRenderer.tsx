@@ -101,7 +101,10 @@ function getOptions(block: FormBlockData): string[] {
   return [];
 }
 
-export function FormRenderer({ blocks, sections = [], answers = {}, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle }: FormRendererProps) {
+const EMPTY_ANSWERS: Record<string, unknown> = {};
+const EMPTY_SECTIONS: FormSectionData[] = [];
+
+export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPTY_ANSWERS, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle }: FormRendererProps) {
   const { t } = useTranslation();
   const [formData, setFormData] = React.useState<Record<string, unknown>>(answers);
   const [validationErrors, setValidationErrors] = React.useState<Record<string, string>>({});
@@ -225,9 +228,9 @@ export function FormRenderer({ blocks, sections = [], answers = {}, readOnly = f
     }
   };
 
-  React.useEffect(() => {
-    setFormData(answers);
-  }, [answers]);
+  // NOTE: answers prop is only used as initial state (line 107).
+  // Do NOT sync answers→formData via useEffect — it causes infinite loops
+  // when callers pass `answers={}` (new object reference each render).
 
   const handleChange = (blockId: string, value: unknown) => {
     setFormData(prev => ({ ...prev, [blockId]: value }));
