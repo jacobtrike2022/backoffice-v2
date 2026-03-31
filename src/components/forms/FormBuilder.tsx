@@ -866,7 +866,8 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
 
       {/* Tab navigation */}
       <Tabs defaultValue={initialTab || 'settings'} className="flex flex-col flex-1 min-h-0">
-        <TabsList className="mx-6 mt-3 mb-0 shrink-0 w-auto self-start h-8">
+        <div className="px-6 pt-3 shrink-0">
+        <TabsList className="w-auto h-8">
           <TabsTrigger value="settings" className="text-xs h-7 px-3">{t('forms.propTabSettings')}</TabsTrigger>
           <TabsTrigger value="logic" className="text-xs h-7 px-3 relative">
             {t('forms.propTabLogic')}
@@ -878,6 +879,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
             <TabsTrigger value="scoring" className="text-xs h-7 px-3">{t('forms.propTabScoring')}</TabsTrigger>
           )}
         </TabsList>
+        </div>
 
         {/* ── SETTINGS TAB ─────────────────────────────────── */}
         <TabsContent value="settings" className="flex-1 overflow-y-auto px-6 py-4 space-y-4 mt-2">
