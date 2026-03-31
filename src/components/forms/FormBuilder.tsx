@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   DndContext,
@@ -69,6 +69,8 @@ import {
   Mail,
   AlertTriangle,
   Pen,
+  Network,
+  ArrowRight,
 } from 'lucide-react';
 import { useFormBuilder, type LocalBlock, type SubmissionConfig, type EmailNotification } from '../../hooks/useFormBuilder';
 import { FormRenderer } from './shared/FormRenderer';
@@ -385,6 +387,7 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
       <div
         ref={setNodeRef}
         style={style}
+        data-block-id={block.id}
         className={`group relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
           isSelected ? 'border-primary border-l-primary ring-2 ring-primary/20' : `${borderAccent} border-border hover:border-primary/40`
         }`}
@@ -810,9 +813,11 @@ interface PropertiesDrawerProps {
   wide?: boolean;
   /** When set, forces the drawer to open on this tab */
   initialTab?: string;
+  /** Dependency map for the mini dependency graph */
+  dependencyMap?: Record<string, string[]>;
 }
 
-function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onUpdate, onDelete, onClose, wide = false, initialTab }: PropertiesDrawerProps) {
+function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onUpdate, onDelete, onClose, wide = false, initialTab, dependencyMap = {} }: PropertiesDrawerProps) {
   const { t } = useTranslation();
   const typeDef = getBlockTypeDef(block.block_type);
   const Icon = typeDef?.icon ?? Type;
@@ -1171,6 +1176,13 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
                 </Button>
               </>
             )}
+            {/* Mini dependency graph */}
+            <Separator />
+            <MiniDependencyGraph
+              block={block}
+              allBlocks={[...allBlocks, block]}
+              dependencyMap={dependencyMap}
+            />
           </div>
         </TabsContent>
 
@@ -1695,6 +1707,324 @@ function ConnectorLine() {
 }
 
 // ============================================================================
+// DEPENDENCY LINES OVERLAY — SVG connector lines between blocks with conditions
+// ============================================================================
+
+/** Color for dependency lines based on the logic action */
+function getDependencyLineColor(action: string): string {
+  switch (action) {
+    case 'show': return '#22c55e'; // green-500
+    case 'hide': return '#ef4444'; // red-500
+    case 'skip_to_section': return '#3b82f6'; // blue-500
+    default: return '#a855f7'; // purple-500
+  }
+}
+
+interface DependencyLine {
+  sourceId: string;
+  targetId: string;
+  action: string;
+  label: string;
+}
+
+interface DependencyLinesOverlayProps {
+  blocks: LocalBlock[];
+  selectedBlockId: string | null;
+  showAll: boolean;
+  canvasRef: React.RefObject<HTMLDivElement | null>;
+}
+
+function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef }: DependencyLinesOverlayProps) {
+  const [lines, setLines] = useState<Array<{
+    x1: number; y1: number; x2: number; y2: number;
+    action: string; label: string;
+  }>>([]);
+
+  const OPERATOR_SYMBOLS: Record<string, string> = {
+    equals: '=', not_equals: '\u2260', contains: '\u2283', not_contains: '\u2285',
+    greater_than: '>', less_than: '<', is_empty: 'empty', is_not_empty: 'not empty',
+  };
+
+  // Collect dependency lines to draw
+  const dependencyLines = useMemo(() => {
+    const result: DependencyLine[] = [];
+    for (const block of blocks) {
+      const logic = block.conditional_logic as ConditionalLogic | null;
+      if (!logic?.conditions?.length) continue;
+
+      // Only show lines for selected block (or all if toggle is on)
+      if (!showAll && block.id !== selectedBlockId) {
+        // Also check if this block is a source for the selected block
+        const selectedLogic = blocks.find(b => b.id === selectedBlockId)?.conditional_logic as ConditionalLogic | null;
+        const isSourceForSelected = selectedLogic?.conditions?.some(c => c.source_block_id === block.id);
+        // Also check if selected block is a source for this block
+        const isTargetOfSelected = logic.conditions.some(c => c.source_block_id === selectedBlockId);
+        if (!isSourceForSelected && !isTargetOfSelected) continue;
+      }
+
+      for (const cond of logic.conditions) {
+        if (!cond.source_block_id) continue;
+        const opSymbol = OPERATOR_SYMBOLS[cond.operator] || cond.operator;
+        const labelText = cond.operator === 'is_empty' || cond.operator === 'is_not_empty'
+          ? opSymbol
+          : `${opSymbol} ${cond.value || '?'}`;
+        result.push({
+          sourceId: cond.source_block_id,
+          targetId: block.id,
+          action: logic.action,
+          label: labelText,
+        });
+      }
+    }
+    return result;
+  }, [blocks, selectedBlockId, showAll]);
+
+  // Calculate pixel positions from DOM
+  const recalculate = useCallback(() => {
+    if (!canvasRef.current || dependencyLines.length === 0) {
+      setLines([]);
+      return;
+    }
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const scrollTop = canvasRef.current.scrollTop;
+    const scrollLeft = canvasRef.current.scrollLeft;
+
+    const newLines: typeof lines = [];
+    for (const dep of dependencyLines) {
+      const sourceEl = canvasRef.current.querySelector(`[data-block-id="${dep.sourceId}"]`);
+      const targetEl = canvasRef.current.querySelector(`[data-block-id="${dep.targetId}"]`);
+      if (!sourceEl || !targetEl) continue;
+
+      const sourceRect = sourceEl.getBoundingClientRect();
+      const targetRect = targetEl.getBoundingClientRect();
+
+      // Position relative to the canvas container
+      const x1 = sourceRect.right - canvasRect.left + scrollLeft;
+      const y1 = sourceRect.top + sourceRect.height / 2 - canvasRect.top + scrollTop;
+      const x2 = targetRect.right - canvasRect.left + scrollLeft;
+      const y2 = targetRect.top + targetRect.height / 2 - canvasRect.top + scrollTop;
+
+      newLines.push({ x1, y1, x2, y2, action: dep.action, label: dep.label });
+    }
+    setLines(newLines);
+  }, [dependencyLines, canvasRef]);
+
+  useEffect(() => {
+    recalculate();
+    // Recalculate on scroll and resize
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.addEventListener('scroll', recalculate);
+    window.addEventListener('resize', recalculate);
+    // Also recalculate after a short delay for layout settling
+    const timer = setTimeout(recalculate, 100);
+    return () => {
+      canvas.removeEventListener('scroll', recalculate);
+      window.removeEventListener('resize', recalculate);
+      clearTimeout(timer);
+    };
+  }, [recalculate]);
+
+  if (lines.length === 0) return null;
+
+  // Find the needed SVG dimensions
+  const maxX = Math.max(...lines.map(l => Math.max(l.x1, l.x2))) + 80;
+  const maxY = Math.max(...lines.map(l => Math.max(l.y1, l.y2))) + 40;
+
+  return (
+    <svg
+      className="absolute top-0 left-0 pointer-events-none z-10"
+      style={{ width: maxX, height: maxY }}
+    >
+      <defs>
+        {/* Arrowhead markers for each color */}
+        <marker id="arrow-show" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#22c55e" />
+        </marker>
+        <marker id="arrow-hide" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#ef4444" />
+        </marker>
+        <marker id="arrow-skip_to_section" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#3b82f6" />
+        </marker>
+        <marker id="arrow-default" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#a855f7" />
+        </marker>
+      </defs>
+      {lines.map((line, i) => {
+        const color = getDependencyLineColor(line.action);
+        const markerId = `arrow-${line.action === 'show' || line.action === 'hide' || line.action === 'skip_to_section' ? line.action : 'default'}`;
+
+        // Draw a bezier curve that goes out to the right then curves to the target
+        const offset = 40 + (i % 4) * 12; // stagger overlapping lines
+        const midX = Math.max(line.x1, line.x2) + offset;
+        const path = `M${line.x1},${line.y1} C${midX},${line.y1} ${midX},${line.y2} ${line.x2},${line.y2}`;
+        // Label position at midpoint of bezier
+        const labelX = midX + 4;
+        const labelY = (line.y1 + line.y2) / 2;
+
+        return (
+          <g key={i}>
+            <path
+              d={path}
+              fill="none"
+              stroke={color}
+              strokeWidth="1.5"
+              strokeDasharray="6 3"
+              markerEnd={`url(#${markerId})`}
+              opacity={0.7}
+            >
+              <animate
+                attributeName="stroke-dashoffset"
+                from="18"
+                to="0"
+                dur="1.5s"
+                repeatCount="indefinite"
+              />
+            </path>
+            {/* Label background + text */}
+            <rect
+              x={labelX - 2}
+              y={labelY - 8}
+              width={line.label.length * 6.5 + 8}
+              height={16}
+              rx="3"
+              fill="white"
+              stroke={color}
+              strokeWidth="0.5"
+              opacity="0.9"
+            />
+            <text
+              x={labelX + 2}
+              y={labelY + 4}
+              fontSize="10"
+              fill={color}
+              fontFamily="monospace"
+              fontWeight="500"
+            >
+              {line.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ============================================================================
+// MINI DEPENDENCY GRAPH — shown in Logic tab of Properties Drawer
+// ============================================================================
+
+interface MiniDependencyGraphProps {
+  block: LocalBlock;
+  allBlocks: LocalBlock[];
+  dependencyMap: Record<string, string[]>;
+}
+
+function MiniDependencyGraph({ block, allBlocks, dependencyMap }: MiniDependencyGraphProps) {
+  const { t } = useTranslation();
+
+  // Source blocks: blocks referenced in this block's conditions
+  const logic = block.conditional_logic as ConditionalLogic | null;
+  const sourceBlockIds = useMemo(() => {
+    if (!logic?.conditions?.length) return [];
+    return [...new Set(logic.conditions.map(c => c.source_block_id).filter(Boolean))];
+  }, [logic]);
+
+  // Dependent blocks: blocks that reference this block
+  const dependentBlockIds = dependencyMap[block.id] ?? [];
+
+  const getBlockLabel = (id: string): string => {
+    const b = allBlocks.find(bl => bl.id === id);
+    if (!b) return t('forms.unknownBlock');
+    return b.label ? (b.label.length > 20 ? b.label.slice(0, 20) + '\u2026' : b.label) : (getBlockTypeDef(b.block_type) ? t(getBlockTypeDef(b.block_type)!.labelKey) : b.block_type);
+  };
+
+  const getBlockAction = (id: string): string => {
+    const b = allBlocks.find(bl => bl.id === id);
+    const bLogic = b?.conditional_logic as ConditionalLogic | null;
+    return bLogic?.action || 'show';
+  };
+
+  if (sourceBlockIds.length === 0 && dependentBlockIds.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium text-muted-foreground">{t('forms.depGraphTitle')}</p>
+      <div className="flex items-start gap-2 overflow-x-auto pb-1">
+        {/* Source blocks column */}
+        {sourceBlockIds.length > 0 && (
+          <div className="flex flex-col gap-1 shrink-0">
+            <span className="text-[10px] text-muted-foreground/60 mb-0.5">{t('forms.depGraphSources')}</span>
+            {sourceBlockIds.map(id => (
+              <div
+                key={id}
+                className="flex items-center gap-1 px-2 py-1.5 rounded-md border text-[11px] font-medium bg-muted/50 border-border max-w-[140px] truncate"
+                title={getBlockLabel(id)}
+              >
+                <div
+                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ backgroundColor: getDependencyLineColor(logic?.action || 'show') }}
+                />
+                {getBlockLabel(id)}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Arrows from sources */}
+        {sourceBlockIds.length > 0 && (
+          <div className="flex flex-col justify-center self-center shrink-0">
+            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/50" />
+          </div>
+        )}
+
+        {/* This block (center) */}
+        <div className="flex flex-col items-center shrink-0 self-center">
+          <div className="px-3 py-2 rounded-lg border-2 border-primary bg-primary/5 text-xs font-semibold max-w-[140px] truncate text-center" title={block.label || t('forms.thisBlock')}>
+            {block.label ? (block.label.length > 18 ? block.label.slice(0, 18) + '\u2026' : block.label) : t('forms.thisBlock')}
+          </div>
+        </div>
+
+        {/* Arrows to dependents */}
+        {dependentBlockIds.length > 0 && (
+          <div className="flex flex-col justify-center self-center shrink-0">
+            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/50" />
+          </div>
+        )}
+
+        {/* Dependent blocks column */}
+        {dependentBlockIds.length > 0 && (
+          <div className="flex flex-col gap-1 shrink-0">
+            <span className="text-[10px] text-muted-foreground/60 mb-0.5">{t('forms.depGraphDependents')}</span>
+            {dependentBlockIds.map(id => (
+              <div
+                key={id}
+                className="flex items-center gap-1 px-2 py-1.5 rounded-md border text-[11px] font-medium bg-muted/50 border-border max-w-[140px] truncate"
+                title={getBlockLabel(id)}
+              >
+                <div
+                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ backgroundColor: getDependencyLineColor(getBlockAction(id)) }}
+                />
+                {getBlockLabel(id)}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Legend */}
+      <div className="flex gap-3 text-[10px] text-muted-foreground/60 pt-1">
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> {t('forms.depLegendShow')}</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> {t('forms.depLegendHide')}</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> {t('forms.depLegendSkip')}</span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // MAIN FORM BUILDER COMPONENT
 // ============================================================================
 
@@ -1713,6 +2043,8 @@ export function FormBuilder({
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [showPublishConfirm, setShowPublishConfirm] = useState(false);
   const [tagInput, setTagInput] = useState('');
+  const [showDependencies, setShowDependencies] = useState(false);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   const addTag = useCallback((tag: string) => {
     const trimmed = tag.trim().replace(/,/g, '');
@@ -1771,6 +2103,16 @@ export function FormBuilder({
     is_required: b.is_required,
     options: b.options,
     validation_rules: b.validation_rules,
+    conditional_logic: b.conditional_logic,
+    section_id: b.section_id,
+  }));
+
+  // Map sections to FormRenderer format for preview
+  const previewSections = hook.sections.map((s, i) => ({
+    id: s.id,
+    title: s.title,
+    description: s.description,
+    display_order: s.display_order ?? i,
   }));
 
   if (hook.isLoading) {
@@ -2005,6 +2347,23 @@ export function FormBuilder({
               <span className="text-xs text-muted-foreground">%</span>
             </div>
           )}
+
+          <Separator orientation="vertical" className="h-4" />
+
+          {/* Show logic flow toggle */}
+          <button
+            type="button"
+            onClick={() => setShowDependencies(v => !v)}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors ${
+              showDependencies
+                ? 'bg-primary/10 text-primary font-medium'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            }`}
+            title={t('forms.builderShowLogicFlow')}
+          >
+            <Network className="h-3.5 w-3.5" />
+            {t('forms.builderShowLogicFlow')}
+          </button>
         </div>
 
         {/* Tags row */}
@@ -2047,12 +2406,22 @@ export function FormBuilder({
       <div className="flex flex-1 overflow-hidden relative">
         {/* Canvas */}
         <div
-          className={`flex-1 overflow-y-auto py-8 transition-all ${
+          ref={canvasRef}
+          className={`flex-1 overflow-y-auto py-8 transition-all relative ${
             selectedBlock
               ? fullPage ? 'pr-[440px]' : 'pr-[356px]'
               : ''
           }`}
         >
+          {/* SVG dependency lines overlay */}
+          {(showDependencies || selectedBlock) && (
+            <DependencyLinesOverlay
+              blocks={hook.blocks}
+              selectedBlockId={hook.selectedBlockId}
+              showAll={showDependencies}
+              canvasRef={canvasRef}
+            />
+          )}
           <div className={`mx-auto w-full px-4 ${fullPage ? 'max-w-[800px]' : 'max-w-[680px]'}`}>
             {/* START node */}
             <div className="flex justify-center mb-0">
@@ -2252,6 +2621,7 @@ export function FormBuilder({
             }}
             wide={fullPage}
             initialTab={drawerInitialTab}
+            dependencyMap={blockDependencyMap}
           />
         )}
       </div>
@@ -2273,7 +2643,7 @@ export function FormBuilder({
                 {t('forms.builderNoBlocksPreview')}
               </p>
             ) : (
-              <FormRenderer blocks={previewBlocks} answers={{}} readOnly={false} />
+              <FormRenderer blocks={previewBlocks} sections={previewSections} answers={{}} readOnly={false} formType={hook.form?.type} formTitle={hook.form?.title} />
             )}
           </div>
         </DialogContent>

@@ -16,11 +16,6 @@ import {
   Loader2,
 } from 'lucide-react';
 
-const _publicAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-const _supabaseProjectId = import.meta.env.VITE_SUPABASE_PROJECT_ID as string;
-const _supabaseUrl: string =
-  (import.meta.env.VITE_SUPABASE_URL as string) ||
-  `https://${_supabaseProjectId}.supabase.co`;
 import {
   Select,
   SelectContent,
@@ -504,6 +499,151 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
     }
   }
 
+  // ── PDF / HTML download handler ──────────────────────────────────────────────
+
+  function handleDownloadPdf(submission: SubmissionRecord) {
+    const form = forms.find((f) => f.id === submission.form_id);
+    const formTitle = form?.title || 'Form Submission';
+
+    // Build block-aware response HTML from client-side data
+    const rd = submission.response_data || submission.responses || {};
+    const blocks = formBlocks.length > 0 ? formBlocks : [];
+
+    const submitterName = (submission.submitted_by as any)?.name || 'Anonymous';
+    const submitterEmailAddr = (submission.submitted_by as any)?.email || '';
+    const submittedAt = submission.submitted_at
+      ? new Date(submission.submitted_at).toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : '';
+
+    // Score section
+    let scoreHtml = '';
+    if (submission.score_percentage != null) {
+      const pct = Math.round(submission.score_percentage);
+      const total = submission.total_score ?? 0;
+      const max = submission.max_possible_score ?? 0;
+      const passed = rd._scoring_passed as boolean | undefined;
+      const statusColor = passed === false ? '#dc2626' : '#16a34a';
+      const statusLabel = passed === false ? 'FAIL' : passed === true ? 'PASS' : '';
+      scoreHtml = `
+        <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:20px 0;border:1px solid #e2e8f0;">
+          <div style="font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Score Summary</div>
+          <div style="font-size:32px;font-weight:700;color:#0f172a;">${total} / ${max} <span style="font-size:16px;color:#64748b;">(${pct}%)</span></div>
+          ${statusLabel ? `<div style="display:inline-block;margin-top:8px;padding:4px 14px;border-radius:9999px;font-size:12px;font-weight:700;color:#fff;background:${statusColor};">${statusLabel}</div>` : ''}
+        </div>`;
+    }
+
+    // Build response rows
+    const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const responsesHtml = blocks
+      .filter((b) => b.type !== 'heading' && b.type !== 'separator' && b.type !== 'section_header' && b.type !== 'paragraph')
+      .map((block) => {
+        const rawVal = rd[block.id] ?? rd[block.label || ''] ?? null;
+        const label = block.label || 'Question';
+        let displayVal: string;
+
+        if (block.type === 'signature') {
+          displayVal = rawVal
+            ? '<em style="color:#64748b;">[Digital signature captured]</em>'
+            : '<em style="color:#94a3b8;">No signature</em>';
+        } else if (block.type === 'yes_no' || block.type === 'yesno') {
+          if (rawVal === true || rawVal === 'yes' || rawVal === 'Yes') {
+            displayVal = '<span style="color:#16a34a;font-weight:600;">&#10003; Yes</span>';
+          } else if (rawVal === false || rawVal === 'no' || rawVal === 'No') {
+            displayVal = '<span style="color:#dc2626;font-weight:600;">&#10007; No</span>';
+          } else {
+            displayVal = '<em style="color:#94a3b8;">No response</em>';
+          }
+        } else if (rawVal === null || rawVal === undefined) {
+          displayVal = '<em style="color:#94a3b8;">No response</em>';
+        } else if (Array.isArray(rawVal)) {
+          displayVal = escHtml(rawVal.map((v: unknown) => {
+            if (typeof v === 'object' && v !== null && 'url' in (v as Record<string, unknown>)) {
+              return (v as { url: string; filename?: string }).filename || 'File';
+            }
+            return String(v);
+          }).join(', '));
+        } else if (typeof rawVal === 'boolean') {
+          displayVal = rawVal ? 'Yes' : 'No';
+        } else {
+          displayVal = escHtml(String(rawVal));
+        }
+
+        return `<tr>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-weight:500;color:#334155;vertical-align:top;width:35%;font-size:13px;">${escHtml(label)}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;color:#1e293b;font-size:14px;">${displayVal}</td>
+        </tr>`;
+      })
+      .join('');
+
+    const now = new Date().toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escHtml(formTitle)} — Submission Report</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #111; background: #fff; padding: 40px; max-width: 800px; margin: 0 auto; }
+    .header { padding-bottom: 20px; border-bottom: 3px solid #f97316; margin-bottom: 24px; }
+    .brand { font-size: 14px; font-weight: 700; color: #f97316; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 8px; }
+    .form-title { font-size: 24px; font-weight: 700; color: #0f172a; }
+    .meta { font-size: 13px; color: #64748b; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; }
+    .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #94a3b8; text-align: center; }
+    @media print {
+      body { padding: 20px; }
+      @page { margin: 15mm; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">TRIKE BACKOFFICE</div>
+    <div class="form-title">${escHtml(formTitle)}</div>
+    <div class="meta">Submitted: ${submittedAt}</div>
+  </div>
+  <div style="margin-bottom:16px;">
+    <div style="font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Submitted By</div>
+    <div style="font-size:14px;color:#334155;"><strong>${escHtml(submitterName)}</strong>${submitterEmailAddr ? ` &middot; ${escHtml(submitterEmailAddr)}` : ''}</div>
+  </div>
+  ${scoreHtml}
+  ${responsesHtml ? `<table>${responsesHtml}</table>` : '<p style="color:#94a3b8;font-size:14px;">No responses recorded.</p>'}
+  <div class="footer">Generated by Trike Backoffice &middot; ${now}</div>
+</body>
+</html>`;
+
+    // Open in a new window for print-to-PDF
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, '_blank');
+    // Clean up the blob URL after a delay
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    // If popup was blocked, fall back to download
+    if (!win) {
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      const safeTitle = formTitle.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_');
+      anchor.download = `${safeTitle}_submission.html`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+    }
+  }
+
   // ── Filtered submissions ─────────────────────────────────────────────────────
 
   const filteredSubmissions = submissions.filter((s) => {
@@ -754,10 +894,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => {
-                      const url = `${_supabaseUrl}/functions/v1/trike-server/forms/submissions/${selectedSubmission.id}/pdf`;
-                      window.open(url, '_blank');
-                    }}
+                    onClick={() => handleDownloadPdf(selectedSubmission)}
                   >
                     <Download className="h-4 w-4 mr-2" />
                     {t('forms.exportPdf')}

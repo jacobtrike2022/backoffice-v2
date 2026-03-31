@@ -1,13 +1,13 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import SignatureCanvas from 'react-signature-canvas';
-import { isBlockVisible, ConditionalLogic } from '../../../lib/forms/conditionalLogic';
+import { isBlockVisible, ConditionalLogic, getSkippedSectionIds } from '../../../lib/forms/conditionalLogic';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
-import { Star, Upload, X, FileText, Loader2, AlertCircle } from 'lucide-react';
+import { Star, Upload, X, FileText, Loader2, AlertCircle, ClipboardCheck, Shield, FileSignature, GraduationCap, MessageSquare } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -27,6 +27,14 @@ export interface FormBlockData {
   options?: string[] | { choices?: string[] };
   validation_rules?: Record<string, unknown>;
   conditional_logic?: ConditionalLogic | null;
+  section_id?: string | null;
+}
+
+export interface FormSectionData {
+  id: string;
+  title?: string;
+  description?: string;
+  display_order: number;
 }
 
 export interface ScoringResult {
@@ -50,6 +58,8 @@ export interface SubmissionConfig {
 
 export interface FormRendererProps {
   blocks: FormBlockData[];
+  /** Ordered list of form sections. When provided, section headers are rendered and skip_to_section logic is active. */
+  sections?: FormSectionData[];
   answers?: Record<string, unknown>;
   readOnly?: boolean;
   scoringEnabled?: boolean;
@@ -59,7 +69,20 @@ export interface FormRendererProps {
   formId?: string;
   /** Post-submission configuration (confirmation message, etc.) */
   submissionConfig?: SubmissionConfig;
+  /** Form type — drives type-specific UX (header, banners, counters) */
+  formType?: 'inspection' | 'audit' | 'sign-off' | 'ojt-checklist' | 'survey' | string;
+  /** Form title for the type-aware header */
+  formTitle?: string;
 }
+
+/** Type-specific UX configuration */
+const FORM_TYPE_UX: Record<string, { icon: React.ElementType; accent: string; accentBg: string; labelKey: string }> = {
+  'inspection': { icon: ClipboardCheck, accent: 'text-blue-500', accentBg: 'bg-blue-500/10 border-blue-500/30', labelKey: 'forms.fillHeaderInspection' },
+  'audit': { icon: Shield, accent: 'text-amber-500', accentBg: 'bg-amber-500/10 border-amber-500/30', labelKey: 'forms.fillHeaderAudit' },
+  'sign-off': { icon: FileSignature, accent: 'text-green-500', accentBg: 'bg-green-500/10 border-green-500/30', labelKey: 'forms.fillHeaderSignOff' },
+  'ojt-checklist': { icon: GraduationCap, accent: 'text-purple-500', accentBg: 'bg-purple-500/10 border-purple-500/30', labelKey: 'forms.fillHeaderOJT' },
+  'survey': { icon: MessageSquare, accent: 'text-teal-500', accentBg: 'bg-teal-500/10 border-teal-500/30', labelKey: 'forms.fillHeaderSurvey' },
+};
 
 // Per-block upload state tracked outside React state to avoid re-render loops
 interface UploadState {
@@ -78,7 +101,7 @@ function getOptions(block: FormBlockData): string[] {
   return [];
 }
 
-export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig }: FormRendererProps) {
+export function FormRenderer({ blocks, sections = [], answers = {}, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle }: FormRendererProps) {
   const { t } = useTranslation();
   const [formData, setFormData] = React.useState<Record<string, unknown>>(answers);
   const [validationErrors, setValidationErrors] = React.useState<Record<string, string>>({});
@@ -86,6 +109,48 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
   const [isSubmitted, setIsSubmitted] = React.useState(false);
   const [uploadStates, setUploadStates] = React.useState<Record<string, UploadState>>({});
   const sigCanvasRefs = React.useRef<Record<string, SignatureCanvas | null>>({});
+  const prevSkippedRef = React.useRef<Set<string>>(new Set());
+
+  // Compute which sections are skipped due to active skip_to_section rules
+  const skippedSectionIds = React.useMemo(
+    () => getSkippedSectionIds(blocks, sections, formData),
+    [blocks, sections, formData]
+  );
+
+  // Build a map of section_id → section data for quick lookups
+  const sectionMap = React.useMemo(() => {
+    const map = new Map<string, FormSectionData>();
+    for (const s of sections) map.set(s.id, s);
+    return map;
+  }, [sections]);
+
+  // Smooth scroll to target section when a new skip activates
+  React.useEffect(() => {
+    if (sections.length === 0) return;
+
+    // Find the skip targets that just became active (newly skipped sections appeared)
+    const prevSkipped = prevSkippedRef.current;
+    const newlySkipped = new Set<string>();
+    for (const id of skippedSectionIds) {
+      if (!prevSkipped.has(id)) newlySkipped.add(id);
+    }
+    prevSkippedRef.current = skippedSectionIds;
+
+    if (newlySkipped.size === 0) return;
+
+    // Find the active skip_to_section rules to determine scroll target
+    for (const block of blocks) {
+      const logic = block.conditional_logic;
+      if (!logic || logic.action !== 'skip_to_section' || !logic.target_section_id) continue;
+      const targetId = logic.target_section_id;
+      // Check if this skip's intermediate sections are the newly skipped ones
+      const el = document.getElementById(`form-section-${targetId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        break;
+      }
+    }
+  }, [skippedSectionIds, sections, blocks]);
 
   /** Upload a file to Supabase Storage and store its public URL in formData */
   const uploadFile = async (blockId: string, file: File) => {
@@ -184,6 +249,8 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
       if (!block.is_required) continue;
       if (!INPUT_BLOCK_TYPES.has(block.type)) continue;
       if (!isBlockVisible(block.conditional_logic, formData)) continue;
+      // Skip validation for blocks in skipped sections
+      if (block.section_id && skippedSectionIds.has(block.section_id)) continue;
       const val = formData[block.id];
       const isEmpty =
         val === undefined ||
@@ -214,6 +281,8 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
         for (const block of blocks) {
           // Skip hidden blocks — they should not affect scoring
           if (!isBlockVisible(block.conditional_logic, formData)) continue;
+          // Skip blocks in skipped sections
+          if (block.section_id && skippedSectionIds.has(block.section_id)) continue;
 
           const _settings = (block.validation_rules?._settings as Record<string, unknown>) || {};
           const weight = (_settings.score_weight as number) || 0;
@@ -263,6 +332,11 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
   const renderBlock = (block: FormBlockData) => {
     // Evaluate conditional logic — skip blocks that should be hidden
     if (!isBlockVisible(block.conditional_logic, formData)) {
+      return null;
+    }
+
+    // Skip blocks whose section is being skipped via skip_to_section
+    if (block.section_id && skippedSectionIds.has(block.section_id)) {
       return null;
     }
 
@@ -942,6 +1016,17 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
     }
   };
 
+  // --- Type-specific computed values ---
+  const typeUx = formType ? FORM_TYPE_UX[formType] : undefined;
+  const INPUT_TYPES = new Set(['text','textarea','number','date','time','radio','checkbox','checkboxes','select','dropdown','multiselect','rating','file','yes_no','slider','photo','signature','location']);
+  const inputBlocks = blocks.filter(b => INPUT_TYPES.has(b.type) && isBlockVisible(b.conditional_logic, formData));
+  const completedCount = inputBlocks.filter(b => {
+    const v = formData[b.id];
+    return v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
+  }).length;
+  const totalCount = inputBlocks.length;
+  const completionPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
   if (isSubmitted) {
     const confirmMsg = submissionConfig?.confirmation_message || t('forms.publicSubmissionReceived');
     return (
@@ -958,23 +1043,91 @@ export function FormRenderer({ blocks, answers = {}, readOnly = false, scoringEn
 
   return (
     <div className="space-y-6">
-      {blocks.map((block) => {
-        const rendered = renderBlock(block);
-        if (!rendered) return null;
-        const errorMsg = validationErrors[block.id];
-        return (
-          <div
-            key={block.id}
-            id={`form-field-${block.id}`}
-            className={errorMsg ? 'rounded-md ring-1 ring-destructive/50 p-1 -m-1' : undefined}
-          >
-            {rendered}
-            {errorMsg && (
-              <p className="mt-1 text-xs text-destructive font-medium">{errorMsg}</p>
-            )}
+      {/* Type-specific header */}
+      {typeUx && (
+        <div className={`flex items-center gap-3 p-3 rounded-lg border ${typeUx.accentBg}`}>
+          <typeUx.icon className={`h-5 w-5 ${typeUx.accent}`} />
+          <div className="min-w-0">
+            <p className={`text-xs font-semibold uppercase tracking-wide ${typeUx.accent}`}>{t(typeUx.labelKey)}</p>
+            {formTitle && <p className="text-sm font-medium truncate">{formTitle}</p>}
           </div>
-        );
-      })}
+        </div>
+      )}
+
+      {/* Sign-off acknowledgement banner */}
+      {formType === 'sign-off' && !readOnly && (
+        <div className="flex items-start gap-2 p-3 rounded-lg border border-green-500/30 bg-green-500/10 text-sm">
+          <FileSignature className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+          <span>{t('forms.fillSignOffNotice')}</span>
+        </div>
+      )}
+
+      {/* Inspection/Audit completion counter */}
+      {(formType === 'inspection' || formType === 'audit') && !readOnly && totalCount > 0 && (
+        <div className="flex items-center justify-between text-sm px-1">
+          <span className="text-muted-foreground">{t('forms.fillItemsCompleted', { done: completedCount, total: totalCount })}</span>
+          {scoringEnabled && completionPct > 0 && (
+            <span className="font-medium">{completionPct}%</span>
+          )}
+        </div>
+      )}
+
+      {/* Survey progress bar */}
+      {formType === 'survey' && !readOnly && totalCount > 0 && (
+        <div className="space-y-1">
+          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+            <div className="h-full bg-teal-500 rounded-full transition-all duration-300" style={{ width: `${completionPct}%` }} />
+          </div>
+          <p className="text-xs text-muted-foreground text-right">{completionPct}%</p>
+        </div>
+      )}
+
+      {(() => {
+        const elems: React.ReactNode[] = [];
+        const sectionHeadersRendered = new Set<string>();
+        for (const block of blocks) {
+          // If we have sections, inject section headers before first block in each section
+          if (sections.length > 0) {
+            const sid = block.section_id;
+            if (sid && !sectionHeadersRendered.has(sid)) {
+              sectionHeadersRendered.add(sid);
+              const section = sectionMap.get(sid);
+              if (section && !skippedSectionIds.has(sid)) {
+                elems.push(
+                  <div key={`section-header-${sid}`} id={`form-section-${sid}`} className="pt-4 first:pt-0">
+                    {elems.length > 0 && <Separator className="mb-5" />}
+                    <div className="mb-4">
+                      {section.title && (
+                        <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{section.title}</h3>
+                      )}
+                      {section.description && (
+                        <p className="text-xs text-muted-foreground/70 mt-1">{section.description}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+            }
+          }
+          const rendered = renderBlock(block);
+          if (!rendered) continue;
+          const errorMsg = validationErrors[block.id];
+          elems.push(
+            <div key={block.id} id={`form-field-${block.id}`} className={errorMsg ? 'rounded-md ring-1 ring-destructive/50 p-1 -m-1' : undefined}>
+              {rendered}
+              {errorMsg && <p className="mt-1 text-xs text-destructive font-medium">{errorMsg}</p>}
+            </div>
+          );
+        }
+        return elems;
+      })()}
+      {/* Inspection/Audit bottom score summary */}
+      {(formType === 'inspection' || formType === 'audit') && scoringEnabled && !readOnly && totalCount > 0 && (
+        <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-muted/30 text-sm">
+          <span className="font-medium">{t('forms.fillScoreSummary')}</span>
+          <span className="font-bold text-lg">{completionPct}%</span>
+        </div>
+      )}
       {!readOnly && onSubmit && (
         <div className="pt-4">
           <button

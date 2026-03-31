@@ -190,3 +190,68 @@ export function getVisibleBlocks<T extends { id: string; conditional_logic?: Con
 ): T[] {
   return blocks.filter((block) => isBlockVisible(block.conditional_logic, answers));
 }
+
+/**
+ * Evaluate whether a block's conditional logic conditions are met.
+ * Exported so the renderer can check skip_to_section triggers independently.
+ */
+export function evaluateConditions(
+  conditionalLogic: ConditionalLogic,
+  answers: Record<string, unknown>
+): boolean {
+  if (!conditionalLogic.conditions || conditionalLogic.conditions.length === 0) {
+    return false;
+  }
+  const results = conditionalLogic.conditions.map((c) => evaluateCondition(c, answers));
+  if (conditionalLogic.operator === 'AND') {
+    return results.every(Boolean);
+  }
+  return results.some(Boolean);
+}
+
+/**
+ * Given a list of blocks with section_id and a list of sections ordered by display_order,
+ * compute which section IDs should be skipped due to active skip_to_section rules.
+ *
+ * Returns a Set of section IDs that should be hidden.
+ */
+export function getSkippedSectionIds<
+  T extends { id: string; section_id?: string | null; conditional_logic?: ConditionalLogic | null }
+>(
+  blocks: T[],
+  sections: { id: string; display_order: number }[],
+  answers: Record<string, unknown>
+): Set<string> {
+  const skipped = new Set<string>();
+  if (sections.length === 0) return skipped;
+
+  // Build a map from section ID to its display order
+  const sectionOrderMap = new Map<string, number>();
+  for (const s of sections) {
+    sectionOrderMap.set(s.id, s.display_order);
+  }
+
+  // Find all active skip_to_section rules
+  for (const block of blocks) {
+    const logic = block.conditional_logic;
+    if (!logic || logic.action !== 'skip_to_section' || !logic.target_section_id) continue;
+    if (!evaluateConditions(logic, answers)) continue;
+
+    // This skip rule is active. Hide sections between the block's section and the target section.
+    const sourceSectionId = block.section_id;
+    if (!sourceSectionId) continue; // Block not in a section — can't determine range
+
+    const sourceOrder = sectionOrderMap.get(sourceSectionId);
+    const targetOrder = sectionOrderMap.get(logic.target_section_id);
+    if (sourceOrder === undefined || targetOrder === undefined) continue;
+
+    // Skip all sections with display_order > sourceOrder AND < targetOrder
+    for (const s of sections) {
+      if (s.display_order > sourceOrder && s.display_order < targetOrder) {
+        skipped.add(s.id);
+      }
+    }
+  }
+
+  return skipped;
+}

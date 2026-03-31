@@ -9,7 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 import { CheckCircle, Moon, Sun, AlertTriangle, ClipboardList, Loader2 } from 'lucide-react';
 import trikeLogoDark from '../../assets/trike-logo.png';
-import { FormRenderer, FormBlockData, type ScoringResult } from './shared/FormRenderer';
+import { FormRenderer, FormBlockData, type FormSectionData, type ScoringResult } from './shared/FormRenderer';
 
 const EDGE_URL = getServerUrl();
 
@@ -25,6 +25,7 @@ interface PublicForm {
   title: string;
   description?: string;
   status: string;
+  type?: string;
   requires_approval?: boolean;
   settings?: {
     scoring_enabled?: boolean;
@@ -375,11 +376,19 @@ export function PublicFormFill() {
           {/* handled inside handleSubmit which prevents double-submit via the submitting guard */}
           <FormRenderer
             blocks={blocks}
+            sections={(formData.sections || []).map((s, i) => ({
+              id: s.id,
+              title: s.title,
+              description: s.description,
+              display_order: s.order ?? i,
+            } as FormSectionData))}
             onSubmit={handleSubmit}
             readOnly={false}
             formId={formData.form.id}
             scoringEnabled={formData.form.settings?.scoring_enabled}
             passThreshold={formData.form.settings?.pass_threshold}
+            formType={formData.form.type}
+            formTitle={formData.form.title}
           />
           {submitting && (
             <div className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-2">

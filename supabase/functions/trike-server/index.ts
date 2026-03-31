@@ -10398,6 +10398,7 @@ async function sendEmailViaResend(params: {
   text?: string;
   from?: string;
   replyTo?: string;
+  attachments?: Array<{ filename: string; content: string }>;
 }): Promise<{ success: boolean; id?: string; error?: string }> {
   if (!RESEND_API_KEY) {
     console.error("[Email] RESEND_API_KEY not configured");
@@ -10405,20 +10406,26 @@ async function sendEmailViaResend(params: {
   }
 
   try {
+    const emailPayload: Record<string, unknown> = {
+      from: params.from || Deno.env.get("EMAIL_FROM_ADDRESS") || "Trike <noreply@notifications.trike.co>",
+      to: params.to,
+      subject: params.subject,
+      html: params.html,
+      text: params.text,
+      reply_to: params.replyTo,
+    };
+
+    if (params.attachments && params.attachments.length > 0) {
+      emailPayload.attachments = params.attachments;
+    }
+
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${RESEND_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        from: params.from || Deno.env.get("EMAIL_FROM_ADDRESS") || "Trike <noreply@notifications.trike.co>",
-        to: params.to,
-        subject: params.subject,
-        html: params.html,
-        text: params.text,
-        reply_to: params.replyTo,
-      }),
+      body: JSON.stringify(emailPayload),
     });
 
     if (!response.ok) {
@@ -15844,6 +15851,178 @@ interface FormSubmissionConfig {
 }
 
 /**
+ * Generate a self-contained, print-optimised HTML document for a form submission.
+ * Used as an email attachment (.html) and for the browser print-to-PDF flow.
+ */
+function generateSubmissionPdfHtml(params: {
+  formTitle: string;
+  formType?: string;
+  submitterName?: string;
+  submitterEmail?: string;
+  storeName?: string;
+  submittedAt?: string;
+  score?: { total: number; passed: boolean; max: number } | null;
+  blocks: Array<{ id: string; label?: string; type?: string }>;
+  responses: Record<string, unknown>;
+}): string {
+  const {
+    formTitle,
+    formType,
+    submitterName,
+    submitterEmail,
+    storeName,
+    submittedAt,
+    score,
+    blocks,
+    responses,
+  } = params;
+
+  const dateStr = submittedAt
+    ? new Date(submittedAt).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+
+  const typeBadge = formType
+    ? `<span style="display:inline-block;padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600;background:#ede9fe;color:#6d28d9;margin-left:8px;vertical-align:middle;">${escapeHtml(formType)}</span>`
+    : '';
+
+  // Score section
+  let scoreHtml = '';
+  if (score) {
+    const pct = score.max > 0 ? Math.round((score.total / score.max) * 100) : 0;
+    const statusColor = score.passed ? '#16a34a' : '#dc2626';
+    const statusLabel = score.passed ? 'PASS' : 'FAIL';
+    scoreHtml = `
+      <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:20px 0;border:1px solid #e2e8f0;">
+        <div style="font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Score Summary</div>
+        <div style="font-size:32px;font-weight:700;color:#0f172a;">${score.total} / ${score.max} <span style="font-size:16px;color:#64748b;">(${pct}%)</span></div>
+        <div style="display:inline-block;margin-top:8px;padding:4px 14px;border-radius:9999px;font-size:12px;font-weight:700;color:#fff;background:${statusColor};">${statusLabel}</div>
+      </div>`;
+  }
+
+  // Submitter info section
+  const submitterParts: string[] = [];
+  if (submitterName) submitterParts.push(`<strong>${escapeHtml(submitterName)}</strong>`);
+  if (submitterEmail) submitterParts.push(escapeHtml(submitterEmail));
+  if (storeName) submitterParts.push(`Store: ${escapeHtml(storeName)}`);
+  const submitterHtml = submitterParts.length > 0
+    ? `<div style="margin-bottom:16px;">
+        <div style="font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Submitted By</div>
+        <div style="font-size:14px;color:#334155;">${submitterParts.join(' &middot; ')}</div>
+      </div>`
+    : '';
+
+  // Build response rows per block
+  const blockMap = new Map(blocks.map(b => [b.id, b]));
+  const responsesHtml = blocks
+    .filter(b => b.type !== 'heading' && b.type !== 'separator' && b.type !== 'section_header' && b.type !== 'paragraph')
+    .map(block => {
+      const rawVal = responses[block.id] ?? responses[block.label || ''] ?? null;
+      const label = block.label || 'Question';
+      let displayVal: string;
+
+      // Handle block types specifically
+      if (block.type === 'signature') {
+        if (rawVal && typeof rawVal === 'object' && ('dataUrl' in (rawVal as any) || 'data_url' in (rawVal as any))) {
+          displayVal = '<em style="color:#64748b;">[Digital signature captured]</em>';
+        } else if (rawVal) {
+          displayVal = '<em style="color:#64748b;">[Digital signature captured]</em>';
+        } else {
+          displayVal = '<em style="color:#94a3b8;">No signature</em>';
+        }
+      } else if (block.type === 'yes_no' || block.type === 'yesno') {
+        if (rawVal === true || rawVal === 'yes' || rawVal === 'Yes') {
+          displayVal = '<span style="color:#16a34a;font-weight:600;">&#10003; Yes</span>';
+        } else if (rawVal === false || rawVal === 'no' || rawVal === 'No') {
+          displayVal = '<span style="color:#dc2626;font-weight:600;">&#10007; No</span>';
+        } else {
+          displayVal = '<em style="color:#94a3b8;">No response</em>';
+        }
+      } else if (block.type === 'photo' || block.type === 'file_upload' || block.type === 'file') {
+        if (Array.isArray(rawVal)) {
+          displayVal = rawVal.map((f: any) => {
+            if (typeof f === 'object' && f.url) return `<a href="${escapeHtml(f.url)}" style="color:#3b82f6;">${escapeHtml(f.filename || f.name || 'File')}</a>`;
+            return escapeHtml(String(f));
+          }).join(', ') || '<em style="color:#94a3b8;">No files</em>';
+        } else if (rawVal && typeof rawVal === 'object' && 'url' in (rawVal as any)) {
+          displayVal = `<a href="${escapeHtml((rawVal as any).url)}" style="color:#3b82f6;">${escapeHtml((rawVal as any).filename || 'File')}</a>`;
+        } else {
+          displayVal = '<em style="color:#94a3b8;">No files</em>';
+        }
+      } else if (rawVal === null || rawVal === undefined) {
+        displayVal = '<em style="color:#94a3b8;">No response</em>';
+      } else if (Array.isArray(rawVal)) {
+        displayVal = escapeHtml(rawVal.join(', '));
+      } else if (typeof rawVal === 'boolean') {
+        displayVal = rawVal ? 'Yes' : 'No';
+      } else {
+        displayVal = escapeHtml(String(rawVal));
+      }
+
+      return `
+        <tr>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-weight:500;color:#334155;vertical-align:top;width:35%;font-size:13px;">${escapeHtml(label)}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;color:#1e293b;font-size:14px;">${displayVal}</td>
+        </tr>`;
+    })
+    .join('');
+
+  const now = new Date().toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(formTitle)} — Submission Report</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #111; background: #fff; padding: 40px; max-width: 800px; margin: 0 auto; }
+    .header { padding-bottom: 20px; border-bottom: 3px solid #f97316; margin-bottom: 24px; }
+    .brand { font-size: 14px; font-weight: 700; color: #f97316; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 8px; }
+    .form-title { font-size: 24px; font-weight: 700; color: #0f172a; }
+    .meta { font-size: 13px; color: #64748b; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; }
+    .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #94a3b8; text-align: center; }
+    @media print {
+      body { padding: 20px; }
+      @page { margin: 15mm; }
+      a { text-decoration: none; color: #111; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">TRIKE BACKOFFICE</div>
+    <div class="form-title">${escapeHtml(formTitle)}${typeBadge}</div>
+    <div class="meta">Submitted: ${dateStr}</div>
+  </div>
+  ${submitterHtml}
+  ${scoreHtml}
+  ${responsesHtml ? `<table>${responsesHtml}</table>` : '<p style="color:#94a3b8;font-size:14px;">No responses recorded.</p>'}
+  <div class="footer">Generated by Trike Backoffice &middot; ${now}</div>
+</body>
+</html>`;
+}
+
+/**
  * Build the branded HTML body for a form notification email.
  */
 function buildFormEmailHtml(params: {
@@ -15879,12 +16058,32 @@ function buildFormEmailHtml(params: {
       .map(([key, val]) => {
         const block = blockMap.get(key);
         const label = block?.label || key;
-        const displayVal = val === null || val === undefined
-          ? '—'
-          : Array.isArray(val) ? val.join(', ') : String(val);
+        const blockType = block?.type || '';
+        let displayHtml: string;
+
+        if (blockType === 'signature') {
+          displayHtml = val ? '<em style="color:#64748b;">[Digital signature captured]</em>' : '—';
+        } else if (blockType === 'yes_no' || blockType === 'yesno') {
+          if (val === true || val === 'yes' || val === 'Yes') {
+            displayHtml = '<span style="color:#16a34a;font-weight:600;">&#10003; Yes</span>';
+          } else if (val === false || val === 'no' || val === 'No') {
+            displayHtml = '<span style="color:#dc2626;font-weight:600;">&#10007; No</span>';
+          } else {
+            displayHtml = '—';
+          }
+        } else if (val === null || val === undefined) {
+          displayHtml = '—';
+        } else if (Array.isArray(val)) {
+          displayHtml = escapeHtml(val.join(', '));
+        } else if (typeof val === 'boolean') {
+          displayHtml = val ? 'Yes' : 'No';
+        } else {
+          displayHtml = escapeHtml(String(val));
+        }
+
         return `<tr>
           <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: 500; color: #334155; vertical-align: top; width: 35%;">${escapeHtml(label)}</td>
-          <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">${escapeHtml(displayVal)}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">${displayHtml}</td>
         </tr>`;
       })
       .join('');
@@ -16064,17 +16263,23 @@ async function processFormSubmissionEmails(params: {
       .eq('form_id', params.form_id)
       .order('order_index', { ascending: true });
 
-    // Determine submitter info string
+    // Determine submitter info string + structured data for PDF
     let submitterInfo = params.submitter_email || 'Anonymous';
+    let submitterName = '';
+    let submitterEmail = params.submitter_email || '';
+    let submitterStore = '';
     if (params.submitter_user_id) {
       const { data: submitterUser } = await supabase
         .from('users')
-        .select('first_name, last_name, email')
+        .select('first_name, last_name, email, store:stores(name)')
         .eq('id', params.submitter_user_id)
         .single();
       if (submitterUser) {
         const name = [submitterUser.first_name, submitterUser.last_name].filter(Boolean).join(' ');
-        submitterInfo = name ? `${name} (${submitterUser.email || params.submitter_email || ''})` : (submitterUser.email || params.submitter_email || 'Unknown');
+        submitterName = name;
+        submitterEmail = submitterUser.email || params.submitter_email || '';
+        submitterStore = (submitterUser.store as any)?.name || '';
+        submitterInfo = name ? `${name} (${submitterEmail})` : (submitterEmail || 'Unknown');
       }
     }
 
@@ -16107,12 +16312,38 @@ async function processFormSubmissionEmails(params: {
           blocks: blocks || [],
         });
 
+        // Generate PDF attachment when include_responses is true
+        let attachments: Array<{ filename: string; content: string }> | undefined;
+        if (notification.include_responses) {
+          try {
+            const pdfHtml = generateSubmissionPdfHtml({
+              formTitle,
+              submitterName: submitterName || undefined,
+              submitterEmail: submitterEmail || undefined,
+              storeName: submitterStore || undefined,
+              score: params.score,
+              blocks: blocks || [],
+              responses: params.responses,
+            });
+            // Resend expects base64-encoded content for attachments
+            const base64Content = btoa(unescape(encodeURIComponent(pdfHtml)));
+            const safeTitle = formTitle.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_');
+            attachments = [{
+              filename: `${safeTitle}_submission.html`,
+              content: base64Content,
+            }];
+          } catch (pdfErr) {
+            console.error('[FormEmail] PDF generation error (non-fatal):', pdfErr);
+          }
+        }
+
         // Send to each recipient
         for (const recipientEmail of recipients) {
           const result = await sendEmailViaResend({
             to: recipientEmail,
             subject,
             html,
+            attachments,
           });
           if (result.success) {
             sent++;
@@ -16169,10 +16400,33 @@ async function processFormSubmissionEmails(params: {
           customMessage: config.score_threshold_action.below_threshold_message || 'This submission scored below the passing threshold and may require attention.',
         });
 
+        // Generate PDF attachment for threshold alert (includes responses)
+        let thresholdAttachments: Array<{ filename: string; content: string }> | undefined;
+        try {
+          const thresholdPdfHtml = generateSubmissionPdfHtml({
+            formTitle,
+            submitterName: submitterName || undefined,
+            submitterEmail: submitterEmail || undefined,
+            storeName: submitterStore || undefined,
+            score: params.score,
+            blocks: blocks || [],
+            responses: params.responses,
+          });
+          const base64Content = btoa(unescape(encodeURIComponent(thresholdPdfHtml)));
+          const safeTitle = formTitle.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_');
+          thresholdAttachments = [{
+            filename: `${safeTitle}_submission.html`,
+            content: base64Content,
+          }];
+        } catch (pdfErr) {
+          console.error('[FormEmail] Threshold PDF generation error (non-fatal):', pdfErr);
+        }
+
         const result = await sendEmailViaResend({
           to: config.score_threshold_action.below_threshold_email,
           subject: `[Action Required] Below Threshold: ${formTitle}`,
           html: alertHtml,
+          attachments: thresholdAttachments,
         });
         if (result.success) sent++;
         else {
@@ -16269,8 +16523,9 @@ async function handleFormSubmissionHtml(req: Request, path: string): Promise<Res
         score_percentage,
         form:forms(
           title,
+          type,
           organization_id,
-          form_blocks(id, label, display_order)
+          form_blocks(id, label, type, display_order)
         )
       `)
       .eq('id', submissionId)
@@ -16293,6 +16548,7 @@ async function handleFormSubmissionHtml(req: Request, path: string): Promise<Res
     const orgName: string = org?.name ?? 'Organization';
     const logoUrl: string = org?.logo_dark_url ?? org?.logo_light_url ?? '';
     const formTitle: string = form?.title ?? 'Form Submission';
+    const formType: string = form?.type ?? '';
 
     const rawBlocks: any[] = form?.form_blocks ?? [];
     const blocks = [...rawBlocks].sort((a: any, b: any) => (a.display_order ?? 0) - (b.display_order ?? 0));
@@ -16309,14 +16565,49 @@ async function handleFormSubmissionHtml(req: Request, path: string): Promise<Res
         })
       : '—';
 
-    // Build per-question HTML
+    // Build per-question HTML with block-type-aware rendering
     const answersHtml = blocks
+      .filter((block: any) => block.type !== 'heading' && block.type !== 'separator' && block.type !== 'section_header' && block.type !== 'paragraph')
       .map((block: any) => {
-        const answer = answers[block.id] ?? answers[block.label] ?? '—';
+        const rawVal = answers[block.id] ?? answers[block.label] ?? null;
+        const label = block.label || 'Question';
+        let displayHtml: string;
+
+        if (block.type === 'signature') {
+          displayHtml = rawVal
+            ? '<em style="color:#64748b;">[Digital signature captured]</em>'
+            : '<em style="color:#94a3b8;">No signature</em>';
+        } else if (block.type === 'yes_no' || block.type === 'yesno') {
+          if (rawVal === true || rawVal === 'yes' || rawVal === 'Yes') {
+            displayHtml = '<span style="color:#16a34a;font-weight:600;">&#10003; Yes</span>';
+          } else if (rawVal === false || rawVal === 'no' || rawVal === 'No') {
+            displayHtml = '<span style="color:#dc2626;font-weight:600;">&#10007; No</span>';
+          } else {
+            displayHtml = '<em style="color:#94a3b8;">No response</em>';
+          }
+        } else if (block.type === 'photo' || block.type === 'file_upload' || block.type === 'file') {
+          if (Array.isArray(rawVal)) {
+            displayHtml = rawVal.map((f: any) => {
+              if (typeof f === 'object' && f.url) return escapeHtml(f.filename || f.name || 'File');
+              return escapeHtml(String(f));
+            }).join(', ') || '<em style="color:#94a3b8;">No files</em>';
+          } else {
+            displayHtml = '<em style="color:#94a3b8;">No files</em>';
+          }
+        } else if (rawVal === null || rawVal === undefined) {
+          displayHtml = '<em style="color:#94a3b8;">No response</em>';
+        } else if (Array.isArray(rawVal)) {
+          displayHtml = escapeHtml(rawVal.join(', '));
+        } else if (typeof rawVal === 'boolean') {
+          displayHtml = rawVal ? 'Yes' : 'No';
+        } else {
+          displayHtml = escapeHtml(String(rawVal));
+        }
+
         return `
       <div class="question">
-        <div class="question-label">${escapeHtml(block.label || 'Question')}</div>
-        <div class="answer">${escapeHtml(String(answer))}</div>
+        <div class="question-label">${escapeHtml(label)}</div>
+        <div class="answer">${displayHtml}</div>
       </div>`;
       })
       .join('');
@@ -16370,7 +16661,7 @@ async function handleFormSubmissionHtml(req: Request, path: string): Promise<Res
     ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(orgName)}" class="logo" />` : ''}
     <div class="org-name">${escapeHtml(orgName)}</div>
   </div>
-  <div class="form-title">${escapeHtml(formTitle)}</div>
+  <div class="form-title">${escapeHtml(formTitle)}${formType ? ` <span style="display:inline-block;padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600;background:#ede9fe;color:#6d28d9;vertical-align:middle;">${escapeHtml(formType)}</span>` : ''}</div>
   <div class="meta">Submitted: ${submittedAt}</div>
   <div class="meta">Status: <span class="status${isApproved ? '' : ' pending'}">${escapeHtml(submissionStatus)}</span></div>
   ${scoreHtml}
