@@ -2020,10 +2020,10 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef }:
       const sourceRect = sourceEl.getBoundingClientRect();
       const targetRect = targetEl.getBoundingClientRect();
 
-      // Position relative to the canvas container — use LEFT side to avoid overflow
-      const x1 = sourceRect.left - canvasRect.left + scrollLeft;
+      // Anchor at right edge of each block card
+      const x1 = sourceRect.right - canvasRect.left + scrollLeft;
       const y1 = sourceRect.top + sourceRect.height / 2 - canvasRect.top + scrollTop;
-      const x2 = targetRect.left - canvasRect.left + scrollLeft;
+      const x2 = targetRect.right - canvasRect.left + scrollLeft;
       const y2 = targetRect.top + targetRect.height / 2 - canvasRect.top + scrollTop;
 
       newLines.push({ x1, y1, x2, y2, action: dep.action, label: dep.label });
@@ -2077,12 +2077,11 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef }:
         const color = getDependencyLineColor(line.action);
         const markerId = `arrow-${line.action === 'show' || line.action === 'hide' || line.action === 'skip_to_section' ? line.action : 'default'}`;
 
-        // Draw a bezier curve that goes out to the LEFT then curves to the target
-        const offset = 40 + (i % 4) * 12; // stagger overlapping lines
-        const midX = Math.min(line.x1, line.x2) - offset;
+        // Draw a bezier curve to the right
+        const offset = 16 + (i % 4) * 8;
+        const midX = Math.max(line.x1, line.x2) + offset;
         const path = `M${line.x1},${line.y1} C${midX},${line.y1} ${midX},${line.y2} ${line.x2},${line.y2}`;
-        // Label position at midpoint of bezier
-        const labelX = midX - 4;
+        const labelX = midX + 4;
         const labelY = (line.y1 + line.y2) / 2;
 
         return (
@@ -2104,36 +2103,28 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef }:
                 repeatCount="indefinite"
               />
             </path>
-            {/* Label background + text */}
-            {(() => {
-              const labelWidth = line.label.length * 6.5 + 8;
-              const lx = labelX - labelWidth;
-              return (
-                <>
-                <rect
-                  x={lx}
-                  y={labelY - 8}
-                  width={labelWidth}
-                  height={16}
-                  rx="3"
-                  fill="white"
-                  stroke={color}
-                  strokeWidth="0.5"
-                  opacity="0.9"
-                />
-                <text
-                  x={lx + 4}
-                  y={labelY + 4}
-                  fontSize="10"
-                  fill={color}
-                  fontFamily="monospace"
-                  fontWeight="500"
-                >
-                  {line.label}
-                </text>
-                </>
-              );
-            })()}
+            {/* Label */}
+            <rect
+              x={labelX - 2}
+              y={labelY - 7}
+              width={line.label.length * 5.5 + 8}
+              height={14}
+              rx="3"
+              fill="var(--background, #1e293b)"
+              stroke={color}
+              strokeWidth="0.5"
+              opacity="0.85"
+            />
+            <text
+              x={labelX + 2}
+              y={labelY + 3}
+              fontSize="9"
+              fill={color}
+              fontFamily="monospace"
+              fontWeight="500"
+            >
+              {line.label}
+            </text>
           </g>
         );
       })}
@@ -2179,77 +2170,44 @@ function MiniDependencyGraph({ block, allBlocks, dependencyMap }: MiniDependency
   if (sourceBlockIds.length === 0 && dependentBlockIds.length === 0) return null;
 
   return (
-    <div className="space-y-1.5">
-      <p className="text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wide">{t('forms.depGraphTitle')}</p>
-      <div className="flex items-start gap-1.5 overflow-x-auto pb-1">
-        {/* Source blocks column */}
-        {sourceBlockIds.length > 0 && (
-          <div className="flex flex-col gap-0.5 shrink-0">
-            <span className="text-[9px] text-muted-foreground/50 uppercase tracking-wide">{t('forms.depGraphSources')}</span>
+    <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
+      {/* Depends on */}
+      {sourceBlockIds.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wide">{t('forms.depGraphSources')}</p>
+          <div className="flex flex-wrap gap-1">
             {sourceBlockIds.map(id => (
-              <div
+              <span
                 key={id}
-                className="flex items-center gap-1 px-1.5 py-1 rounded border text-[10px] font-medium bg-muted/40 border-border/60 max-w-[120px] truncate"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-muted border border-border/60 max-w-[160px] truncate"
                 title={getBlockLabel(id)}
               >
-                <div
-                  className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ backgroundColor: getDependencyLineColor(logic?.action || 'show') }}
-                />
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: getDependencyLineColor(logic?.action || 'show') }} />
                 {getBlockLabel(id)}
-              </div>
+              </span>
             ))}
-          </div>
-        )}
-
-        {/* Arrows from sources */}
-        {sourceBlockIds.length > 0 && (
-          <div className="flex flex-col justify-center self-center shrink-0">
-            <ArrowRight className="h-3 w-3 text-muted-foreground/40" />
-          </div>
-        )}
-
-        {/* This block (center) */}
-        <div className="flex flex-col items-center shrink-0 self-center">
-          <div className="px-2 py-1 rounded border-2 border-primary bg-primary/5 text-[10px] font-semibold max-w-[110px] truncate text-center" title={block.label || t('forms.thisBlock')}>
-            {block.label ? (block.label.length > 15 ? block.label.slice(0, 15) + '\u2026' : block.label) : t('forms.thisBlock')}
           </div>
         </div>
+      )}
 
-        {/* Arrows to dependents */}
-        {dependentBlockIds.length > 0 && (
-          <div className="flex flex-col justify-center self-center shrink-0">
-            <ArrowRight className="h-3 w-3 text-muted-foreground/40" />
-          </div>
-        )}
-
-        {/* Dependent blocks column */}
-        {dependentBlockIds.length > 0 && (
-          <div className="flex flex-col gap-0.5 shrink-0">
-            <span className="text-[9px] text-muted-foreground/50 uppercase tracking-wide">{t('forms.depGraphDependents')}</span>
+      {/* Used by */}
+      {dependentBlockIds.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wide">{t('forms.depGraphDependents')}</p>
+          <div className="flex flex-wrap gap-1">
             {dependentBlockIds.map(id => (
-              <div
+              <span
                 key={id}
-                className="flex items-center gap-1 px-1.5 py-1 rounded border text-[10px] font-medium bg-muted/40 border-border/60 max-w-[120px] truncate"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-muted border border-border/60 max-w-[160px] truncate"
                 title={getBlockLabel(id)}
               >
-                <div
-                  className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ backgroundColor: getDependencyLineColor(getBlockAction(id)) }}
-                />
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: getDependencyLineColor(getBlockAction(id)) }} />
                 {getBlockLabel(id)}
-              </div>
+              </span>
             ))}
           </div>
-        )}
-      </div>
-
-      {/* Legend */}
-      <div className="flex gap-2.5 text-[9px] text-muted-foreground/50 pt-0.5">
-        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" /> {t('forms.depLegendShow')}</span>
-        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" /> {t('forms.depLegendHide')}</span>
-        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" /> {t('forms.depLegendSkip')}</span>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2663,11 +2621,10 @@ export function FormBuilder({
               canvasRef={canvasRef}
             />
           )}
-          <div className={`mx-auto w-full px-4 transition-all ${
-            (selectedBlock || showDependencies)
-              ? 'max-w-full'
-              : fullPage ? 'max-w-[800px]' : 'max-w-[680px]'
-          }`}>
+          <div
+            className="mx-auto w-full px-4 transition-all"
+            style={{ maxWidth: (selectedBlock || showDependencies) ? '75%' : (fullPage ? '800px' : '680px') }}
+          >
             {/* START node */}
             <div className="flex justify-center mb-0">
               <div className="bg-green-500 text-white text-xs font-semibold tracking-wide uppercase px-6 py-2 rounded-full shadow-md shadow-green-500/25 border border-green-400/30 text-center">
