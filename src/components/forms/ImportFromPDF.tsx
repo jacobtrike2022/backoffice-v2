@@ -12,7 +12,7 @@ import {
   Upload,
   FileText,
   Loader2,
-  Sparkles,
+  Zap,
   AlertCircle,
 } from 'lucide-react';
 import { createForm } from '../../lib/crud/forms';
@@ -145,11 +145,11 @@ export function ImportFromPDF({ orgId, onImported, onCancel }: ImportFromPDFProp
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            {t('forms.importPDFTitle') || 'Import Form from PDF'}
+            <Zap className="h-5 w-5 text-primary" />
+            Import from PDF
           </DialogTitle>
           <DialogDescription>
-            {t('forms.importPDFDesc') || 'Upload a PDF and AI will create a form with all detected fields.'}
+            Upload a PDF and we'll create a form with all detected fields.
           </DialogDescription>
         </DialogHeader>
 
@@ -194,14 +194,7 @@ export function ImportFromPDF({ orgId, onImported, onCancel }: ImportFromPDFProp
         {(state === 'analyzing' || state === 'creating') && (
           <div className="flex flex-col items-center justify-center py-8 space-y-3">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <div className="text-center">
-              <p className="text-sm font-medium">
-                {state === 'analyzing' ? 'AI is analyzing your document...' : 'Creating form...'}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {state === 'analyzing' ? 'Detecting fields, checkboxes, signatures' : 'Almost done'}
-              </p>
-            </div>
+            <p className="text-sm font-medium">Processing...</p>
             {file && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <FileText className="h-3.5 w-3.5" />
