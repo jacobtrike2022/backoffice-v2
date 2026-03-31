@@ -842,7 +842,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
   };
 
   return (
-    <div className="shrink-0 h-full bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200" style={{ width: wide ? 'min(40vw, 800px)' : '520px', minWidth: wide ? '640px' : '480px' }}>
+    <div className="shrink-0 h-full bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200" style={{ width: wide ? 'min(30vw, 720px)' : '480px', minWidth: wide ? '560px' : '440px' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
