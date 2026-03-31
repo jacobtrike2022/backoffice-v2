@@ -48,6 +48,7 @@ import {
   Zap,
   GripVertical,
   Scissors,
+  ClipboardList,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -73,6 +74,7 @@ const CONTENT_TYPES = {
   procedure: { label: 'Procedure', color: 'border-purple-500', bgColor: 'bg-purple-500/10', icon: FileText },
   job_description: { label: 'Job Description', color: 'border-green-500', bgColor: 'bg-green-500/10', icon: Briefcase },
   training_materials: { label: 'Training', color: 'border-orange-500', bgColor: 'bg-orange-500/10', icon: BookOpen },
+  form: { label: 'Form', color: 'border-cyan-500', bgColor: 'bg-cyan-500/10', icon: ClipboardList },
   other: { label: 'Other', color: 'border-gray-400', bgColor: 'bg-gray-400/10', icon: HelpCircle },
 } as const;
 
@@ -83,6 +85,7 @@ const CONTENT_TYPE_LABEL_KEYS: Record<string, string> = {
   procedure: 'contentAuthoring.docIntel.contentTypeProcedure',
   job_description: 'contentAuthoring.docIntel.contentTypeJobDescription',
   training_materials: 'contentAuthoring.docIntel.contentTypeTraining',
+  form: 'contentAuthoring.docIntel.contentTypeForm',
   other: 'contentAuthoring.docIntel.contentTypeOther',
 };
 
