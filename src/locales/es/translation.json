@@ -1322,6 +1322,12 @@
     "fillHeaderOJT": "Capacitación en el Trabajo",
     "fillHeaderSurvey": "Encuesta de Retroalimentación",
     "fillSignOffNotice": "Al completar este formulario, usted reconoce que ha leído y comprendido los materiales asociados.",
+    "fillSignOffLinkedLabel": "Este acuse de recibo es para:",
+    "fillOjtBanner": "Lista de Verificación de Capacitación en el Trabajo",
+    "fillOjtTrainerName": "Nombre del Capacitador",
+    "fillOjtTraineeName": "Nombre del Aprendiz",
+    "fillOjtTrainerPlaceholder": "Ingrese el nombre del capacitador",
+    "fillOjtTraineePlaceholder": "Ingrese el nombre del aprendiz",
     "fillItemsCompleted": "{{done}}/{{total}} elementos completados",
     "fillScoreSummary": "Puntuación Actual"
   },

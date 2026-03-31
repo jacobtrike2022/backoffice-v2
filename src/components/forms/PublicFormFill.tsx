@@ -9,7 +9,8 @@ import { useTranslation } from 'react-i18next';
 import { publicAnonKey, getServerUrl } from '../../utils/supabase/info';
 import { CheckCircle, Moon, Sun, AlertTriangle, ClipboardList, Loader2 } from 'lucide-react';
 import trikeLogoDark from '../../assets/trike-logo.png';
-import { FormRenderer, FormBlockData, type FormSectionData, type ScoringResult } from './shared/FormRenderer';
+import { FormRenderer, FormBlockData, type FormSectionData, type ScoringResult, type LinkedContentInfo, type OjtMetadata } from './shared/FormRenderer';
+import { createClient } from '@supabase/supabase-js';
 
 const EDGE_URL = getServerUrl();
 
@@ -55,6 +56,8 @@ export function PublicFormFill() {
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [startTime] = useState<string>(new Date().toISOString());
+  const [linkedContent, setLinkedContent] = useState<LinkedContentInfo | undefined>();
+  const [ojtMetadata, setOjtMetadata] = useState<OjtMetadata>({ trainerName: '', traineeName: '' });
 
   // Dark mode — auto-detect system preference, persist to localStorage
   const [darkMode, setDarkMode] = useState<boolean>(() => {
@@ -128,6 +131,29 @@ export function PublicFormFill() {
       }
 
       setFormData(data as FormData);
+
+      // For sign-off forms, check if linked to a playlist
+      if (data.form?.type === 'sign-off' && formId) {
+        try {
+          const anonKeyForQuery = publicAnonKey || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+          const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || '';
+          const supabaseUrl = projectId ? `https://${projectId}.supabase.co` : '';
+          if (supabaseUrl && anonKeyForQuery) {
+            const publicClient = createClient(supabaseUrl, anonKeyForQuery);
+            const { data: linkedPlaylists } = await publicClient
+              .from('playlists')
+              .select('id, title')
+              .eq('required_form_id', formId)
+              .limit(1);
+            if (linkedPlaylists && linkedPlaylists.length > 0) {
+              setLinkedContent({ title: linkedPlaylists[0].title, type: 'playlist' });
+            }
+          }
+        } catch {
+          // Non-critical — silently ignore if playlist lookup fails
+        }
+      }
+
       setLoading(false);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -148,6 +174,13 @@ export function PublicFormFill() {
     setSubmitting(true);
     setSubmitError(null);
 
+    // Merge OJT metadata into answers if present
+    const ojtFields: Record<string, string> = {};
+    if (formData.form.type === 'ojt-checklist') {
+      if (ojtMetadata.trainerName) ojtFields._trainer_name = ojtMetadata.trainerName;
+      if (ojtMetadata.traineeName) ojtFields._trainee_name = ojtMetadata.traineeName;
+    }
+
     try {
       const anonKey = publicAnonKey || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
       const url = `${EDGE_URL}/forms/public/${formId}/submit`;
@@ -162,9 +195,10 @@ export function PublicFormFill() {
         body: JSON.stringify({
           answers: scoring ? {
             ...answers,
+            ...ojtFields,
             _scoring_passed: scoring.passed,
             _scoring_percentage: scoring.score_percentage,
-          } : answers,
+          } : { ...answers, ...ojtFields },
           start_time: startTime,
           device_type: 'web',
           ...(scoring ? {
@@ -389,6 +423,9 @@ export function PublicFormFill() {
             passThreshold={formData.form.settings?.pass_threshold}
             formType={formData.form.type}
             formTitle={formData.form.title}
+            linkedContent={linkedContent}
+            ojtMetadata={ojtMetadata}
+            onOjtMetadataChange={setOjtMetadata}
           />
           {submitting && (
             <div className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-2">

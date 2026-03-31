@@ -1322,6 +1322,12 @@
     "fillHeaderOJT": "On-the-Job Training",
     "fillHeaderSurvey": "Feedback Survey",
     "fillSignOffNotice": "By completing this form, you acknowledge that you have read and understood the associated materials.",
+    "fillSignOffLinkedLabel": "This sign-off is for:",
+    "fillOjtBanner": "On-the-Job Training Checklist",
+    "fillOjtTrainerName": "Trainer Name",
+    "fillOjtTraineeName": "Trainee Name",
+    "fillOjtTrainerPlaceholder": "Enter trainer name",
+    "fillOjtTraineePlaceholder": "Enter trainee name",
     "fillItemsCompleted": "{{done}}/{{total}} items completed",
     "fillScoreSummary": "Current Score"
   },

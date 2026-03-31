@@ -56,6 +56,18 @@ export interface SubmissionConfig {
   };
 }
 
+/** Linked content info for sign-off forms (e.g. the playlist this form belongs to) */
+export interface LinkedContentInfo {
+  title: string;
+  type: string;
+}
+
+/** OJT metadata (trainer/trainee names) managed externally */
+export interface OjtMetadata {
+  trainerName: string;
+  traineeName: string;
+}
+
 export interface FormRendererProps {
   blocks: FormBlockData[];
   /** Ordered list of form sections. When provided, section headers are rendered and skip_to_section logic is active. */
@@ -73,6 +85,12 @@ export interface FormRendererProps {
   formType?: 'inspection' | 'audit' | 'sign-off' | 'ojt-checklist' | 'survey' | string;
   /** Form title for the type-aware header */
   formTitle?: string;
+  /** Linked content shown as a banner for sign-off forms */
+  linkedContent?: LinkedContentInfo;
+  /** OJT trainer/trainee metadata */
+  ojtMetadata?: OjtMetadata;
+  /** Callback when OJT metadata changes */
+  onOjtMetadataChange?: (metadata: OjtMetadata) => void;
 }
 
 /** Type-specific UX configuration */
@@ -104,7 +122,7 @@ function getOptions(block: FormBlockData): string[] {
 const EMPTY_ANSWERS: Record<string, unknown> = {};
 const EMPTY_SECTIONS: FormSectionData[] = [];
 
-export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPTY_ANSWERS, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle }: FormRendererProps) {
+export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPTY_ANSWERS, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle, linkedContent, ojtMetadata, onOjtMetadataChange }: FormRendererProps) {
   const { t } = useTranslation();
   const [formData, setFormData] = React.useState<Record<string, unknown>>(answers);
   const [validationErrors, setValidationErrors] = React.useState<Record<string, string>>({});
@@ -1062,6 +1080,49 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
         <div className="flex items-start gap-2 p-3 rounded-lg border border-green-500/30 bg-green-500/10 text-sm">
           <FileSignature className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
           <span>{t('forms.fillSignOffNotice')}</span>
+        </div>
+      )}
+
+      {/* Sign-off: linked content banner */}
+      {formType === 'sign-off' && linkedContent && (
+        <div className="flex items-center gap-3 p-3 rounded-lg border border-blue-500/30 bg-blue-500/10 text-sm">
+          <FileText className="h-5 w-5 text-blue-500 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">{t('forms.fillSignOffLinkedLabel')}</p>
+            <p className="font-medium truncate">{linkedContent.title}</p>
+          </div>
+        </div>
+      )}
+
+      {/* OJT: trainer/trainee context */}
+      {formType === 'ojt-checklist' && !readOnly && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-purple-500/30 bg-purple-500/10 text-sm">
+            <GraduationCap className="h-5 w-5 text-purple-500 shrink-0" />
+            <span className="font-medium">{t('forms.fillOjtBanner')}</span>
+          </div>
+          {onOjtMetadataChange && ojtMetadata && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="ojt-trainer-name" className="text-sm mb-1.5 block">{t('forms.fillOjtTrainerName')}</Label>
+                <Input
+                  id="ojt-trainer-name"
+                  value={ojtMetadata.trainerName}
+                  onChange={(e) => onOjtMetadataChange({ ...ojtMetadata, trainerName: e.target.value })}
+                  placeholder={t('forms.fillOjtTrainerPlaceholder')}
+                />
+              </div>
+              <div>
+                <Label htmlFor="ojt-trainee-name" className="text-sm mb-1.5 block">{t('forms.fillOjtTraineeName')}</Label>
+                <Input
+                  id="ojt-trainee-name"
+                  value={ojtMetadata.traineeName}
+                  onChange={(e) => onOjtMetadataChange({ ...ojtMetadata, traineeName: e.target.value })}
+                  placeholder={t('forms.fillOjtTraineePlaceholder')}
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
 
