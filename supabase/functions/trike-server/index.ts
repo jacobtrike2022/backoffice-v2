@@ -1439,28 +1439,47 @@ async function handleFormsParsePdf(req: Request, path: string): Promise<Response
       return jsonResponse({ error: "Could not read PDF content" }, 400);
     }
 
-    const systemPrompt = `You are analyzing a document to extract form fields. Identify every place where a user would need to provide input (fill in a blank, check a box, sign, select an option, write a response, etc.).
+    const systemPrompt = `You are an expert at converting paper/PDF forms into structured digital form fields for a form builder application.
 
-For each field, return a JSON object with:
-- block_type: one of [text, textarea, number, date, time, radio, checkboxes, dropdown, yes_no, rating, signature, photo, instruction, divider]
-- label: the question or field label
+CRITICAL RULES:
+
+1. INDIVIDUAL ITEMS, NOT GROUPED OPTIONS: When you see a list of items each with blank/initial lines (like "______ Item name"), each item should be its OWN separate block — do NOT group them as options within a single checkboxes block. Each line item = one block.
+
+2. INITIAL/SIGN-OFF LINES: When you see "______ ______ Item name" (two blanks = two people initialing), use block_type "checkboxes" with TWO options: ["Trainee", "Trainer"]. The label should be the item name. Each line is a separate block.
+
+3. SECTIONS: When the document has clear sections (Phase I, Phase II, Part A, Section 1, etc.), return a "sections" array. Blocks that belong to a section should have a "section_title" field matching the section name. Section headings with descriptions should be "instruction" blocks at the start of that section.
+
+4. FREEFORM TEXT AREAS: Lines like "_______________" (long blanks for writing) should be "textarea" blocks, not text blocks. Multiple consecutive blank lines = one textarea.
+
+5. SIGNATURE LINES: "________________ Signature" or "________________ Date" patterns should be "signature" and "date" blocks respectively.
+
+6. CONGRATULATIONS/COMPLETION messages should be "instruction" blocks.
+
+7. DESCRIPTIVE PARAGRAPHS (welcome text, phase introductions) should be "instruction" blocks with the full text as the label.
+
+Available block_type values: text, textarea, number, date, time, radio, checkboxes, dropdown, yes_no, rating, signature, photo, instruction, divider
+
+For each block return:
+- block_type: string
+- label: the field label or question
 - description: optional helper text (string or null)
-- is_required: boolean
-- options: array of strings (for radio, checkboxes, dropdown only; null otherwise)
+- is_required: boolean (true for items that must be completed)
+- options: array of strings (for radio, checkboxes, dropdown only)
+- section_title: string or null (which section this block belongs to)
 
-Also identify instruction/header sections and return them as "instruction" blocks.
+Also determine:
+- detected_form_type: one of "inspection", "audit", "sign-off", "ojt-checklist", "survey"
+- title: extracted form title
+- description: brief one-sentence description
+- sections: array of { title: string, description: string } for each major section found
 
-Additionally, determine:
-- The overall form type: one of "inspection", "audit", "sign-off", "ojt-checklist", "survey"
-- A suggested title for the form
-- A brief one-sentence description
-
-Return ONLY valid JSON in this exact format, no other text:
+Return ONLY valid JSON:
 {
   "blocks": [...],
-  "detected_form_type": "inspection" | "audit" | "sign-off" | "ojt-checklist" | "survey",
-  "title": "extracted form title",
-  "description": "brief description of the form"
+  "sections": [{"title": "...", "description": "..."}],
+  "detected_form_type": "...",
+  "title": "...",
+  "description": "..."
 }`;
 
     const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1472,7 +1491,7 @@ Return ONLY valid JSON in this exact format, no other text:
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 8192,
+        max_tokens: 16384,
         messages: [
           {
             role: "user",
@@ -1525,8 +1544,17 @@ Return ONLY valid JSON in this exact format, no other text:
         description: typeof b.description === "string" ? b.description : undefined,
         is_required: typeof b.is_required === "boolean" ? b.is_required : false,
         options: Array.isArray(b.options) ? b.options.filter((o: any) => typeof o === "string") : undefined,
+        section_title: typeof b.section_title === "string" ? b.section_title : null,
         display_order: idx,
       }));
+
+    // Extract sections
+    const sections = Array.isArray(parsed.sections)
+      ? parsed.sections.filter((s: any) => s && typeof s.title === "string").map((s: any) => ({
+          title: s.title,
+          description: typeof s.description === "string" ? s.description : "",
+        }))
+      : [];
 
     const validFormTypes = ["inspection", "audit", "sign-off", "ojt-checklist", "survey"];
     const detectedType = validFormTypes.includes(parsed.detected_form_type)
@@ -1535,6 +1563,7 @@ Return ONLY valid JSON in this exact format, no other text:
 
     return jsonResponse({
       blocks: validatedBlocks,
+      sections,
       detected_form_type: detectedType,
       title: typeof parsed.title === "string" ? parsed.title : "Imported Form",
       description: typeof parsed.description === "string" ? parsed.description : "",

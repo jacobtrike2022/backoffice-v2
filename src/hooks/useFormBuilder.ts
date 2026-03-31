@@ -342,20 +342,48 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
             if (importedRaw) {
               sessionStorage.removeItem(importedKey);
               try {
-                const importedBlocks = JSON.parse(importedRaw) as Array<{
+                const parsed = JSON.parse(importedRaw);
+                // Support both old format (array) and new format (object with blocks + sections)
+                const importedBlocks: Array<{
                   block_type: string;
                   label: string;
                   description?: string;
                   is_required: boolean;
                   options?: string[];
+                  section_title?: string;
                   display_order: number;
-                }>;
+                }> = Array.isArray(parsed) ? parsed : (parsed.blocks || []);
+                const importedSections: Array<{ title: string; description?: string }> = parsed.sections || [];
+
+                // Create sections first if provided
+                const sectionIdMap = new Map<string, string>();
+                if (importedSections.length > 0) {
+                  for (let i = 0; i < importedSections.length; i++) {
+                    const sec = importedSections[i];
+                    try {
+                      const newSection = await createFormSection(
+                        formId,
+                        { title: sec.title, description: sec.description, display_order: i },
+                        orgId
+                      );
+                      sectionIdMap.set(sec.title, newSection.id);
+                    } catch (secErr) {
+                      console.error('Error creating section:', secErr);
+                    }
+                  }
+                  // Refresh sections from DB
+                  const refreshed = await getFormWithSections(formId, orgId);
+                  if (refreshed) {
+                    setSections(refreshed.form_sections || []);
+                  }
+                }
+
                 const localBlocks: LocalBlock[] = importedBlocks.map((b, i) => ({
                   id: `new-${crypto.randomUUID()}`,
                   _isNew: true,
                   _isDirty: true,
                   form_id: formId,
-                  section_id: null,
+                  section_id: (b.section_title && sectionIdMap.get(b.section_title)) || null,
                   block_type: b.block_type,
                   label: b.label,
                   description: b.description,
