@@ -2095,6 +2095,7 @@ interface ChunkResult {
 // - procedure: Step-by-step actions for a goal (e.g., "How to Change Register Paper")
 // - job_description: Role definitions with duties, qualifications, reporting
 // - training_materials: Checklists, OJT, guides to convert to tracks (catchall)
+// - form: Checklists, sign-off forms, acknowledgements, inspection forms
 // - other: Truly miscellaneous content
 // =============================================================================
 

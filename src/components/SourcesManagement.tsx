@@ -79,6 +79,7 @@ const CONTENT_TYPE_CONFIG: Record<string, { label: string; color: string; bgColo
   procedure: { label: 'Procedure', color: 'text-purple-700 dark:text-purple-400', bgColor: 'bg-purple-100 dark:bg-purple-900/30' },
   job_description: { label: 'Job Description', color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-100 dark:bg-green-900/30' },
   training_materials: { label: 'Training', color: 'text-orange-700 dark:text-orange-400', bgColor: 'bg-orange-100 dark:bg-orange-900/30' },
+  form: { label: 'Form', color: 'text-cyan-700 dark:text-cyan-400', bgColor: 'bg-cyan-100 dark:bg-cyan-900/30' },
   other: { label: 'Other', color: 'text-gray-700 dark:text-gray-400', bgColor: 'bg-gray-100 dark:bg-gray-900/30' },
 };
 

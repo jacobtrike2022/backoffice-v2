@@ -221,7 +221,7 @@ export async function uploadSourceFile(
 // Note: SourceType for files is less important now since content classification
 // happens at the CHUNK level. A single file can contain multiple content types.
 // This type is kept for backwards compatibility with existing records.
-export type SourceType = 'policy' | 'procedure' | 'job_description' | 'training_materials' | 'other';
+export type SourceType = 'policy' | 'procedure' | 'job_description' | 'training_materials' | 'form' | 'other';
 
 export interface SourceFileRecord {
   id: string;

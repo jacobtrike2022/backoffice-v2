@@ -508,6 +508,10 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
                 setActiveTab('roles');
                 setSelectedRoleId(roleId);
               }}
+              onCreateForm={(formId) => {
+                // Navigate to forms page with the new form ID for editing
+                window.open(`/?page=forms&formId=${formId}`, '_blank');
+              }}
             />
           ) : (
             <div className="space-y-6">
