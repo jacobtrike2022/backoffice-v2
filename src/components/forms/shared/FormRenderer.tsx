@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import SignatureCanvas from 'react-signature-canvas';
-import { isBlockVisible, ConditionalLogic, getSkippedSectionIds } from '../../../lib/forms/conditionalLogic';
+import { isBlockVisible, ConditionalLogic, getSkippedSectionIds, isSectionVisible } from '../../../lib/forms/conditionalLogic';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -35,6 +35,7 @@ export interface FormSectionData {
   title?: string;
   description?: string;
   display_order: number;
+  settings?: Record<string, unknown> | null;
 }
 
 export interface ScoringResult {
@@ -137,6 +138,24 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
     () => getSkippedSectionIds(blocks, sections, formData),
     [blocks, sections, formData]
   );
+
+  // Compute which sections are hidden due to section-level conditional logic
+  const conditionallyHiddenSectionIds = React.useMemo(() => {
+    const hidden = new Set<string>();
+    for (const section of sections) {
+      if (!isSectionVisible(section.settings, formData)) {
+        hidden.add(section.id);
+      }
+    }
+    return hidden;
+  }, [sections, formData]);
+
+  // Combined set: sections hidden by skip_to_section OR section-level conditions
+  const allHiddenSectionIds = React.useMemo(() => {
+    const combined = new Set(skippedSectionIds);
+    for (const id of conditionallyHiddenSectionIds) combined.add(id);
+    return combined;
+  }, [skippedSectionIds, conditionallyHiddenSectionIds]);
 
   // Build a map of section_id → section data for quick lookups
   const sectionMap = React.useMemo(() => {
@@ -270,8 +289,8 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
       if (!block.is_required) continue;
       if (!INPUT_BLOCK_TYPES.has(block.type)) continue;
       if (!isBlockVisible(block.conditional_logic, formData)) continue;
-      // Skip validation for blocks in skipped sections
-      if (block.section_id && skippedSectionIds.has(block.section_id)) continue;
+      // Skip validation for blocks in hidden sections (skip_to_section or section conditions)
+      if (block.section_id && allHiddenSectionIds.has(block.section_id)) continue;
       const val = formData[block.id];
       const isEmpty =
         val === undefined ||
@@ -302,8 +321,8 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
         for (const block of blocks) {
           // Skip hidden blocks — they should not affect scoring
           if (!isBlockVisible(block.conditional_logic, formData)) continue;
-          // Skip blocks in skipped sections
-          if (block.section_id && skippedSectionIds.has(block.section_id)) continue;
+          // Skip blocks in hidden sections
+          if (block.section_id && allHiddenSectionIds.has(block.section_id)) continue;
 
           const _settings = (block.validation_rules?._settings as Record<string, unknown>) || {};
           const weight = (_settings.score_weight as number) || 0;
@@ -356,8 +375,8 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
       return null;
     }
 
-    // Skip blocks whose section is being skipped via skip_to_section
-    if (block.section_id && skippedSectionIds.has(block.section_id)) {
+    // Skip blocks whose section is hidden (skip_to_section or section conditions)
+    if (block.section_id && allHiddenSectionIds.has(block.section_id)) {
       return null;
     }
 
@@ -454,7 +473,14 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
           </div>
         );
 
-      case 'date':
+      case 'date': {
+        const defaultCurrent = (block.validation_rules as Record<string, unknown> | undefined)?._default_to_current;
+        const dateVal = (value as string) || '';
+        // Auto-fill current date if default_to_current is set and no value yet
+        if (defaultCurrent && !dateVal && !readOnly) {
+          const today = new Date().toISOString().split('T')[0];
+          setTimeout(() => handleChange(block.id, today), 0);
+        }
         return (
           <div key={block.id} className="space-y-2">
             <Label>
@@ -464,16 +490,37 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
             )}
-            <Input
-              type="date"
-              value={(value as string) || ''}
-              onChange={(e) => handleChange(block.id, e.target.value)}
-              disabled={readOnly}
-            />
+            <div className="flex gap-2">
+              <Input
+                type="date"
+                value={dateVal}
+                onChange={(e) => handleChange(block.id, e.target.value)}
+                disabled={readOnly}
+                className="flex-1"
+              />
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => handleChange(block.id, new Date().toISOString().split('T')[0])}
+                  className="text-[11px] text-primary hover:underline shrink-0 px-2"
+                >
+                  {t('forms.useCurrent')}
+                </button>
+              )}
+            </div>
           </div>
         );
+      }
 
-      case 'time':
+      case 'time': {
+        const defaultCurrentTime = (block.validation_rules as Record<string, unknown> | undefined)?._default_to_current;
+        const timeVal = (value as string) || '';
+        if (defaultCurrentTime && !timeVal && !readOnly) {
+          const now = new Date();
+          const hh = String(now.getHours()).padStart(2, '0');
+          const mm = String(now.getMinutes()).padStart(2, '0');
+          setTimeout(() => handleChange(block.id, `${hh}:${mm}`), 0);
+        }
         return (
           <div key={block.id} className="space-y-2">
             <Label>
@@ -483,14 +530,30 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
             )}
-            <Input
-              type="time"
-              value={(value as string) || ''}
-              onChange={(e) => handleChange(block.id, e.target.value)}
-              disabled={readOnly}
-            />
+            <div className="flex gap-2">
+              <Input
+                type="time"
+                value={timeVal}
+                onChange={(e) => handleChange(block.id, e.target.value)}
+                disabled={readOnly}
+                className="flex-1"
+              />
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const now = new Date();
+                    handleChange(block.id, `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+                  }}
+                  className="text-[11px] text-primary hover:underline shrink-0 px-2"
+                >
+                  {t('forms.useCurrent')}
+                </button>
+              )}
+            </div>
           </div>
         );
+      }
 
       case 'radio':
         return (
@@ -1156,7 +1219,7 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
             if (sid && !sectionHeadersRendered.has(sid)) {
               sectionHeadersRendered.add(sid);
               const section = sectionMap.get(sid);
-              if (section && !skippedSectionIds.has(sid)) {
+              if (section && !allHiddenSectionIds.has(sid)) {
                 elems.push(
                   <div key={`section-header-${sid}`} id={`form-section-${sid}`} className="pt-4 first:pt-0">
                     {elems.length > 0 && <Separator className="mb-5" />}

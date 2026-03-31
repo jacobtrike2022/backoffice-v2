@@ -472,9 +472,11 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
 
           {/* Condition summary text */}
           {summaryText && (
-            <p className="text-[11px] text-primary/70 mt-0.5 line-clamp-2" title={summaryText}>
-              {summaryText}
-            </p>
+            <div className="mt-1.5 px-2 py-1 rounded bg-muted/50 border border-border/50" title={summaryText}>
+              <p className="text-[10px] text-muted-foreground line-clamp-1">
+                {summaryText}
+              </p>
+            </div>
           )}
 
           {/* Preview for choice blocks */}
@@ -917,6 +919,20 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
             onCheckedChange={checked => onUpdate({ is_required: checked })}
           />
         </div>
+
+        {/* Default to current — date/time blocks */}
+        {(block.block_type === 'date' || block.block_type === 'time') && (
+          <div className="flex items-center justify-between">
+            <Label htmlFor="block-default-current" className="text-xs font-medium cursor-pointer">
+              {block.block_type === 'date' ? t('forms.propDefaultCurrentDate') : t('forms.propDefaultCurrentTime')}
+            </Label>
+            <Switch
+              id="block-default-current"
+              checked={!!(block.validation_rules as Record<string, unknown> | undefined)?._default_to_current}
+              onCheckedChange={checked => onUpdate({ validation_rules: { ...block.validation_rules, _default_to_current: checked } })}
+            />
+          </div>
+        )}
 
         <Separator />
 
@@ -2004,10 +2020,10 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef }:
       const sourceRect = sourceEl.getBoundingClientRect();
       const targetRect = targetEl.getBoundingClientRect();
 
-      // Position relative to the canvas container
-      const x1 = sourceRect.right - canvasRect.left + scrollLeft;
+      // Position relative to the canvas container — use LEFT side to avoid overflow
+      const x1 = sourceRect.left - canvasRect.left + scrollLeft;
       const y1 = sourceRect.top + sourceRect.height / 2 - canvasRect.top + scrollTop;
-      const x2 = targetRect.right - canvasRect.left + scrollLeft;
+      const x2 = targetRect.left - canvasRect.left + scrollLeft;
       const y2 = targetRect.top + targetRect.height / 2 - canvasRect.top + scrollTop;
 
       newLines.push({ x1, y1, x2, y2, action: dep.action, label: dep.label });
@@ -2061,12 +2077,12 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef }:
         const color = getDependencyLineColor(line.action);
         const markerId = `arrow-${line.action === 'show' || line.action === 'hide' || line.action === 'skip_to_section' ? line.action : 'default'}`;
 
-        // Draw a bezier curve that goes out to the right then curves to the target
+        // Draw a bezier curve that goes out to the LEFT then curves to the target
         const offset = 40 + (i % 4) * 12; // stagger overlapping lines
-        const midX = Math.max(line.x1, line.x2) + offset;
+        const midX = Math.min(line.x1, line.x2) - offset;
         const path = `M${line.x1},${line.y1} C${midX},${line.y1} ${midX},${line.y2} ${line.x2},${line.y2}`;
         // Label position at midpoint of bezier
-        const labelX = midX + 4;
+        const labelX = midX - 4;
         const labelY = (line.y1 + line.y2) / 2;
 
         return (
@@ -2089,27 +2105,35 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef }:
               />
             </path>
             {/* Label background + text */}
-            <rect
-              x={labelX - 2}
-              y={labelY - 8}
-              width={line.label.length * 6.5 + 8}
-              height={16}
-              rx="3"
-              fill="white"
-              stroke={color}
-              strokeWidth="0.5"
-              opacity="0.9"
-            />
-            <text
-              x={labelX + 2}
-              y={labelY + 4}
-              fontSize="10"
-              fill={color}
-              fontFamily="monospace"
-              fontWeight="500"
-            >
-              {line.label}
-            </text>
+            {(() => {
+              const labelWidth = line.label.length * 6.5 + 8;
+              const lx = labelX - labelWidth;
+              return (
+                <>
+                <rect
+                  x={lx}
+                  y={labelY - 8}
+                  width={labelWidth}
+                  height={16}
+                  rx="3"
+                  fill="white"
+                  stroke={color}
+                  strokeWidth="0.5"
+                  opacity="0.9"
+                />
+                <text
+                  x={lx + 4}
+                  y={labelY + 4}
+                  fontSize="10"
+                  fill={color}
+                  fontFamily="monospace"
+                  fontWeight="500"
+                >
+                  {line.label}
+                </text>
+                </>
+              );
+            })()}
           </g>
         );
       })}
@@ -2640,7 +2664,7 @@ export function FormBuilder({
             />
           )}
           <div className={`mx-auto w-full px-4 transition-all ${
-            selectedBlock
+            (selectedBlock || showDependencies)
               ? 'max-w-full'
               : fullPage ? 'max-w-[800px]' : 'max-w-[680px]'
           }`}>
