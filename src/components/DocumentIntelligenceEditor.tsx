@@ -48,6 +48,7 @@ import {
   Zap,
   GripVertical,
   Scissors,
+  ClipboardList,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -67,12 +68,14 @@ import { ExtractedEntityProcessor } from './ExtractedEntityProcessor';
 // - procedure: Step-by-step instructions (e.g., How to Change Register Paper)
 // - job_description: Role definitions (e.g., Store Manager JD)
 // - training_materials: Checklists, guides, OJT content - catchall for track conversion
+// - form: Checklists, sign-off forms, acknowledgements, inspection forms
 // - other: Miscellaneous content
 const CONTENT_TYPES = {
   policy: { label: 'Policy', color: 'border-blue-500', bgColor: 'bg-blue-500/10', icon: BookOpen },
   procedure: { label: 'Procedure', color: 'border-purple-500', bgColor: 'bg-purple-500/10', icon: FileText },
   job_description: { label: 'Job Description', color: 'border-green-500', bgColor: 'bg-green-500/10', icon: Briefcase },
   training_materials: { label: 'Training', color: 'border-orange-500', bgColor: 'bg-orange-500/10', icon: BookOpen },
+  form: { label: 'Form', color: 'border-cyan-500', bgColor: 'bg-cyan-500/10', icon: ClipboardList },
   other: { label: 'Other', color: 'border-gray-400', bgColor: 'bg-gray-400/10', icon: HelpCircle },
 } as const;
 
@@ -83,6 +86,7 @@ const CONTENT_TYPE_LABEL_KEYS: Record<string, string> = {
   procedure: 'contentAuthoring.docIntel.contentTypeProcedure',
   job_description: 'contentAuthoring.docIntel.contentTypeJobDescription',
   training_materials: 'contentAuthoring.docIntel.contentTypeTraining',
+  form: 'contentAuthoring.docIntel.contentTypeForm',
   other: 'contentAuthoring.docIntel.contentTypeOther',
 };
 
@@ -177,6 +181,8 @@ interface DocumentIntelligenceEditorProps {
    * If set, JD→role wizard navigates in-app (preserves org preview / session) instead of a full-page jump to /roles/:id.
    */
   onNavigateToRoleAfterJdExtract?: (roleId: string) => void;
+  /** Callback to create a form from a chunk identified as form content */
+  onCreateForm?: (formId: string) => void;
 }
 
 /** Full-page /roles/:id URL — must carry demo_org_id when previewing another org, or rolesApi.get returns 0 rows (PGRST116). */
@@ -200,6 +206,7 @@ export function DocumentIntelligenceEditor({
   onStartPlaybook,
   onNavigateToTrack,
   onNavigateToRoleAfterJdExtract,
+  onCreateForm,
 }: DocumentIntelligenceEditorProps) {
   const { t } = useTranslation();
 
@@ -734,7 +741,7 @@ export function DocumentIntelligenceEditor({
     } catch (error: any) {
       // Revert on error - refetch to get correct state
       toast.error(t('contentAuthoring.toastTitleUpdateFailed'), { description: error.message });
-      fetchChunks();
+      loadChunks();
     }
   }
 
@@ -1305,6 +1312,108 @@ export function DocumentIntelligenceEditor({
     setShowTrackGenerator(true);
   }
 
+  // Create form from chunk identified as form content
+  async function handleCreateForm(chunk: ChunkWithMeta) {
+    setProcessing(true);
+    setProcessingStep(t('contentAuthoring.stepParsingForm'));
+
+    try {
+      const session = await getSessionForFetch();
+      const serverUrl = getServerUrl();
+
+      // Call /forms/parse-text to extract form blocks from chunk text
+      const response = await fetch(`${serverUrl}/forms/parse-text`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({
+          text: chunk.content,
+          title: chunk.title || sourceFile?.file_name || undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errData.error || `Server error: ${response.status}`);
+      }
+
+      const parseResult = await response.json();
+
+      if (!parseResult.blocks || parseResult.blocks.length === 0) {
+        throw new Error(t('contentAuthoring.noFormFieldsDetected'));
+      }
+
+      // Import createForm dynamically to avoid circular deps
+      const { createForm } = await import('../lib/crud/forms');
+
+      // Determine form type
+      const validTypes = ['ojt-checklist', 'inspection', 'audit', 'survey', 'sign-off'] as const;
+      const safeType = validTypes.includes(parseResult.detected_form_type)
+        ? parseResult.detected_form_type
+        : 'inspection';
+
+      // Create the form with source provenance
+      const newForm = await createForm(
+        {
+          title: parseResult.title || chunk.title || 'Imported Form',
+          description: parseResult.description || undefined,
+          type: safeType,
+          source_file_id: sourceFileId,
+          source_chunk_id: chunk.id,
+        },
+        sourceFile?.organization_id,
+      );
+
+      // Store blocks in sessionStorage for the form builder to pick up
+      const blocksForBuilder = parseResult.blocks.map((b: any, i: number) => ({
+        block_type: b.block_type,
+        label: b.label,
+        description: b.description,
+        is_required: b.is_required,
+        options: b.options,
+        display_order: i,
+      }));
+
+      sessionStorage.setItem(
+        `imported_form_blocks_${newForm.id}`,
+        JSON.stringify(blocksForBuilder),
+      );
+
+      // Store source provenance in sessionStorage for the form builder
+      sessionStorage.setItem(
+        `form_source_${newForm.id}`,
+        JSON.stringify({
+          source_file_id: sourceFileId,
+          source_chunk_id: chunk.id,
+        }),
+      );
+
+      setProcessing(false);
+      toast.success(t('contentAuthoring.toastFormCreated'), {
+        description: parseResult.title || chunk.title,
+      });
+
+      // Navigate to form builder if callback provided
+      if (onCreateForm) {
+        onCreateForm(newForm.id);
+      } else {
+        // Fallback: open form in new tab
+        window.open(`/?page=forms&formId=${newForm.id}`, '_blank');
+      }
+    } catch (error: any) {
+      console.error('[handleCreateForm] Error:', error);
+      toast.error(t('contentAuthoring.toastFormCreationFailed'), {
+        description: error.message,
+      });
+    } finally {
+      setProcessing(false);
+      setProcessingStep('');
+    }
+  }
+
   // Handle track generation completion
   function handleTrackGenerationComplete(tracks?: any[]) {
     setShowTrackGenerator(false);
@@ -1528,6 +1637,7 @@ export function DocumentIntelligenceEditor({
                 onClassificationChange={(newClass) => updateChunkClassification(chunk.id, newClass)}
                 onCreateRole={() => createRoleFromChunk(chunk)}
                 onCreateContent={() => handleCreateContent(chunk)}
+                onCreateForm={() => handleCreateForm(chunk)}
                 onViewRole={(roleId) => viewLinkedRole(roleId)}
                 onViewTrack={onNavigateToTrack}
                 onDragStart={() => setDraggedChunkId(chunk.id)}
@@ -1728,6 +1838,7 @@ interface ChunkBlockProps {
   onClassificationChange: (newClass: ContentType) => void;
   onCreateRole: () => void;
   onCreateContent: () => void;
+  onCreateForm: () => void;
   onViewRole: (roleId: string) => void;
   onViewTrack?: (trackId: string) => void;
   onDragStart: () => void;
@@ -1756,6 +1867,7 @@ function ChunkBlock({
   onClassificationChange,
   onCreateRole,
   onCreateContent,
+  onCreateForm,
   onViewRole,
   onViewTrack,
   onDragStart,
@@ -2055,6 +2167,19 @@ function ChunkBlock({
                 </button>
               ))}
             </div>
+          ) : chunk.content_class === 'form' ? (
+            <button
+              type="button"
+              title={t('contentAuthoring.createFormFromChunk')}
+              onClick={(e) => {
+                e.stopPropagation();
+                onCreateForm();
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-dashed border-cyan-500/35 bg-cyan-500/5 text-foreground/90 hover:text-foreground hover:bg-cyan-500/10 hover:border-cyan-500/50 transition-colors text-left w-full max-w-full"
+            >
+              <Plus className="h-3.5 w-3.5 flex-shrink-0" />
+              <span className="truncate">{t('contentAuthoring.formLabel')}</span>
+            </button>
           ) : chunk.content_class !== 'job_description' && chunk.content_class !== 'other' ? (
             <button
               type="button"

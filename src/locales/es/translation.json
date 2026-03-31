@@ -3588,7 +3588,14 @@
       "contentTypeProcedure": "Procedimiento",
       "contentTypeJobDescription": "Descripción de Puesto",
       "contentTypeTraining": "Capacitación",
-      "contentTypeOther": "Otro"
+      "contentTypeOther": "Otro",
+      "contentTypeForm": "Formulario",
+      "createFormFromChunk": "Crear formulario digital desde este fragmento",
+      "formLabel": "Formulario",
+      "stepParsingForm": "Analizando contenido del formulario...",
+      "toastFormCreated": "Formulario creado",
+      "toastFormCreationFailed": "Error al crear formulario",
+      "noFormFieldsDetected": "No se detectaron campos de formulario en este contenido"
     },
     "notAvailable": "N/A"
   },

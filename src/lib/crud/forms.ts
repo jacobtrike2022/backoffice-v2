@@ -15,6 +15,10 @@ export interface CreateFormInput {
   requires_approval?: boolean;
   allow_anonymous?: boolean;
   tags?: string[];
+  /** Source provenance: ID of the source_file this form was extracted from */
+  source_file_id?: string;
+  /** Source provenance: ID of the source_chunk this form was extracted from */
+  source_chunk_id?: string;
 }
 
 export interface FormBlockInput {
@@ -101,7 +105,9 @@ export async function createForm(input: CreateFormInput, orgId?: string) {
       requires_approval: input.requires_approval || false,
       allow_anonymous: input.allow_anonymous || false,
       // In demo mode userProfile is null — omit created_by_id to avoid column-not-found errors
-      ...(userProfile?.id ? { created_by_id: userProfile.id } : {})
+      ...(userProfile?.id ? { created_by_id: userProfile.id } : {}),
+      ...(input.source_file_id ? { source_file_id: input.source_file_id } : {}),
+      ...(input.source_chunk_id ? { source_chunk_id: input.source_chunk_id } : {})
     })
     .select()
     .single();

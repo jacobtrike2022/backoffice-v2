@@ -37,6 +37,7 @@ const RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
   '/billing/': { limit: 10, windowMs: 60_000 },
   '/forms/on-submit': { limit: 20, windowMs: 60_000 },
   '/forms/parse-pdf': { limit: 5, windowMs: 60_000 },
+  '/forms/parse-text': { limit: 5, windowMs: 60_000 },
 };
 
 function checkRateLimit(path: string, identityKey: string): { allowed: boolean; retryAfterMs?: number } {
@@ -1225,6 +1226,10 @@ Deno.serve(async (req: Request) => {
       return await handleFormsParsePdf(req, path);
     }
 
+    if (method === "POST" && path === "/forms/parse-text") {
+      return await handleFormsParseText(req);
+    }
+
     // =========================================================================
     // 404 - Route not found
     // =========================================================================
@@ -1536,6 +1541,83 @@ Return ONLY valid JSON in this exact format, no other text:
     console.error("Error in handleFormsParsePdf:", err);
     const message = err instanceof Error ? err.message : "Unknown error";
     return jsonResponse({ error: `Failed to parse PDF: ${message}` }, 500);
+  }
+}
+
+async function handleFormsParseText(req: Request): Promise<Response> {
+  const identityKey = req.headers.get("authorization") || "anon";
+  const rl = checkRateLimit("/forms/parse-text", identityKey);
+  if (!rl.allowed) {
+    return new Response(JSON.stringify({ error: "Rate limit exceeded" }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+  if (!ANTHROPIC_API_KEY) {
+    return new Response(JSON.stringify({ error: "Anthropic API key not configured" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+  try {
+    const body = await req.json();
+    const text: string | undefined = body.text;
+    const sourceTitle: string | undefined = body.title;
+    if (!text || typeof text !== "string" || text.trim().length < 20) {
+      return new Response(JSON.stringify({ error: "Provide 'text' field with at least 20 characters" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    const truncatedText = text.slice(0, 50000);
+    const systemPrompt = `You are analyzing document text to extract form fields. Identify every place where a user would need to provide input (fill in a blank, check a box, sign, select an option, write a response, etc.).
+For each field, return a JSON object with:
+- block_type: one of [text, textarea, number, date, time, radio, checkboxes, dropdown, yes_no, rating, signature, photo, instruction, divider]
+- label: the question or field label
+- description: optional helper text (string or null)
+- is_required: boolean
+- options: array of strings (for radio, checkboxes, dropdown only; null otherwise)
+Also identify instruction/header sections as "instruction" blocks.
+Determine the form type: one of "inspection", "audit", "sign-off", "ojt-checklist", "survey".
+Return ONLY valid JSON: { "blocks": [...], "detected_form_type": "...", "title": "...", "description": "..." }`;
+
+    const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 8192,
+        messages: [{ role: "user", content: `Analyze the following document text and extract all form fields.\n\n${sourceTitle ? `Document title: ${sourceTitle}\n\n` : ""}---\n${truncatedText}\n---` }],
+        system: systemPrompt,
+      }),
+    });
+    if (!claudeResponse.ok) {
+      const errText = await claudeResponse.text();
+      console.error("Anthropic API error:", errText);
+      return new Response(JSON.stringify({ error: `AI analysis failed: ${claudeResponse.status}` }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    const claudeData = await claudeResponse.json();
+    const rawText = claudeData.content?.[0]?.text || "";
+    let parsed: any;
+    try {
+      const cleaned = rawText.replace(/^```json?\s*/i, "").replace(/```\s*$/, "").trim();
+      parsed = JSON.parse(cleaned);
+    } catch {
+      return new Response(JSON.stringify({ error: "AI returned invalid JSON" }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    const blocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
+    const validatedBlocks = blocks
+      .filter((b: any) => b && typeof b.label === "string" && b.label.trim())
+      .map((b: any, idx: number) => ({
+        block_type: VALID_BLOCK_TYPES.has(b.block_type) ? b.block_type : "text",
+        label: b.label.trim(),
+        description: typeof b.description === "string" ? b.description : undefined,
+        is_required: typeof b.is_required === "boolean" ? b.is_required : false,
+        options: Array.isArray(b.options) ? b.options.filter((o: any) => typeof o === "string") : undefined,
+        display_order: idx,
+      }));
+    const validFormTypes = ["inspection", "audit", "sign-off", "ojt-checklist", "survey"];
+    const detectedType = validFormTypes.includes(parsed.detected_form_type) ? parsed.detected_form_type : "inspection";
+    return new Response(JSON.stringify({
+      blocks: validatedBlocks,
+      detected_form_type: detectedType,
+      title: typeof parsed.title === "string" ? parsed.title : (sourceTitle || "Imported Form"),
+      description: typeof parsed.description === "string" ? parsed.description : "",
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  } catch (err: unknown) {
+    console.error("Error in handleFormsParseText:", err);
+    return new Response(JSON.stringify({ error: "Failed to parse text" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 }
 
@@ -1970,7 +2052,7 @@ interface ChunkResult {
 // - other: Truly miscellaneous content
 // =============================================================================
 
-type ContentClass = 'policy' | 'procedure' | 'job_description' | 'training_materials' | 'other';
+type ContentClass = 'policy' | 'procedure' | 'job_description' | 'training_materials' | 'form' | 'other';
 
 interface ContentClassification {
   content_class: ContentClass;
@@ -2919,9 +3001,30 @@ const TRAINING_PATTERNS = [
   /test\s+your\s+knowledge/i
 ];
 
+// Form detection patterns - checklists, sign-off forms, acknowledgements, inspections
+const FORM_PATTERNS = [
+  /sign(ature)?\s*(here|below|line)/i,
+  /\binitial(s)?\s*(here|below)/i,
+  /i\s+(certify|acknowledge|agree|understand|confirm)\s+that/i,
+  /employee\s+signature/i,
+  /supervisor\s+signature/i,
+  /manager\s+signature/i,
+  /print(ed)?\s+name\s*:/i,
+  /\byes\s*[\/|]\s*no\b/i,
+  /\b(pass|fail)\s*[\/|]\s*(fail|pass)\b/i,
+  /acknowledgement|acknowledgment/i,
+  /sign[- ]off\s+(form|sheet)/i,
+  /inspection\s+(form|checklist|sheet|report)/i,
+  /audit\s+(form|checklist|sheet)/i,
+  /date\s*:\s*_{2,}/i,
+  /_{3,}\s*$/m,
+  /\[\s*\]\s+\S/,
+  /☐|☑/,
+];
+
 /**
  * Classify chunk content using pattern matching
- * Priority: job_description > procedure > policy > training_materials > other
+ * Priority: job_description > form > procedure > policy > training_materials > other
  */
 function classifyChunkContent(content: string): ContentClassification {
   // Count pattern matches for each type
@@ -2929,6 +3032,7 @@ function classifyChunkContent(content: string): ContentClassification {
   const procedureMatchCount = PROCEDURE_PATTERNS.filter(pattern => pattern.test(content)).length;
   const policyMatchCount = POLICY_PATTERNS.filter(pattern => pattern.test(content)).length;
   const trainingMatchCount = TRAINING_PATTERNS.filter(pattern => pattern.test(content)).length;
+  const formMatchCount = FORM_PATTERNS.filter(pattern => pattern.test(content)).length;
 
   // 1. JOB DESCRIPTION - Strong indicators (4+ patterns)
   if (jdMatchCount >= 4) {
@@ -2960,6 +3064,19 @@ function classifyChunkContent(content: string): ContentClassification {
         detected_via: 'pattern_matching',
         pattern_matches: jdMatchCount,
         needs_ai_verification: true
+      }
+    };
+  }
+
+  // 2.5. FORM - Checklists, sign-offs, acknowledgements, inspections
+  if (formMatchCount >= 3) {
+    return {
+      content_class: 'form',
+      confidence: Math.min(0.90, 0.60 + (formMatchCount * 0.08)),
+      is_extractable: true,
+      extraction_hints: {
+        detected_via: 'pattern_matching',
+        pattern_matches: formMatchCount
       }
     };
   }

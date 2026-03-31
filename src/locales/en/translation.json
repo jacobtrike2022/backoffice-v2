@@ -3866,7 +3866,14 @@
       "contentTypeProcedure": "Procedure",
       "contentTypeJobDescription": "Job Description",
       "contentTypeTraining": "Training",
-      "contentTypeOther": "Other"
+      "contentTypeOther": "Other",
+      "contentTypeForm": "Form",
+      "createFormFromChunk": "Create a digital form from this chunk",
+      "formLabel": "Form",
+      "stepParsingForm": "Analyzing form content...",
+      "toastFormCreated": "Form created",
+      "toastFormCreationFailed": "Failed to create form",
+      "noFormFieldsDetected": "No form fields were detected in this content"
     },
     "createVariantTitle": "Create Variant",
     "createVariantStepDesc": "Step {{step}} of {{total}}",
