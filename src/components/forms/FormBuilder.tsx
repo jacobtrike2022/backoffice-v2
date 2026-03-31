@@ -658,8 +658,8 @@ function ConditionBuilder({ block, allBlocks, sections = [], onChange }: Conditi
           <div key={i} className="flex flex-col gap-1.5 pl-3 border-l-2 border-primary/40 bg-muted/30 rounded-r-md py-2 pr-2">
             {/* Validation warnings */}
             {isStaleRef && (
-              <div className="flex items-center gap-1 text-[11px] text-red-600 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded">
-                <AlertCircle className="h-3 w-3 shrink-0" />
+              <div className="flex items-center gap-1 text-[10px] text-red-500 px-1">
+                <AlertCircle className="h-2.5 w-2.5 shrink-0" />
                 {t('forms.conditionStaleRef')}
               </div>
             )}
@@ -689,8 +689,8 @@ function ConditionBuilder({ block, allBlocks, sections = [], onChange }: Conditi
             </Select>
 
             {isNoSource && (
-              <div className="flex items-center gap-1 text-[11px] text-amber-600">
-                <AlertTriangle className="h-3 w-3 shrink-0" />
+              <div className="flex items-center gap-1 text-[10px] text-amber-500 px-1">
+                <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
                 {t('forms.conditionNoSource')}
               </div>
             )}
@@ -765,8 +765,8 @@ function ConditionBuilder({ block, allBlocks, sections = [], onChange }: Conditi
             </div>
 
             {isMissingValue && (
-              <div className="flex items-center gap-1 text-[11px] text-amber-600">
-                <AlertTriangle className="h-3 w-3 shrink-0" />
+              <div className="flex items-center gap-1 text-[10px] text-amber-500 px-1">
+                <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
                 {t('forms.conditionMissingValue')}
               </div>
             )}
@@ -872,7 +872,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
           <TabsTrigger value="logic" className="text-xs h-7 px-3 relative">
             {t('forms.propTabLogic')}
             {hasConditionalLogic && (
-              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" />
+              <span className="absolute -top-1 -right-1 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background" />
             )}
           </TabsTrigger>
           {showScoringTab && (
@@ -1167,15 +1167,14 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
                   onChange={(logic) => onUpdate({ conditional_logic: logic })}
                 />
                 <Separator />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full text-destructive hover:bg-destructive/10 gap-1.5"
+                <button
+                  type="button"
+                  className="text-[11px] text-muted-foreground/60 hover:text-destructive flex items-center gap-1 mx-auto transition-colors"
                   onClick={() => onUpdate({ conditional_logic: null })}
                 >
-                  <X className="h-3.5 w-3.5" />
+                  <X className="h-3 w-3" />
                   {t('forms.propRemoveCondition')}
-                </Button>
+                </button>
               </>
             )}
             {/* Mini dependency graph */}
@@ -1312,39 +1311,241 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
 interface SectionHeaderCardProps {
   title: string;
   description?: string;
+  hasConditions?: boolean;
+  isSelected?: boolean;
   onTitleChange: (v: string) => void;
   onDescriptionChange: (v: string) => void;
   onDelete: () => void;
+  onClick?: () => void;
 }
 
 function SectionHeaderCard({
   title,
   description,
+  hasConditions,
+  isSelected,
   onTitleChange,
   onDescriptionChange,
   onDelete,
+  onClick,
 }: SectionHeaderCardProps) {
+  const { t } = useTranslation();
   return (
-    <div className="rounded-xl border-2 border-dashed border-primary/30 bg-primary/5 px-5 py-3 mb-2 group relative">
-      <button
-        type="button"
-        onClick={onDelete}
-        className="absolute right-2 top-2 h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
+    <div
+      className={`rounded-xl border-2 border-dashed px-5 py-3 mb-2 group relative cursor-pointer transition-colors ${
+        isSelected
+          ? 'border-primary bg-primary/10 ring-2 ring-primary/20'
+          : 'border-primary/30 bg-primary/5 hover:border-primary/50'
+      }`}
+      onClick={onClick}
+    >
+      {/* Top-right controls */}
+      <div className="absolute right-2 top-2 flex items-center gap-1">
+        {hasConditions && (
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 gap-0.5">
+            <GitBranch className="h-2.5 w-2.5" />
+            {t('forms.logicBadge')}
+          </Badge>
+        )}
+        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 text-muted-foreground">
+          {t('forms.sectionBadge')}
+        </Badge>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
       <Input
         value={title}
-        onChange={e => onTitleChange(e.target.value)}
+        onChange={e => { e.stopPropagation(); onTitleChange(e.target.value); }}
+        onClick={e => e.stopPropagation()}
         className="font-semibold text-sm bg-transparent border-none shadow-none h-auto p-0 focus-visible:ring-0 mb-1"
-        placeholder="Section title..."
+        placeholder={t('forms.sectionTitlePlaceholder')}
       />
       <Input
         value={description ?? ''}
-        onChange={e => onDescriptionChange(e.target.value)}
+        onChange={e => { e.stopPropagation(); onDescriptionChange(e.target.value); }}
+        onClick={e => e.stopPropagation()}
         className="text-xs text-muted-foreground bg-transparent border-none shadow-none h-auto p-0 focus-visible:ring-0"
-        placeholder="Section description (optional)..."
+        placeholder={t('forms.sectionDescPlaceholder')}
       />
+    </div>
+  );
+}
+
+// ============================================================================
+// SECTION PROPERTIES DRAWER
+// ============================================================================
+
+interface SectionPropertiesDrawerProps {
+  section: import('../../lib/crud/forms').FormSection;
+  allBlocks: LocalBlock[];
+  otherSections?: Array<{ id: string; title: string }>;
+  onUpdate: (updates: Partial<import('../../lib/crud/forms').FormSection>) => void;
+  onDelete: () => void;
+  onClose: () => void;
+  wide?: boolean;
+}
+
+function SectionPropertiesDrawer({ section, allBlocks, onUpdate, onDelete, onClose, wide = false }: SectionPropertiesDrawerProps) {
+  const { t } = useTranslation();
+
+  const sectionSettings = (section.settings ?? {}) as Record<string, unknown>;
+  const sectionLogic = sectionSettings.conditional_logic as ConditionalLogic | null | undefined;
+  const hasConditions = !!(sectionLogic?.conditions?.length);
+
+  // Build a pseudo-block for the ConditionBuilder component (reuse existing UI)
+  const pseudoBlock: LocalBlock = {
+    id: `section-${section.id}`,
+    form_id: section.form_id,
+    block_type: 'section',
+    label: section.title,
+    is_required: false,
+    display_order: -1,
+    conditional_logic: sectionLogic ?? undefined,
+  };
+
+  // For section conditions, eligible source blocks are blocks NOT in this section
+  const eligibleBlocks = allBlocks.filter(b => b.section_id !== section.id);
+
+  const handleLogicChange = (logic: ConditionalLogic) => {
+    // Section-level conditions only support show/hide, not skip_to_section
+    const sanitized: ConditionalLogic = {
+      ...logic,
+      action: logic.action === 'skip_to_section' ? 'show' : logic.action,
+    };
+    onUpdate({
+      settings: { ...sectionSettings, conditional_logic: sanitized },
+    });
+  };
+
+  const handleRemoveLogic = () => {
+    const { conditional_logic: _removed, ...rest } = sectionSettings;
+    onUpdate({ settings: Object.keys(rest).length > 0 ? rest : null });
+  };
+
+  return (
+    <div className="shrink-0 h-full bg-background border-l border-border shadow-xl z-40 flex flex-col animate-in slide-in-from-right duration-200" style={{ width: wide ? 'min(28vw, 620px)' : '460px', minWidth: wide ? '510px' : '420px' }}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border shrink-0">
+        <div className="flex items-center gap-2">
+          <Settings2 className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium">{t('forms.sectionProperties')}</span>
+          {hasConditions && (
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 gap-0.5">
+              <GitBranch className="h-2.5 w-2.5" />
+              {t('forms.logicBadge')}
+            </Badge>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-muted transition-colors"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Body */}
+      <Tabs defaultValue="settings" className="flex-1 flex flex-col overflow-hidden">
+        <TabsList className="w-full justify-start rounded-none border-b border-border px-6 py-0 bg-transparent shrink-0">
+          <TabsTrigger value="settings" className="text-xs">
+            <Settings2 className="h-3 w-3 mr-1" />
+            {t('forms.sectionSettingsTab')}
+          </TabsTrigger>
+          <TabsTrigger value="logic" className="text-xs">
+            <GitBranch className="h-3 w-3 mr-1" />
+            {t('forms.sectionLogicTab')}
+            {hasConditions && <span className="ml-1 h-1.5 w-1.5 rounded-full bg-primary inline-block" />}
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Settings Tab */}
+        <TabsContent value="settings" className="flex-1 overflow-y-auto px-6 py-4 mt-2">
+          <div className="space-y-4">
+            <div>
+              <Label className="text-xs font-medium">{t('forms.sectionTitle')}</Label>
+              <Input
+                value={section.title}
+                onChange={e => onUpdate({ title: e.target.value })}
+                className="mt-1"
+                placeholder={t('forms.sectionTitlePlaceholder')}
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-medium">{t('forms.sectionDescription')}</Label>
+              <Textarea
+                value={section.description ?? ''}
+                onChange={e => onUpdate({ description: e.target.value })}
+                className="mt-1"
+                placeholder={t('forms.sectionDescPlaceholder')}
+                rows={3}
+              />
+            </div>
+            <Separator />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full text-destructive hover:bg-destructive/10 gap-1.5"
+              onClick={onDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {t('forms.sectionDelete')}
+            </Button>
+          </div>
+        </TabsContent>
+
+        {/* Logic Tab */}
+        <TabsContent value="logic" className="flex-1 overflow-y-auto px-6 py-4 mt-2">
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm font-medium">{t('forms.sectionConditionalLogic')}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('forms.sectionConditionalLogicDesc')}</p>
+            </div>
+
+            {!hasConditions ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1.5"
+                onClick={() => {
+                  handleLogicChange({
+                    action: 'show',
+                    operator: 'AND',
+                    conditions: [{ source_block_id: '', operator: 'equals', value: '' }],
+                  });
+                }}
+              >
+                <GitBranch className="h-3.5 w-3.5" />
+                {t('forms.propAddCondition')}
+              </Button>
+            ) : (
+              <>
+                <ConditionBuilder
+                  block={pseudoBlock}
+                  allBlocks={eligibleBlocks}
+                  sections={[]}
+                  onChange={handleLogicChange}
+                />
+                <Separator />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-destructive hover:bg-destructive/10 gap-1.5"
+                  onClick={handleRemoveLogic}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  {t('forms.propRemoveCondition')}
+                </Button>
+              </>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -1954,17 +2155,17 @@ function MiniDependencyGraph({ block, allBlocks, dependencyMap }: MiniDependency
   if (sourceBlockIds.length === 0 && dependentBlockIds.length === 0) return null;
 
   return (
-    <div className="space-y-2">
-      <p className="text-xs font-medium text-muted-foreground">{t('forms.depGraphTitle')}</p>
-      <div className="flex items-start gap-2 overflow-x-auto pb-1">
+    <div className="space-y-1.5">
+      <p className="text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wide">{t('forms.depGraphTitle')}</p>
+      <div className="flex items-start gap-1.5 overflow-x-auto pb-1">
         {/* Source blocks column */}
         {sourceBlockIds.length > 0 && (
-          <div className="flex flex-col gap-1 shrink-0">
-            <span className="text-[10px] text-muted-foreground/60 mb-0.5">{t('forms.depGraphSources')}</span>
+          <div className="flex flex-col gap-0.5 shrink-0">
+            <span className="text-[9px] text-muted-foreground/50 uppercase tracking-wide">{t('forms.depGraphSources')}</span>
             {sourceBlockIds.map(id => (
               <div
                 key={id}
-                className="flex items-center gap-1 px-2 py-1.5 rounded-md border text-[11px] font-medium bg-muted/50 border-border max-w-[140px] truncate"
+                className="flex items-center gap-1 px-1.5 py-1 rounded border text-[10px] font-medium bg-muted/40 border-border/60 max-w-[120px] truncate"
                 title={getBlockLabel(id)}
               >
                 <div
@@ -1980,32 +2181,32 @@ function MiniDependencyGraph({ block, allBlocks, dependencyMap }: MiniDependency
         {/* Arrows from sources */}
         {sourceBlockIds.length > 0 && (
           <div className="flex flex-col justify-center self-center shrink-0">
-            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/50" />
+            <ArrowRight className="h-3 w-3 text-muted-foreground/40" />
           </div>
         )}
 
         {/* This block (center) */}
         <div className="flex flex-col items-center shrink-0 self-center">
-          <div className="px-3 py-2 rounded-lg border-2 border-primary bg-primary/5 text-xs font-semibold max-w-[140px] truncate text-center" title={block.label || t('forms.thisBlock')}>
-            {block.label ? (block.label.length > 18 ? block.label.slice(0, 18) + '\u2026' : block.label) : t('forms.thisBlock')}
+          <div className="px-2 py-1 rounded border-2 border-primary bg-primary/5 text-[10px] font-semibold max-w-[110px] truncate text-center" title={block.label || t('forms.thisBlock')}>
+            {block.label ? (block.label.length > 15 ? block.label.slice(0, 15) + '\u2026' : block.label) : t('forms.thisBlock')}
           </div>
         </div>
 
         {/* Arrows to dependents */}
         {dependentBlockIds.length > 0 && (
           <div className="flex flex-col justify-center self-center shrink-0">
-            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/50" />
+            <ArrowRight className="h-3 w-3 text-muted-foreground/40" />
           </div>
         )}
 
         {/* Dependent blocks column */}
         {dependentBlockIds.length > 0 && (
-          <div className="flex flex-col gap-1 shrink-0">
-            <span className="text-[10px] text-muted-foreground/60 mb-0.5">{t('forms.depGraphDependents')}</span>
+          <div className="flex flex-col gap-0.5 shrink-0">
+            <span className="text-[9px] text-muted-foreground/50 uppercase tracking-wide">{t('forms.depGraphDependents')}</span>
             {dependentBlockIds.map(id => (
               <div
                 key={id}
-                className="flex items-center gap-1 px-2 py-1.5 rounded-md border text-[11px] font-medium bg-muted/50 border-border max-w-[140px] truncate"
+                className="flex items-center gap-1 px-1.5 py-1 rounded border text-[10px] font-medium bg-muted/40 border-border/60 max-w-[120px] truncate"
                 title={getBlockLabel(id)}
               >
                 <div
@@ -2020,10 +2221,10 @@ function MiniDependencyGraph({ block, allBlocks, dependencyMap }: MiniDependency
       </div>
 
       {/* Legend */}
-      <div className="flex gap-3 text-[10px] text-muted-foreground/60 pt-1">
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> {t('forms.depLegendShow')}</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> {t('forms.depLegendHide')}</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> {t('forms.depLegendSkip')}</span>
+      <div className="flex gap-2.5 text-[9px] text-muted-foreground/50 pt-0.5">
+        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" /> {t('forms.depLegendShow')}</span>
+        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" /> {t('forms.depLegendHide')}</span>
+        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" /> {t('forms.depLegendSkip')}</span>
       </div>
     </div>
   );
@@ -2049,6 +2250,7 @@ export function FormBuilder({
   const [showPublishConfirm, setShowPublishConfirm] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [showDependencies, setShowDependencies] = useState(false);
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const addTag = useCallback((tag: string) => {
@@ -2118,10 +2320,15 @@ export function FormBuilder({
     title: s.title,
     description: s.description,
     display_order: s.display_order ?? i,
+    settings: s.settings,
   }));
 
   const selectedBlock = hook.selectedBlockId
     ? hook.blocks.find(b => b.id === hook.selectedBlockId) ?? null
+    : null;
+
+  const selectedSection = selectedSectionId
+    ? hook.sections.find(s => s.id === selectedSectionId) ?? null
     : null;
 
   // Compute block dependency map: which blocks reference each block as a condition source
@@ -2155,7 +2362,15 @@ export function FormBuilder({
   // Reset drawer tab when selection changes normally (clicking a card, not via quick-add)
   const handleSelectBlock = useCallback((blockId: string) => {
     setDrawerInitialTab(undefined);
+    setSelectedSectionId(null); // Clear section selection when selecting a block
     hook.setSelectedBlockId(hook.selectedBlockId === blockId ? null : blockId);
+  }, [hook]);
+
+  // Handle section header click — open section properties drawer
+  const handleSelectSection = useCallback((sectionId: string) => {
+    hook.setSelectedBlockId(null); // Clear block selection when selecting a section
+    setDrawerInitialTab(undefined);
+    setSelectedSectionId(prev => prev === sectionId ? null : sectionId);
   }, [hook]);
 
   // ── Early returns (AFTER all hooks to satisfy Rules of Hooks) ──────────────
@@ -2505,9 +2720,12 @@ export function FormBuilder({
                 <SectionHeaderCard
                   title={section.title}
                   description={section.description}
+                  hasConditions={!!(section.settings && (section.settings as Record<string, unknown>).conditional_logic && ((section.settings as Record<string, unknown>).conditional_logic as ConditionalLogic)?.conditions?.length)}
+                  isSelected={selectedSectionId === section.id}
                   onTitleChange={v => hook.updateSection(section.id, { title: v })}
                   onDescriptionChange={v => hook.updateSection(section.id, { description: v })}
                   onDelete={() => hook.deleteSection(section.id)}
+                  onClick={() => handleSelectSection(section.id)}
                 />
 
                 <DndContext
@@ -2612,7 +2830,7 @@ export function FormBuilder({
           </div>
         </div>
 
-        {/* Properties Drawer — fixed right panel */}
+        {/* Properties Drawer — fixed right panel (block or section) */}
         {selectedBlock && (
           <PropertiesDrawer
             block={selectedBlock}
@@ -2628,6 +2846,16 @@ export function FormBuilder({
             wide={fullPage}
             initialTab={drawerInitialTab}
             dependencyMap={blockDependencyMap}
+          />
+        )}
+        {selectedSection && !selectedBlock && (
+          <SectionPropertiesDrawer
+            section={selectedSection}
+            allBlocks={hook.blocks}
+            onUpdate={updates => hook.updateSection(selectedSection.id, updates)}
+            onDelete={() => { hook.deleteSection(selectedSection.id); setSelectedSectionId(null); }}
+            onClose={() => setSelectedSectionId(null)}
+            wide={fullPage}
           />
         )}
       </div>
