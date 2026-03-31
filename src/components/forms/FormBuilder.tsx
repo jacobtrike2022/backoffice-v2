@@ -452,7 +452,7 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
           </div>
 
           {/* Question label */}
-          <p className="text-sm font-medium truncate">
+          <p className="text-sm font-medium">
             {block.label
               ? (
                 <>
@@ -472,7 +472,7 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
 
           {/* Condition summary text */}
           {summaryText && (
-            <p className="text-[11px] text-primary/70 mt-0.5 truncate" title={summaryText}>
+            <p className="text-[11px] text-primary/70 mt-0.5 line-clamp-2" title={summaryText}>
               {summaryText}
             </p>
           )}
@@ -2419,7 +2419,11 @@ export function FormBuilder({
               canvasRef={canvasRef}
             />
           )}
-          <div className={`mx-auto w-full px-4 ${fullPage ? 'max-w-[800px]' : 'max-w-[680px]'}`}>
+          <div className={`mx-auto w-full px-4 transition-all ${
+            selectedBlock
+              ? 'max-w-full'
+              : fullPage ? 'max-w-[800px]' : 'max-w-[680px]'
+          }`}>
             {/* START node */}
             <div className="flex justify-center mb-0">
               <div className="bg-green-500 text-white text-xs font-bold px-6 py-2 rounded-full shadow-sm">
