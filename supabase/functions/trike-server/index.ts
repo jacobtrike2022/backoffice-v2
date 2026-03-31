@@ -1226,6 +1226,7 @@ Deno.serve(async (req: Request) => {
       return await handleFormsParsePdf(req, path);
     }
 
+    // Parse text content into form blocks (used by Sources → + Form)
     if (method === "POST" && path === "/forms/parse-text") {
       return await handleFormsParseText(req);
     }
@@ -1342,7 +1343,8 @@ Deno.serve(async (req: Request) => {
         "POST /contracts/send",
         "POST /contracts/webhook",
         "GET /contracts/:id/status",
-        "POST /forms/parse-pdf"
+        "POST /forms/parse-pdf",
+        "POST /forms/parse-text"
       ]
     }, 404);
 
@@ -1544,58 +1546,91 @@ Return ONLY valid JSON in this exact format, no other text:
   }
 }
 
+/**
+ * Parse text content into form blocks (Sources → + Form).
+ */
 async function handleFormsParseText(req: Request): Promise<Response> {
   const identityKey = req.headers.get("authorization") || "anon";
   const rl = checkRateLimit("/forms/parse-text", identityKey);
   if (!rl.allowed) {
-    return new Response(JSON.stringify({ error: "Rate limit exceeded" }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return jsonResponse({ error: "Rate limit exceeded. Try again shortly." }, 429);
   }
   if (!ANTHROPIC_API_KEY) {
-    return new Response(JSON.stringify({ error: "Anthropic API key not configured" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return jsonResponse({ error: "Anthropic API key not configured" }, 500);
   }
   try {
     const body = await req.json();
     const text: string | undefined = body.text;
     const sourceTitle: string | undefined = body.title;
     if (!text || typeof text !== "string" || text.trim().length < 20) {
-      return new Response(JSON.stringify({ error: "Provide 'text' field with at least 20 characters" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return jsonResponse({ error: "Provide 'text' field with at least 20 characters of form content" }, 400);
     }
     const truncatedText = text.slice(0, 50000);
-    const systemPrompt = `You are analyzing document text to extract form fields. Identify every place where a user would need to provide input (fill in a blank, check a box, sign, select an option, write a response, etc.).
+    const systemPrompt = `You are analyzing document text to extract form fields. This text may contain form-like content (checklists, sign-offs, acknowledgements, inspection forms).
+
+Identify every place where a user would need to provide input (fill in a blank, check a box, sign, select an option, write a response, etc.).
+
 For each field, return a JSON object with:
 - block_type: one of [text, textarea, number, date, time, radio, checkboxes, dropdown, yes_no, rating, signature, photo, instruction, divider]
 - label: the question or field label
 - description: optional helper text (string or null)
 - is_required: boolean
 - options: array of strings (for radio, checkboxes, dropdown only; null otherwise)
-Also identify instruction/header sections as "instruction" blocks.
-Determine the form type: one of "inspection", "audit", "sign-off", "ojt-checklist", "survey".
-Return ONLY valid JSON: { "blocks": [...], "detected_form_type": "...", "title": "...", "description": "..." }`;
+
+Also identify instruction/header sections and return them as "instruction" blocks.
+
+Additionally, determine:
+- The overall form type: one of "inspection", "audit", "sign-off", "ojt-checklist", "survey"
+- A suggested title for the form
+- A brief one-sentence description
+
+Return ONLY valid JSON in this exact format, no other text:
+{
+  "blocks": [...],
+  "detected_form_type": "inspection" | "audit" | "sign-off" | "ojt-checklist" | "survey",
+  "title": "extracted form title",
+  "description": "brief description of the form"
+}`;
 
     const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
         max_tokens: 8192,
-        messages: [{ role: "user", content: `Analyze the following document text and extract all form fields.\n\n${sourceTitle ? `Document title: ${sourceTitle}\n\n` : ""}---\n${truncatedText}\n---` }],
+        messages: [
+          {
+            role: "user",
+            content:
+              `Analyze the following document text and extract all form fields. Return the structured JSON as instructed.\n\n${sourceTitle ? `Document title: ${sourceTitle}\n\n` : ""}---\n${truncatedText}\n---`,
+          },
+        ],
         system: systemPrompt,
       }),
     });
+
     if (!claudeResponse.ok) {
       const errText = await claudeResponse.text();
       console.error("Anthropic API error:", errText);
-      return new Response(JSON.stringify({ error: `AI analysis failed: ${claudeResponse.status}` }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return jsonResponse({ error: `AI analysis failed: ${claudeResponse.status}` }, 502);
     }
+
     const claudeData = await claudeResponse.json();
     const rawText = claudeData.content?.[0]?.text || "";
+
     let parsed: any;
     try {
       const cleaned = rawText.replace(/^```json?\s*/i, "").replace(/```\s*$/, "").trim();
       parsed = JSON.parse(cleaned);
     } catch {
-      return new Response(JSON.stringify({ error: "AI returned invalid JSON" }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      console.error("Failed to parse Claude response:", rawText.substring(0, 500));
+      return jsonResponse({ error: "AI returned invalid JSON. Please try again." }, 502);
     }
+
     const blocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
     const validatedBlocks = blocks
       .filter((b: any) => b && typeof b.label === "string" && b.label.trim())
@@ -1607,17 +1642,22 @@ Return ONLY valid JSON: { "blocks": [...], "detected_form_type": "...", "title":
         options: Array.isArray(b.options) ? b.options.filter((o: any) => typeof o === "string") : undefined,
         display_order: idx,
       }));
+
     const validFormTypes = ["inspection", "audit", "sign-off", "ojt-checklist", "survey"];
-    const detectedType = validFormTypes.includes(parsed.detected_form_type) ? parsed.detected_form_type : "inspection";
-    return new Response(JSON.stringify({
+    const detectedType = validFormTypes.includes(parsed.detected_form_type)
+      ? parsed.detected_form_type
+      : "inspection";
+
+    return jsonResponse({
       blocks: validatedBlocks,
       detected_form_type: detectedType,
       title: typeof parsed.title === "string" ? parsed.title : (sourceTitle || "Imported Form"),
       description: typeof parsed.description === "string" ? parsed.description : "",
-    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    });
   } catch (err: unknown) {
     console.error("Error in handleFormsParseText:", err);
-    return new Response(JSON.stringify({ error: "Failed to parse text" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return jsonResponse({ error: `Failed to parse text: ${message}` }, 500);
   }
 }
 
@@ -2049,6 +2089,7 @@ interface ChunkResult {
 // - procedure: Step-by-step actions for a goal (e.g., "How to Change Register Paper")
 // - job_description: Role definitions with duties, qualifications, reporting
 // - training_materials: Checklists, OJT, guides to convert to tracks (catchall)
+// - form: Checklists, sign-off forms, acknowledgements, inspection forms
 // - other: Truly miscellaneous content
 // =============================================================================
 
@@ -2095,6 +2136,7 @@ interface ClassifiedSegment extends Segment {
     hasJdStructure: boolean;       // Has DUTIES, QUALIFICATIONS, etc. sections
     hasPolicyHeader: boolean;      // Has "POLICY", "PURPOSE:", etc.
     hasProcedureStructure: boolean; // Has numbered steps, "How to" etc.
+    hasFormStructure: boolean;     // Has signature lines, checkboxes, "sign here", acknowledgements
     isListContent: boolean;        // Primarily bullet points or numbered items
   };
 }
@@ -2454,6 +2496,30 @@ function analyzeSegmentSignals(content: string): ClassifiedSegment['contextSigna
     /procedure\s*:/i.test(content) ||
     (content.match(/^\s*\d+\.\s+/gm)?.length || 0) >= 3;  // Multiple numbered steps
 
+  // Form structure detection - signature lines, checkboxes, acknowledgements
+  const formSignals = [
+    /sign(ature)?\s*(here|below|line)/i.test(content),
+    /\binitial(s)?\s*(here|below)/i.test(content),
+    /\[\s*\]\s+/g.test(content),  // Empty checkboxes [ ]
+    /☐|☑|✓|✗/g.test(content),    // Unicode checkbox characters
+    /i\s+(certify|acknowledge|agree|understand|confirm)\s+that/i.test(content),
+    /employee\s+signature/i.test(content),
+    /supervisor\s+signature/i.test(content),
+    /manager\s+signature/i.test(content),
+    /witness\s+signature/i.test(content),
+    /date\s*:\s*_{2,}|date\s*:\s*\/\s*\//i.test(content),
+    /print(ed)?\s+name\s*:/i.test(content),
+    /\byes\s*[\\/|]\s*no\b/i.test(content),
+    /\b(pass|fail)\s*[\\/|]\s*(fail|pass)\b/i.test(content),
+    /acknowledgement|acknowledgment/i.test(content),
+    /sign[- ]off\s+(form|sheet)/i.test(content),
+    /inspection\s+(form|checklist|sheet|report)/i.test(content),
+    /audit\s+(form|checklist|sheet)/i.test(content),
+    /_{3,}\s*$/m.test(content),  // Blank lines (signature/fill-in)
+  ];
+  const formSignalCount = formSignals.filter(Boolean).length;
+  const hasFormStructure = formSignalCount >= 3;
+
   // List content detection (more than 40% of lines start with bullets/numbers)
   const lines = content.split('\n').filter(l => l.trim().length > 0);
   const listLines = lines.filter(l => /^\s*(?:[-•*]|\d+[.)]|\[\s*\])\s+/.test(l));
@@ -2464,6 +2530,7 @@ function analyzeSegmentSignals(content: string): ClassifiedSegment['contextSigna
     hasJdStructure,
     hasPolicyHeader,
     hasProcedureStructure,
+    hasFormStructure,
     isListContent
   };
 }
@@ -2487,9 +2554,10 @@ function classifySegmentWithContext(
   const policyMatchCount = POLICY_PATTERNS.filter(p => p.test(content)).length;
   const procedureMatchCount = PROCEDURE_PATTERNS.filter(p => p.test(content)).length;
   const trainingMatchCount = TRAINING_PATTERNS.filter(p => p.test(content)).length;
+  const formMatchCount = FORM_PATTERNS.filter(p => p.test(content)).length;
 
   // Default to training_materials - we NEVER use 'other' as a classification
-  // The hierarchy is: job_description > policy > procedure > training_materials
+  // The hierarchy is: job_description > form > policy > procedure > training_materials
   let contentClass: ContentClass = 'training_materials';
   let confidence = 0.5;
   let continuesFromPrevious = false;
@@ -2536,6 +2604,13 @@ function classifySegmentWithContext(
       contentClass = 'training_materials';
       confidence = 0.55;
     }
+  }
+
+  // === FORM DETECTION ===
+  // Forms: signature lines, checkboxes, acknowledgements, inspection checklists
+  else if (signals.hasFormStructure || formMatchCount >= 3) {
+    contentClass = 'form';
+    confidence = signals.hasFormStructure ? 0.85 : 0.70;
   }
 
   // === POLICY DETECTION ===
@@ -2977,6 +3052,27 @@ const PROCEDURE_PATTERNS = [
   /verify\s+that/i
 ];
 
+// Form detection patterns - checklists, sign-off forms, acknowledgements, inspections
+const FORM_PATTERNS = [
+  /sign(ature)?\s*(here|below|line)/i,
+  /\binitial(s)?\s*(here|below)/i,
+  /i\s+(certify|acknowledge|agree|understand|confirm)\s+that/i,
+  /employee\s+signature/i,
+  /supervisor\s+signature/i,
+  /manager\s+signature/i,
+  /print(ed)?\s+name\s*:/i,
+  /\byes\s*[\\/|]\s*no\b/i,
+  /\b(pass|fail)\s*[\\/|]\s*(fail|pass)\b/i,
+  /acknowledgement|acknowledgment/i,
+  /sign[- ]off\s+(form|sheet)/i,
+  /inspection\s+(form|checklist|sheet|report)/i,
+  /audit\s+(form|checklist|sheet)/i,
+  /date\s*:\s*_{2,}/i,
+  /_{3,}\s*$/m,
+  /\[\s*\]\s+\S/,
+  /☐|☑/,
+];
+
 // Training materials patterns - guides, checklists, OJT content
 const TRAINING_PATTERNS = [
   /training\s+(guide|manual|module)/i,
@@ -3068,7 +3164,7 @@ function classifyChunkContent(content: string): ContentClassification {
     };
   }
 
-  // 2.5. FORM - Checklists, sign-offs, acknowledgements, inspections
+  // 3. FORM - Checklists, sign-offs, acknowledgements, inspections
   if (formMatchCount >= 3) {
     return {
       content_class: 'form',
@@ -3076,12 +3172,13 @@ function classifyChunkContent(content: string): ContentClassification {
       is_extractable: true,
       extraction_hints: {
         detected_via: 'pattern_matching',
-        pattern_matches: formMatchCount
+        pattern_matches: formMatchCount,
+        description: 'Checklists, sign-off forms, acknowledgements, inspection forms'
       }
     };
   }
 
-  // 3. PROCEDURE - Step-by-step instructions
+  // 4. PROCEDURE - Step-by-step instructions
   if (procedureMatchCount >= 3) {
     return {
       content_class: 'procedure',
@@ -3094,7 +3191,7 @@ function classifyChunkContent(content: string): ContentClassification {
     };
   }
 
-  // 4. POLICY - Rules and expectations
+  // 5. POLICY - Rules and expectations
   if (policyMatchCount >= 3) {
     return {
       content_class: 'policy',
@@ -3107,7 +3204,7 @@ function classifyChunkContent(content: string): ContentClassification {
     };
   }
 
-  // 5. TRAINING MATERIALS - Guides, checklists, OJT
+  // 6. TRAINING MATERIALS - Guides, checklists, OJT
   if (trainingMatchCount >= 2) {
     return {
       content_class: 'training_materials',
@@ -3120,7 +3217,7 @@ function classifyChunkContent(content: string): ContentClassification {
     };
   }
 
-  // 6. If we have some policy or procedure indicators but not enough for high confidence
+  // 7. If we have some policy or procedure indicators but not enough for high confidence
   if (policyMatchCount >= 1 || procedureMatchCount >= 1) {
     // Tie-break: procedure patterns slightly favor procedure, otherwise policy
     if (procedureMatchCount > policyMatchCount) {
@@ -3139,7 +3236,17 @@ function classifyChunkContent(content: string): ContentClassification {
     };
   }
 
-  // 7. Default to training_materials (catchall for content that might need track conversion)
+  // 8. FORM - Weak indicators (1-2 patterns, still worth flagging)
+  if (formMatchCount >= 2) {
+    return {
+      content_class: 'form',
+      confidence: 0.50,
+      is_extractable: true,
+      extraction_hints: { detected_via: 'weak_pattern_matching', needs_ai_verification: true }
+    };
+  }
+
+  // 9. Default to training_materials (catchall for content that might need track conversion)
   return {
     content_class: 'training_materials',
     confidence: 0.40,
@@ -3188,14 +3295,19 @@ async function classifyChunkContentWithAI(content: string): Promise<ContentClass
 - Key indicators: "learning objectives", "checklist", "training guide", "assessment", "quiz"
 - Content that could be converted into training tracks
 
-**OTHER** - Content that doesn't fit the above (forms, tables, misc)
+**FORM** - Checklists, sign-off forms, acknowledgements, inspection forms
+- Examples: Equipment Inspection Checklist, Employee Acknowledgement Form, Store Audit Form
+- Key indicators: "sign here", "signature", "I certify/acknowledge", "yes/no", "pass/fail", checkboxes, blank lines
+- Content that can be converted into fillable digital forms
+
+**OTHER** - Content that doesn't fit the above
 
 Text to classify:
 ${content.slice(0, 2000)}
 
 Respond with JSON only:
 {
-  "content_class": "policy" | "procedure" | "job_description" | "training_materials" | "other",
+  "content_class": "policy" | "procedure" | "job_description" | "training_materials" | "form" | "other",
   "confidence": 0.0-1.0,
   "role_name": string | null (only if job_description),
   "reasoning": "brief explanation"
@@ -3207,7 +3319,7 @@ Respond with JSON only:
     );
 
     const parsed = JSON.parse(response);
-    const validClasses: ContentClass[] = ['policy', 'procedure', 'job_description', 'training_materials', 'other'];
+    const validClasses: ContentClass[] = ['policy', 'procedure', 'job_description', 'training_materials', 'form', 'other'];
     const contentClass = validClasses.includes(parsed.content_class) ? parsed.content_class : 'training_materials';
 
     return {

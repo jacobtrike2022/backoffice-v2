@@ -106,6 +106,7 @@ export async function createForm(input: CreateFormInput, orgId?: string) {
       allow_anonymous: input.allow_anonymous || false,
       // In demo mode userProfile is null — omit created_by_id to avoid column-not-found errors
       ...(userProfile?.id ? { created_by_id: userProfile.id } : {}),
+      // Source provenance (optional — when form is created from Sources / chunks)
       ...(input.source_file_id ? { source_file_id: input.source_file_id } : {}),
       ...(input.source_chunk_id ? { source_chunk_id: input.source_chunk_id } : {})
     })
