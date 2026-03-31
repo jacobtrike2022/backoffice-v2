@@ -2020,11 +2020,10 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef }:
       const sourceRect = sourceEl.getBoundingClientRect();
       const targetRect = targetEl.getBoundingClientRect();
 
-      // Position relative to the canvas container — use RIGHT edge, capped to canvas width
-      const canvasWidth = canvasRef.current.scrollWidth;
-      const x1 = Math.min(sourceRect.right - canvasRect.left + scrollLeft, canvasWidth - 60);
+      // Anchor at right edge of each block card
+      const x1 = sourceRect.right - canvasRect.left + scrollLeft;
       const y1 = sourceRect.top + sourceRect.height / 2 - canvasRect.top + scrollTop;
-      const x2 = Math.min(targetRect.right - canvasRect.left + scrollLeft, canvasWidth - 60);
+      const x2 = targetRect.right - canvasRect.left + scrollLeft;
       const y2 = targetRect.top + targetRect.height / 2 - canvasRect.top + scrollTop;
 
       newLines.push({ x1, y1, x2, y2, action: dep.action, label: dep.label });
@@ -2624,7 +2623,7 @@ export function FormBuilder({
           )}
           <div className={`mx-auto w-full transition-all ${
             (selectedBlock || showDependencies)
-              ? 'max-w-full pl-4 pr-20'
+              ? 'max-w-full pl-4 pr-28'
               : fullPage ? 'max-w-[800px] px-4' : 'max-w-[680px] px-4'
           }`}>
             {/* START node */}
