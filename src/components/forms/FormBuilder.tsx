@@ -874,7 +874,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
           <TabsTrigger value="logic" className="text-xs h-7 px-3 relative">
             {t('forms.propTabLogic')}
             {hasConditionalLogic && (
-              <span className="absolute -top-1 -right-1 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background" />
+              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-primary rounded-full" style={{ border: '2px solid var(--background)' }} />
             )}
           </TabsTrigger>
           {showScoringTab && (
