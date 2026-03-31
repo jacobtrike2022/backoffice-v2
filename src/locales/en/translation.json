@@ -1343,7 +1343,10 @@
     "fillScoreSummary": "Current Score",
     "useCurrent": "Use current",
     "propDefaultCurrentDate": "Default to today",
-    "propDefaultCurrentTime": "Default to current time"
+    "propDefaultCurrentTime": "Default to current time",
+    "dragDependencyWarning": "Dependency order changed",
+    "dragDependsOn": "depends on",
+    "dragWhichIsNowBelow": "which is now below it in the form"
   },
   "organization": {
     "title": "Organization",

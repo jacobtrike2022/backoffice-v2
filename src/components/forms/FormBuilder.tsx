@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import {
   DndContext,
   closestCenter,
@@ -2274,6 +2275,50 @@ export function FormBuilder({
 
     const movedBlock = hook.blocks[oldIndex];
     hook.reorderBlock(active.id as string, newIndex, movedBlock.section_id);
+
+    // Check for dependency order issues after the move
+    // Build the new order
+    const reordered = [...hook.blocks];
+    const [moved] = reordered.splice(oldIndex, 1);
+    reordered.splice(newIndex, 0, moved);
+    const newPositions = new Map(reordered.map((b, i) => [b.id, i]));
+
+    // Check: does the moved block have conditions referencing blocks that are now AFTER it?
+    const movedLogic = movedBlock.conditional_logic as ConditionalLogic | null;
+    if (movedLogic?.conditions?.length) {
+      const movedPos = newPositions.get(movedBlock.id) ?? 0;
+      for (const cond of movedLogic.conditions) {
+        if (!cond.source_block_id) continue;
+        const sourcePos = newPositions.get(cond.source_block_id);
+        if (sourcePos !== undefined && sourcePos > movedPos) {
+          const sourceBlock = hook.blocks.find(b => b.id === cond.source_block_id);
+          const sourceName = sourceBlock?.label || t('forms.unknownBlock');
+          toast.warning(t('forms.dragDependencyWarning'), {
+            description: `"${movedBlock.label}" ${t('forms.dragDependsOn')} "${sourceName}" ${t('forms.dragWhichIsNowBelow')}`,
+            duration: 5000,
+          });
+          break;
+        }
+      }
+    }
+
+    // Check: does any block that depends on the moved block now appear BEFORE it?
+    const movedNewPos = newPositions.get(movedBlock.id) ?? 0;
+    for (const block of reordered) {
+      if (block.id === movedBlock.id) continue;
+      const logic = block.conditional_logic as ConditionalLogic | null;
+      if (!logic?.conditions?.length) continue;
+      const blockPos = newPositions.get(block.id) ?? 0;
+      for (const cond of logic.conditions) {
+        if (cond.source_block_id === movedBlock.id && blockPos < movedNewPos) {
+          toast.warning(t('forms.dragDependencyWarning'), {
+            description: `"${block.label}" ${t('forms.dragDependsOn')} "${movedBlock.label}" ${t('forms.dragWhichIsNowBelow')}`,
+            duration: 5000,
+          });
+          return; // One warning is enough
+        }
+      }
+    }
   }
 
   async function handlePublish() {

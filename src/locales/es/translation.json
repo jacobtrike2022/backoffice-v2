@@ -1343,7 +1343,10 @@
     "fillScoreSummary": "Puntuación Actual",
     "useCurrent": "Usar actual",
     "propDefaultCurrentDate": "Predeterminar a hoy",
-    "propDefaultCurrentTime": "Predeterminar a hora actual"
+    "propDefaultCurrentTime": "Predeterminar a hora actual",
+    "dragDependencyWarning": "Orden de dependencia cambiado",
+    "dragDependsOn": "depende de",
+    "dragWhichIsNowBelow": "que ahora está debajo en el formulario"
   },
   "organization": {
     "title": "Organización",
