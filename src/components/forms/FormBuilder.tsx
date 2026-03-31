@@ -2621,11 +2621,10 @@ export function FormBuilder({
               canvasRef={canvasRef}
             />
           )}
-          <div className={`mx-auto w-full transition-all ${
-            (selectedBlock || showDependencies)
-              ? 'max-w-full pl-4 pr-28'
-              : fullPage ? 'max-w-[800px] px-4' : 'max-w-[680px] px-4'
-          }`}>
+          <div
+            className="mx-auto w-full px-4 transition-all"
+            style={{ maxWidth: (selectedBlock || showDependencies) ? '75%' : (fullPage ? '800px' : '680px') }}
+          >
             {/* START node */}
             <div className="flex justify-center mb-0">
               <div className="bg-green-500 text-white text-xs font-semibold tracking-wide uppercase px-6 py-2 rounded-full shadow-md shadow-green-500/25 border border-green-400/30 text-center">
