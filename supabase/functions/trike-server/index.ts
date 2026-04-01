@@ -16266,8 +16266,15 @@ function generateSubmissionPdfHtml(params: {
 
       // Handle block types specifically
       if (block.type === 'signature') {
-        if (rawVal && typeof rawVal === 'object' && ('dataUrl' in (rawVal as any) || 'data_url' in (rawVal as any))) {
-          displayVal = '<em style="color:#64748b;">[Digital signature captured]</em>';
+        // Extract the data URL from the signature value (could be string URL, object with dataUrl/data_url, or raw base64)
+        let sigDataUrl: string | null = null;
+        if (rawVal && typeof rawVal === 'string' && rawVal.startsWith('data:')) {
+          sigDataUrl = rawVal;
+        } else if (rawVal && typeof rawVal === 'object') {
+          sigDataUrl = (rawVal as any).dataUrl || (rawVal as any).data_url || null;
+        }
+        if (sigDataUrl) {
+          displayVal = `<div><img src="${sigDataUrl}" alt="Signature" style="max-width:280px;max-height:100px;border:1px solid #e2e8f0;border-radius:4px;background:#fff;padding:4px;" /><br/><em style="color:#64748b;font-size:11px;">[Digital signature captured]</em></div>`;
         } else if (rawVal) {
           displayVal = '<em style="color:#64748b;">[Digital signature captured]</em>';
         } else {
@@ -16416,7 +16423,7 @@ function buildFormEmailHtml(params: {
   if (includeResponses && responses) {
     const blockMap = new Map((blocks || []).map(b => [b.id, b]));
     const rows = Object.entries(responses)
-      .filter(([key]) => !key.startsWith('_')) // skip internal keys like _scoring_passed
+      .filter(([key]) => !key.startsWith('_') && !key.includes('__label')) // skip internal keys and companion label fields
       .map(([key, val]) => {
         const block = blockMap.get(key);
         const label = block?.label || key;
@@ -16424,7 +16431,14 @@ function buildFormEmailHtml(params: {
         let displayHtml: string;
 
         if (blockType === 'signature') {
-          displayHtml = val ? '<em style="color:#64748b;">[Digital signature captured]</em>' : '—';
+          let sigUrl: string | null = null;
+          if (val && typeof val === 'string' && val.startsWith('data:')) sigUrl = val;
+          else if (val && typeof val === 'object') sigUrl = (val as any).dataUrl || (val as any).data_url || null;
+          if (sigUrl) {
+            displayHtml = `<div><img src="${sigUrl}" alt="Signature" style="max-width:240px;max-height:80px;border:1px solid #e2e8f0;border-radius:4px;background:#fff;padding:3px;" /><br/><em style="color:#64748b;font-size:11px;">[Digital signature captured]</em></div>`;
+          } else {
+            displayHtml = val ? '<em style="color:#64748b;">[Digital signature captured]</em>' : '—';
+          }
         } else if (blockType === 'yes_no' || blockType === 'yesno') {
           if (val === true || val === 'yes' || val === 'Yes') {
             displayHtml = '<span style="color:#16a34a;font-weight:600;">&#10003; Yes</span>';

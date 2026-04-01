@@ -548,9 +548,16 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
         let displayVal: string;
 
         if (block.type === 'signature') {
-          displayVal = rawVal
-            ? '<em style="color:#64748b;">[Digital signature captured]</em>'
-            : '<em style="color:#94a3b8;">No signature</em>';
+          let sigUrl: string | null = null;
+          if (rawVal && typeof rawVal === 'string' && (rawVal as string).startsWith('data:')) sigUrl = rawVal as string;
+          else if (rawVal && typeof rawVal === 'object') sigUrl = (rawVal as any).dataUrl || (rawVal as any).data_url || null;
+          if (sigUrl) {
+            displayVal = `<div><img src="${escHtml(sigUrl)}" alt="Signature" style="max-width:280px;max-height:100px;border:1px solid #e2e8f0;border-radius:4px;background:#fff;padding:4px;" /><br/><em style="color:#64748b;font-size:11px;">[Digital signature captured]</em></div>`;
+          } else {
+            displayVal = rawVal
+              ? '<em style="color:#64748b;">[Digital signature captured]</em>'
+              : '<em style="color:#94a3b8;">No signature</em>';
+          }
         } else if (block.type === 'yes_no' || block.type === 'yesno') {
           if (rawVal === true || rawVal === 'yes' || rawVal === 'Yes') {
             displayVal = '<span style="color:#16a34a;font-weight:600;">&#10003; Yes</span>';
