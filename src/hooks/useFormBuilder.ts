@@ -133,6 +133,7 @@ export interface UseFormBuilderReturn {
   updateBlock: (blockId: string, updates: Partial<LocalBlock>) => void;
   deleteBlock: (blockId: string) => void;
   reorderBlock: (blockId: string, newIndex: number, sectionId?: string | null) => void;
+  reorderSection: (sectionId: string, newIndex: number) => void;
 
   // Save/publish
   saveForm: () => Promise<void>;
@@ -695,6 +696,24 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
     markDirty();
   }, [markDirty]);
 
+  const reorderSection = useCallback((sectionId: string, newIndex: number) => {
+    setSections(prev => {
+      const idx = prev.findIndex(s => s.id === sectionId);
+      if (idx === -1) return prev;
+      const updated = [...prev];
+      const [moved] = updated.splice(idx, 1);
+      const clamped = Math.max(0, Math.min(newIndex, updated.length));
+      updated.splice(clamped, 0, moved);
+      // Re-assign display_order and persist each
+      return updated.map((s, i) => {
+        const newOrder = { ...s, display_order: i };
+        updateFormSection(s.id, { display_order: i }).catch(() => {});
+        return newOrder;
+      });
+    });
+    markDirty();
+  }, [markDirty]);
+
   return {
     form,
     setFormTitle,
@@ -720,6 +739,7 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
     updateBlock,
     deleteBlock,
     reorderBlock,
+    reorderSection,
 
     saveForm,
     publishForm,
