@@ -73,12 +73,20 @@ import {
   Network,
   ArrowRight,
   ShieldAlert,
-  GraduationCap,
+  RefreshCw,
+  BookOpen,
+  MessageSquare,
+  Play,
+  Building2,
+  Timer,
+  Repeat,
+  UserCircle,
 } from 'lucide-react';
-import { useFormBuilder, type LocalBlock, type SubmissionConfig, type EmailNotification } from '../../hooks/useFormBuilder';
+import { useFormBuilder, type LocalBlock, type SubmissionConfig, type EmailNotification, type OnFailConfig, type StartConfig } from '../../hooks/useFormBuilder';
 import { FormRenderer } from './shared/FormRenderer';
 import type { ConditionalLogic } from '../../lib/forms/conditionalLogic';
 import { buildBlockDependencyMap, conditionSummaryText } from '../../lib/forms/conditionalLogic';
+import { supabase } from '../../lib/supabase';
 
 // ============================================================================
 // TYPES
@@ -382,7 +390,6 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
 
   const hasLogic = !!(block.conditional_logic && (block.conditional_logic as ConditionalLogic).conditions?.length);
   const isCritical = !!(block.validation_rules as Record<string, unknown> | undefined)?._critical;
-  const hasOnFailAssign = !!(block.validation_rules as Record<string, unknown> | undefined)?._on_fail_assign;
   const summaryText = hasLogic && !isSelected
     ? conditionSummaryText(block.conditional_logic as ConditionalLogic, allBlocks, t)
     : '';
@@ -452,12 +459,6 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
               <Badge variant="outline" className="text-xs px-1 py-0 h-4 ml-1">
                 <GitBranch className="h-2.5 w-2.5 mr-0.5" />
                 {t('forms.logicBadge')}
-              </Badge>
-            )}
-            {hasOnFailAssign && (
-              <Badge variant="outline" className="text-xs px-1 py-0 h-4 ml-1 border-amber-500/40 text-amber-500">
-                <GraduationCap className="h-2.5 w-2.5 mr-0.5" />
-                {t('forms.onFailTrainingBadge')}
               </Badge>
             )}
             {referencedByCount > 0 && (
@@ -1281,80 +1282,6 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
                   />
                 )}
               </div>
-
-              {/* On-fail action: assign training */}
-              <Separator />
-              <div className="space-y-2">
-                <Label className="text-xs font-medium flex items-center gap-1.5">
-                  <GraduationCap className="h-3.5 w-3.5 text-amber-500" />
-                  {t('forms.propOnFailAction')}
-                </Label>
-                <p className="text-[10px] text-muted-foreground">{t('forms.propOnFailActionDesc')}</p>
-                <Select
-                  value={
-                    (vr._on_fail_assign as { type: string } | undefined)?.type || 'none'
-                  }
-                  onValueChange={v => {
-                    if (v === 'none') {
-                      // Remove the on-fail assignment
-                      const updated = { ...block.validation_rules } as Record<string, unknown>;
-                      delete updated._on_fail_assign;
-                      onUpdate({ validation_rules: updated });
-                    } else {
-                      updateValidationRule('_on_fail_assign', {
-                        type: v,
-                        id: (vr._on_fail_assign as { type: string; id?: string } | undefined)?.id || '',
-                        title: (vr._on_fail_assign as { type: string; title?: string } | undefined)?.title || '',
-                      });
-                    }
-                  }}
-                >
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue placeholder={t('forms.propOnFailNoAction')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">{t('forms.propOnFailNoAction')}</SelectItem>
-                    <SelectItem value="playlist">{t('forms.propOnFailAssignPlaylist')}</SelectItem>
-                    <SelectItem value="track">{t('forms.propOnFailAssignTrack')}</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                {(vr._on_fail_assign as { type: string } | undefined)?.type && (
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] text-muted-foreground">
-                      {(vr._on_fail_assign as { type: string })?.type === 'playlist'
-                        ? t('forms.propOnFailPlaylistTitle')
-                        : t('forms.propOnFailTrackTitle')}
-                    </Label>
-                    <Input
-                      value={(vr._on_fail_assign as { title?: string })?.title || ''}
-                      onChange={e =>
-                        updateValidationRule('_on_fail_assign', {
-                          ...(vr._on_fail_assign as Record<string, unknown>),
-                          title: e.target.value,
-                        })
-                      }
-                      placeholder={
-                        (vr._on_fail_assign as { type: string })?.type === 'playlist'
-                          ? t('forms.propOnFailPlaylistPlaceholder')
-                          : t('forms.propOnFailTrackPlaceholder')
-                      }
-                      className="text-sm"
-                    />
-                    <Input
-                      value={(vr._on_fail_assign as { id?: string })?.id || ''}
-                      onChange={e =>
-                        updateValidationRule('_on_fail_assign', {
-                          ...(vr._on_fail_assign as Record<string, unknown>),
-                          id: e.target.value,
-                        })
-                      }
-                      placeholder={t('forms.propOnFailIdPlaceholder')}
-                      className="text-sm font-mono text-xs"
-                    />
-                  </div>
-                )}
-              </div>
             </>
           );
         })()}
@@ -2031,6 +1958,391 @@ function SubmissionActionsPanel({ config, scoringEnabled, onChange }: Submission
               </div>
             </>
           )}
+
+          {/* On Fail Actions — only when scoring is enabled */}
+          {scoringEnabled && (
+            <>
+              <Separator />
+              <OnFailActionsSection config={config} onChange={onChange} />
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// ON FAIL ACTIONS SECTION (within Submission Actions)
+// ============================================================================
+
+function OnFailActionsSection({ config, onChange }: { config: SubmissionConfig; onChange: (c: SubmissionConfig) => void }) {
+  const { t } = useTranslation();
+  const onFail = config.on_fail ?? {};
+
+  const [availableForms, setAvailableForms] = useState<{ id: string; title: string }[]>([]);
+  const [availablePlaylists, setAvailablePlaylists] = useState<{ id: string; title: string }[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchOptions() {
+      const { data: forms } = await supabase
+        .from('forms')
+        .select('id, title')
+        .eq('status', 'published')
+        .order('title');
+      if (!cancelled && forms) setAvailableForms(forms);
+
+      const { data: playlists } = await supabase
+        .from('playlists')
+        .select('id, title')
+        .eq('status', 'published')
+        .order('title');
+      if (!cancelled && playlists) setAvailablePlaylists(playlists);
+    }
+    fetchOptions();
+    return () => { cancelled = true; };
+  }, []);
+
+  function updateOnFail(updates: Partial<OnFailConfig>) {
+    onChange({ ...config, on_fail: { ...onFail, ...updates } });
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-1.5">
+        <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+        <Label className="text-xs font-medium">{t('forms.onFailTitle')}</Label>
+      </div>
+      <p className="text-xs text-muted-foreground">{t('forms.onFailDesc')}</p>
+
+      {/* a) Custom fail message */}
+      <div className="border border-red-200 dark:border-red-900/40 rounded-md p-3 space-y-2 bg-red-50/50 dark:bg-red-950/20">
+        <div className="flex items-center gap-1.5">
+          <MessageSquare className="h-3.5 w-3.5 text-red-400" />
+          <Label className="text-xs font-medium">{t('forms.onFailMessage')}</Label>
+        </div>
+        <Textarea
+          value={onFail.fail_message ?? ''}
+          onChange={e => updateOnFail({ fail_message: e.target.value })}
+          placeholder={t('forms.onFailMessagePlaceholder')}
+          className="text-xs min-h-[60px]"
+        />
+      </div>
+
+      {/* b) Reassign this form */}
+      <div className="border border-red-200 dark:border-red-900/40 rounded-md p-3 space-y-2 bg-red-50/50 dark:bg-red-950/20">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <RefreshCw className="h-3.5 w-3.5 text-red-400" />
+            <Label className="text-xs font-medium">{t('forms.onFailReassign')}</Label>
+          </div>
+          <Switch
+            checked={onFail.reassign?.enabled ?? false}
+            onCheckedChange={v => updateOnFail({ reassign: { enabled: v, delay_hours: onFail.reassign?.delay_hours ?? 48 } })}
+          />
+        </div>
+        {onFail.reassign?.enabled && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-muted-foreground">{t('forms.onFailReassignIn')}</span>
+            <Input
+              type="number"
+              min={1}
+              value={onFail.reassign.delay_hours}
+              onChange={e => updateOnFail({ reassign: { enabled: true, delay_hours: parseInt(e.target.value) || 1 } })}
+              className="h-7 w-20 text-xs"
+            />
+            <span className="text-muted-foreground">{t('forms.onFailHours')}</span>
+          </div>
+        )}
+      </div>
+
+      {/* c) Assign follow-up form */}
+      <div className="border border-red-200 dark:border-red-900/40 rounded-md p-3 space-y-2 bg-red-50/50 dark:bg-red-950/20">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <FileText className="h-3.5 w-3.5 text-red-400" />
+            <Label className="text-xs font-medium">{t('forms.onFailAssignForm')}</Label>
+          </div>
+          <Switch
+            checked={onFail.assign_form?.enabled ?? false}
+            onCheckedChange={v => updateOnFail({
+              assign_form: {
+                enabled: v,
+                form_id: onFail.assign_form?.form_id ?? '',
+                form_title: onFail.assign_form?.form_title ?? '',
+              },
+            })}
+          />
+        </div>
+        {onFail.assign_form?.enabled && (
+          <div>
+            <Label className="text-xs text-muted-foreground">{t('forms.onFailSelectForm')}</Label>
+            <Select
+              value={onFail.assign_form.form_id || 'none'}
+              onValueChange={v => {
+                const selected = availableForms.find(f => f.id === v);
+                updateOnFail({
+                  assign_form: {
+                    enabled: true,
+                    form_id: v === 'none' ? '' : v,
+                    form_title: selected?.title ?? '',
+                  },
+                });
+              }}
+            >
+              <SelectTrigger className="h-7 text-xs mt-1">
+                <SelectValue placeholder={t('forms.onFailSelectFormPlaceholder')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t('forms.notifNone')}</SelectItem>
+                {availableForms.map(f => (
+                  <SelectItem key={f.id} value={f.id}>{f.title}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+
+      {/* d) Assign training */}
+      <div className="border border-red-200 dark:border-red-900/40 rounded-md p-3 space-y-2 bg-red-50/50 dark:bg-red-950/20">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <BookOpen className="h-3.5 w-3.5 text-red-400" />
+            <Label className="text-xs font-medium">{t('forms.onFailAssignTraining')}</Label>
+          </div>
+          <Switch
+            checked={onFail.assign_training?.enabled ?? false}
+            onCheckedChange={v => updateOnFail({
+              assign_training: {
+                enabled: v,
+                playlist_id: onFail.assign_training?.playlist_id ?? '',
+                playlist_title: onFail.assign_training?.playlist_title ?? '',
+              },
+            })}
+          />
+        </div>
+        {onFail.assign_training?.enabled && (
+          <div>
+            <Label className="text-xs text-muted-foreground">{t('forms.onFailSelectPlaylist')}</Label>
+            <Select
+              value={onFail.assign_training.playlist_id || 'none'}
+              onValueChange={v => {
+                const selected = availablePlaylists.find(p => p.id === v);
+                updateOnFail({
+                  assign_training: {
+                    enabled: true,
+                    playlist_id: v === 'none' ? '' : v,
+                    playlist_title: selected?.title ?? '',
+                  },
+                });
+              }}
+            >
+              <SelectTrigger className="h-7 text-xs mt-1">
+                <SelectValue placeholder={t('forms.onFailSelectPlaylistPlaceholder')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t('forms.notifNone')}</SelectItem>
+                {availablePlaylists.map(p => (
+                  <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// START CONFIG PANEL
+// ============================================================================
+
+const DEFAULT_SHIFT_OPTIONS = ['Opening', 'Mid-day', 'Closing', 'Overnight'];
+
+interface StartConfigPanelProps {
+  config: StartConfig;
+  onChange: (config: StartConfig) => void;
+}
+
+function StartConfigPanel({ config, onChange }: StartConfigPanelProps) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+
+  const identityMode = config.identity_mode || 'individual';
+  const requireLocation = config.require_location ?? false;
+  const requireShift = config.require_shift ?? false;
+  const submissionLimit = config.submission_limit || 'unlimited';
+  const shiftOptions = config.shift_options ?? DEFAULT_SHIFT_OPTIONS;
+  const [customShift, setCustomShift] = useState('');
+
+  const hasConfig = identityMode !== 'individual' || requireLocation || requireShift || submissionLimit !== 'unlimited';
+
+  return (
+    <div className="mt-2 mb-2 border border-border rounded-lg overflow-hidden">
+      {/* Header */}
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-2.5 bg-muted/40 hover:bg-muted/60 transition-colors text-left"
+      >
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Play className="h-4 w-4 text-green-500" />
+          <span>{t('forms.startConfigTitle')}</span>
+          {hasConfig && (
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+              {t('forms.startConfigActive')}
+            </Badge>
+          )}
+        </div>
+        {expanded ? (
+          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        )}
+      </button>
+
+      {expanded && (
+        <div className="p-4 space-y-5 text-sm">
+          <p className="text-xs text-muted-foreground">{t('forms.startConfigDesc')}</p>
+
+          <Separator />
+
+          {/* Identity Mode */}
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <UserCircle className="h-3.5 w-3.5 text-muted-foreground" />
+              <Label className="text-xs font-medium">{t('forms.startConfigIdentityMode')}</Label>
+            </div>
+            <Select
+              value={identityMode}
+              onValueChange={(v) => onChange({ ...config, identity_mode: v as StartConfig['identity_mode'] })}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="individual">{t('forms.startConfigIdentityIndividual')}</SelectItem>
+                <SelectItem value="location">{t('forms.startConfigIdentityLocation')}</SelectItem>
+                <SelectItem value="anonymous">{t('forms.startConfigIdentityAnonymous')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground/70">
+              {identityMode === 'individual' && t('forms.startConfigIdentityIndividualDesc')}
+              {identityMode === 'location' && t('forms.startConfigIdentityLocationDesc')}
+              {identityMode === 'anonymous' && t('forms.startConfigIdentityAnonymousDesc')}
+            </p>
+          </div>
+
+          <Separator />
+
+          {/* Require Location */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+              <Label className="text-xs font-medium">{t('forms.startConfigRequireLocation')}</Label>
+            </div>
+            <Switch
+              checked={requireLocation}
+              onCheckedChange={(v) => onChange({ ...config, require_location: v })}
+            />
+          </div>
+          {requireLocation && (
+            <p className="text-[11px] text-muted-foreground/70 -mt-3 pl-5">
+              {t('forms.startConfigRequireLocationHint')}
+            </p>
+          )}
+
+          {/* Require Shift */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Timer className="h-3.5 w-3.5 text-muted-foreground" />
+              <Label className="text-xs font-medium">{t('forms.startConfigRequireShift')}</Label>
+            </div>
+            <Switch
+              checked={requireShift}
+              onCheckedChange={(v) => onChange({ ...config, require_shift: v })}
+            />
+          </div>
+
+          {requireShift && (
+            <div className="space-y-2 pl-5 -mt-2">
+              <Label className="text-[11px] text-muted-foreground">{t('forms.startConfigShiftOptions')}</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {shiftOptions.map((opt, i) => (
+                  <Badge key={i} variant="secondary" className="text-xs gap-1 pl-2 pr-1 py-0.5">
+                    {opt}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = shiftOptions.filter((_, idx) => idx !== i);
+                        onChange({ ...config, shift_options: updated });
+                      }}
+                      className="hover:text-destructive ml-0.5"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex gap-1.5">
+                <Input
+                  value={customShift}
+                  onChange={(e) => setCustomShift(e.target.value)}
+                  placeholder={t('forms.startConfigAddShift')}
+                  className="h-7 text-xs flex-1"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && customShift.trim()) {
+                      e.preventDefault();
+                      onChange({ ...config, shift_options: [...shiftOptions, customShift.trim()] });
+                      setCustomShift('');
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs px-2"
+                  disabled={!customShift.trim()}
+                  onClick={() => {
+                    if (customShift.trim()) {
+                      onChange({ ...config, shift_options: [...shiftOptions, customShift.trim()] });
+                      setCustomShift('');
+                    }
+                  }}
+                >
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <Separator />
+
+          {/* Submission Limit */}
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <Repeat className="h-3.5 w-3.5 text-muted-foreground" />
+              <Label className="text-xs font-medium">{t('forms.startConfigSubmissionLimit')}</Label>
+            </div>
+            <Select
+              value={submissionLimit}
+              onValueChange={(v) => onChange({ ...config, submission_limit: v as StartConfig['submission_limit'] })}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="unlimited">{t('forms.startConfigLimitUnlimited')}</SelectItem>
+                <SelectItem value="daily">{t('forms.startConfigLimitDaily')}</SelectItem>
+                <SelectItem value="shift">{t('forms.startConfigLimitShift')}</SelectItem>
+                <SelectItem value="weekly">{t('forms.startConfigLimitWeekly')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       )}
     </div>
@@ -2821,6 +3133,12 @@ export function FormBuilder({
                 {t('forms.builderStart')}
               </div>
             </div>
+
+            {/* Start Config Panel */}
+            <StartConfigPanel
+              config={hook.form?.start_config ?? {}}
+              onChange={hook.setStartConfig}
+            />
 
             <ConnectorLine />
 

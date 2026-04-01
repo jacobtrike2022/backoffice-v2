@@ -28,6 +28,13 @@ export interface EmailNotification {
   trigger: 'always' | 'on_fail' | 'on_pass';
 }
 
+export interface OnFailConfig {
+  reassign?: { enabled: boolean; delay_hours: number };
+  assign_form?: { enabled: boolean; form_id: string; form_title: string };
+  assign_training?: { enabled: boolean; playlist_id: string; playlist_title: string };
+  fail_message?: string;
+}
+
 export interface SubmissionConfig {
   confirmation_message?: string;
   redirect_url?: string;
@@ -38,6 +45,15 @@ export interface SubmissionConfig {
     below_threshold_message?: string;
   };
   allow_multiple_submissions?: boolean;
+  on_fail?: OnFailConfig;
+}
+
+export interface StartConfig {
+  identity_mode?: 'individual' | 'location' | 'anonymous';
+  require_location?: boolean;
+  require_shift?: boolean;
+  shift_options?: string[];
+  submission_limit?: 'unlimited' | 'daily' | 'shift' | 'weekly';
 }
 
 export interface FormMetadata {
@@ -54,6 +70,7 @@ export interface FormMetadata {
   scoring_enabled?: boolean;
   pass_threshold?: number;
   submission_config?: SubmissionConfig;
+  start_config?: StartConfig;
 }
 
 export interface FormSettings {
@@ -100,6 +117,7 @@ export interface UseFormBuilderReturn {
   setFormSettings: (settings: Partial<FormSettings>) => void;
   setFormIsTemplate: (isTemplate: boolean) => void;
   setSubmissionConfig: (config: SubmissionConfig) => void;
+  setStartConfig: (config: StartConfig) => void;
 
   // Sections state
   sections: FormSection[];
@@ -184,6 +202,7 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
         settings: {
           scoring_enabled: form.scoring_enabled ?? false,
           pass_threshold: form.pass_threshold ?? 70,
+          ...(form.start_config ? { start_config: form.start_config } : {}),
         },
         submission_config: form.submission_config ?? {},
       } as any);
@@ -528,6 +547,19 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
     markDirty();
   }, [markDirty]);
 
+  const setStartConfig = useCallback((config: StartConfig) => {
+    setForm(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        start_config: config,
+        // Sync allow_anonymous with identity_mode
+        allow_anonymous: config.identity_mode === 'anonymous',
+      };
+    });
+    markDirty();
+  }, [markDirty]);
+
   // ============================================================================
   // SECTIONS
   // ============================================================================
@@ -674,6 +706,7 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
     setFormSettings,
     setFormIsTemplate,
     setSubmissionConfig,
+    setStartConfig,
 
     sections,
     addSection,
@@ -718,6 +751,7 @@ function formDataToMetadata(data: FormWithSections): FormMetadata {
     scoring_enabled: (settings?.scoring_enabled as boolean) ?? false,
     pass_threshold: (settings?.pass_threshold as number) ?? 70,
     submission_config: ((data as any).submission_config as SubmissionConfig | null) ?? {},
+    start_config: (settings?.start_config as StartConfig | undefined) ?? undefined,
   };
 }
 
