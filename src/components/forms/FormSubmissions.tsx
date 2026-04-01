@@ -559,6 +559,35 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
           } else {
             displayVal = '<em style="color:#94a3b8;">No response</em>';
           }
+        } else if (block.type === 'rating') {
+          const num = Number(rawVal);
+          if (!isNaN(num) && num > 0) {
+            displayVal = '&#9733;'.repeat(num) + '<span style="color:#d4d4d8;">&#9733;</span>'.repeat(Math.max(0, 5 - num)) + ` <span style="color:#64748b;">(${num}/5)</span>`;
+          } else {
+            displayVal = '<em style="color:#94a3b8;">No rating</em>';
+          }
+        } else if (block.type === 'slider') {
+          displayVal = rawVal != null ? `<strong>${escHtml(String(rawVal))}</strong>` : '<em style="color:#94a3b8;">No response</em>';
+        } else if (block.type === 'location') {
+          if (rawVal && typeof rawVal === 'object') {
+            const loc = rawVal as Record<string, unknown>;
+            displayVal = `${loc.latitude ?? '—'}, ${loc.longitude ?? '—'}`;
+          } else if (rawVal) {
+            displayVal = escHtml(String(rawVal));
+          } else {
+            displayVal = '<em style="color:#94a3b8;">No location</em>';
+          }
+        } else if (block.type === 'photo' || block.type === 'file' || block.type === 'file_upload') {
+          if (Array.isArray(rawVal)) {
+            displayVal = rawVal.map((f: unknown) => {
+              if (typeof f === 'object' && f !== null && 'url' in (f as Record<string, unknown>)) {
+                return escHtml((f as { filename?: string; name?: string }).filename || (f as { name?: string }).name || 'File');
+              }
+              return escHtml(String(f));
+            }).join(', ') || '<em style="color:#94a3b8;">No files</em>';
+          } else {
+            displayVal = '<em style="color:#94a3b8;">No files</em>';
+          }
         } else if (rawVal === null || rawVal === undefined) {
           displayVal = '<em style="color:#94a3b8;">No response</em>';
         } else if (Array.isArray(rawVal)) {
