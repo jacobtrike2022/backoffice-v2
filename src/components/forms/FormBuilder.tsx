@@ -73,6 +73,7 @@ import {
   Network,
   ArrowRight,
   ShieldAlert,
+  GraduationCap,
 } from 'lucide-react';
 import { useFormBuilder, type LocalBlock, type SubmissionConfig, type EmailNotification } from '../../hooks/useFormBuilder';
 import { FormRenderer } from './shared/FormRenderer';
@@ -381,6 +382,7 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
 
   const hasLogic = !!(block.conditional_logic && (block.conditional_logic as ConditionalLogic).conditions?.length);
   const isCritical = !!(block.validation_rules as Record<string, unknown> | undefined)?._critical;
+  const hasOnFailAssign = !!(block.validation_rules as Record<string, unknown> | undefined)?._on_fail_assign;
   const summaryText = hasLogic && !isSelected
     ? conditionSummaryText(block.conditional_logic as ConditionalLogic, allBlocks, t)
     : '';
@@ -450,6 +452,12 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
               <Badge variant="outline" className="text-xs px-1 py-0 h-4 ml-1">
                 <GitBranch className="h-2.5 w-2.5 mr-0.5" />
                 {t('forms.logicBadge')}
+              </Badge>
+            )}
+            {hasOnFailAssign && (
+              <Badge variant="outline" className="text-xs px-1 py-0 h-4 ml-1 border-amber-500/40 text-amber-500">
+                <GraduationCap className="h-2.5 w-2.5 mr-0.5" />
+                {t('forms.onFailTrainingBadge')}
               </Badge>
             )}
             {referencedByCount > 0 && (
@@ -1271,6 +1279,80 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
                     placeholder={t('forms.propEnterCorrectAnswer')}
                     className="text-sm"
                   />
+                )}
+              </div>
+
+              {/* On-fail action: assign training */}
+              <Separator />
+              <div className="space-y-2">
+                <Label className="text-xs font-medium flex items-center gap-1.5">
+                  <GraduationCap className="h-3.5 w-3.5 text-amber-500" />
+                  {t('forms.propOnFailAction')}
+                </Label>
+                <p className="text-[10px] text-muted-foreground">{t('forms.propOnFailActionDesc')}</p>
+                <Select
+                  value={
+                    (vr._on_fail_assign as { type: string } | undefined)?.type || 'none'
+                  }
+                  onValueChange={v => {
+                    if (v === 'none') {
+                      // Remove the on-fail assignment
+                      const updated = { ...block.validation_rules } as Record<string, unknown>;
+                      delete updated._on_fail_assign;
+                      onUpdate({ validation_rules: updated });
+                    } else {
+                      updateValidationRule('_on_fail_assign', {
+                        type: v,
+                        id: (vr._on_fail_assign as { type: string; id?: string } | undefined)?.id || '',
+                        title: (vr._on_fail_assign as { type: string; title?: string } | undefined)?.title || '',
+                      });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue placeholder={t('forms.propOnFailNoAction')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">{t('forms.propOnFailNoAction')}</SelectItem>
+                    <SelectItem value="playlist">{t('forms.propOnFailAssignPlaylist')}</SelectItem>
+                    <SelectItem value="track">{t('forms.propOnFailAssignTrack')}</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {(vr._on_fail_assign as { type: string } | undefined)?.type && (
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] text-muted-foreground">
+                      {(vr._on_fail_assign as { type: string })?.type === 'playlist'
+                        ? t('forms.propOnFailPlaylistTitle')
+                        : t('forms.propOnFailTrackTitle')}
+                    </Label>
+                    <Input
+                      value={(vr._on_fail_assign as { title?: string })?.title || ''}
+                      onChange={e =>
+                        updateValidationRule('_on_fail_assign', {
+                          ...(vr._on_fail_assign as Record<string, unknown>),
+                          title: e.target.value,
+                        })
+                      }
+                      placeholder={
+                        (vr._on_fail_assign as { type: string })?.type === 'playlist'
+                          ? t('forms.propOnFailPlaylistPlaceholder')
+                          : t('forms.propOnFailTrackPlaceholder')
+                      }
+                      className="text-sm"
+                    />
+                    <Input
+                      value={(vr._on_fail_assign as { id?: string })?.id || ''}
+                      onChange={e =>
+                        updateValidationRule('_on_fail_assign', {
+                          ...(vr._on_fail_assign as Record<string, unknown>),
+                          id: e.target.value,
+                        })
+                      }
+                      placeholder={t('forms.propOnFailIdPlaceholder')}
+                      className="text-sm font-mono text-xs"
+                    />
+                  </div>
                 )}
               </div>
             </>
