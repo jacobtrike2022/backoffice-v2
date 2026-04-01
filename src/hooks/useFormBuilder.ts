@@ -197,6 +197,7 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
         type: form.type as 'ojt-checklist' | 'inspection' | 'audit' | 'survey',
         category: form.category,
         status: form.status,
+        tags: form.tags || [],
         requires_approval: form.requires_approval,
         allow_anonymous: form.allow_anonymous,
         is_template: form.is_template,
@@ -277,7 +278,12 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
 
           // For each DB block: prefer the live in-memory version if one exists
           // (preserves unsaved typing); fall back to DB version for new blocks.
-          const merged = refreshedBlocks.map(rb => currentMap.get(rb.id) ?? rb);
+          // Clear _isDirty/_isNew since the save succeeded.
+          const merged = refreshedBlocks.map(rb => {
+            const inMem = currentMap.get(rb.id);
+            if (inMem) return { ...inMem, _isDirty: false, _isNew: false };
+            return { ...rb, _isDirty: false, _isNew: false };
+          });
 
           // Remap any conditional_logic source_block_id references from temp → real IDs
           if (tempIdMap.size > 0) {
@@ -304,8 +310,8 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
 
       setIsDirty(false);
       isDirtyRef.current = false;
-    } catch (err) {
-      console.error('Error saving form:', err);
+    } catch (err: any) {
+      console.error('[FormBuilder] Save failed:', err?.message || err, err?.details || '', err?.code || '');
       setError(err instanceof Error ? err.message : 'Failed to save form');
       // Keep isDirty so the user knows a save failure occurred and can retry
       setIsDirty(true);

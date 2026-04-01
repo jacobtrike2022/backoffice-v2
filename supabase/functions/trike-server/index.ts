@@ -16092,7 +16092,7 @@ async function checkOnFailTrainingAssignments(params: {
       .from('form_blocks')
       .select('id, label, type, validation_rules')
       .eq('form_id', params.form_id)
-      .order('order_index', { ascending: true });
+      .order('display_order', { ascending: true });
 
     if (blocksError || !blocks || blocks.length === 0) return;
 
@@ -16651,7 +16651,7 @@ async function processFormSubmissionEmails(params: {
       .from('form_blocks')
       .select('id, label, type')
       .eq('form_id', params.form_id)
-      .order('order_index', { ascending: true });
+      .order('display_order', { ascending: true });
 
     // Fetch org info for branding
     let orgName = '';
