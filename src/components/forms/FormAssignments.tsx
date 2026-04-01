@@ -361,55 +361,46 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {assignments.map((a) => {
             const formTitle = (a.form as any)?.title ?? 'Unknown Form';
-            const shortTarget = a.target_id
-              ? a.target_id.slice(0, 8) + '…'
-              : '—';
+            const formType = (a.form as any)?.type ?? '';
 
             return (
-              <Card key={a.id} className={`border-l-4 ${
+              <div key={a.id} className={`rounded-lg border bg-card p-4 border-l-4 ${
                 a.status === 'completed' ? 'border-l-blue-400' :
                 a.status === 'overdue' ? 'border-l-red-400' :
                 'border-l-green-400'
               }`}>
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                      <p className="font-semibold truncate">{formTitle}</p>
-                      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                        <Badge
-                          className={`border-0 text-xs ${assignmentTypeBadge(a.assignment_type)}`}
-                        >
-                          {a.assignment_type}
-                        </Badge>
-                        {recurrenceBadge(a.recurrence_rule, t)}
-                        <span className="flex items-center gap-1">
-                          <Calendar className="h-3.5 w-3.5" />
-                          {formatDate(a.due_date, t('forms.noDueDate'))}
-                        </span>
-                        {a.recurrence_rule && a.recurrence_rule !== 'once' && a.next_due_at && (
-                          <span className="text-xs text-indigo-600 dark:text-indigo-400">
-                            {t('forms.nextDue', { date: formatDate(a.next_due_at, t('forms.noDueDate')) })}
-                          </span>
-                        )}
-                        <span className="text-xs opacity-60">
-                          {t('forms.targetId', { id: shortTarget })}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Badge className={`border-0 text-xs ${statusBadge(a.status)}`}>
-                        {a.status}
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm truncate">{formTitle}</p>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      <Badge className={`border-0 text-[11px] px-1.5 py-0 h-5 ${assignmentTypeBadge(a.assignment_type)}`}>
+                        {a.assignment_type}
                       </Badge>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {formatDate(a.created_at)}
+                      {recurrenceBadge(a.recurrence_rule, t)}
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Calendar className="h-3 w-3" />
+                        {formatDate(a.due_date, t('forms.noDueDate'))}
                       </span>
+                      {a.recurrence_rule && a.recurrence_rule !== 'once' && a.next_due_at && (
+                        <span className="text-[11px] text-indigo-500 dark:text-indigo-400">
+                          {t('forms.nextDue', { date: formatDate(a.next_due_at, t('forms.noDueDate')) })}
+                        </span>
+                      )}
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <Badge className={`border-0 text-[11px] px-1.5 py-0 h-5 ${statusBadge(a.status)}`}>
+                      {a.status}
+                    </Badge>
+                    <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                      {formatDate(a.created_at)}
+                    </span>
+                  </div>
+                </div>
+              </div>
             );
           })}
         </div>
