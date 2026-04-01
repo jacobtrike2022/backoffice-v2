@@ -699,9 +699,9 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 min-h-[600px] overflow-hidden">
+    <div className={`gap-4 min-h-[600px] overflow-hidden ${selectedSubmission ? 'flex flex-row' : 'flex flex-col'}`}>
       {/* ── Left pane: form selector + submission list ── */}
-      <div className={`flex flex-col gap-3 shrink-0 ${selectedFormId !== 'none' && selectedSubmission ? 'w-full lg:w-[380px]' : 'w-full'}`}>
+      <div className={`flex flex-col gap-3 shrink-0 ${selectedSubmission ? 'w-[380px]' : 'w-full'}`}>
         {/* Form selector */}
         <div>
           {!orgId ? (
@@ -817,7 +817,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                         className={`w-full text-left p-3 flex items-start gap-3 hover:bg-muted/50 transition-colors ${
                           isSelected ? 'bg-muted border-l-2 border-primary' : 'border-l-2 border-transparent'
                         }`}
-                        onClick={() => { console.error('[Submissions] Clicked submission:', sub.id); setSelectedSubmission(sub); }}
+                        onClick={() => setSelectedSubmission(sub)}
                       >
                         {/* Status dot */}
                         <div className="flex-shrink-0 mt-2">
