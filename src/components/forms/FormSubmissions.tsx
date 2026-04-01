@@ -817,7 +817,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                         className={`w-full text-left p-3 flex items-start gap-3 hover:bg-muted/50 transition-colors ${
                           isSelected ? 'bg-muted border-l-2 border-primary' : 'border-l-2 border-transparent'
                         }`}
-                        onClick={() => setSelectedSubmission(sub)}
+                        onClick={() => { console.error('[Submissions] Clicked submission:', sub.id); setSelectedSubmission(sub); }}
                       >
                         {/* Status dot */}
                         <div className="flex-shrink-0 mt-2">
@@ -904,17 +904,6 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
       {/* ── Right pane: submission detail (only shown when a submission is selected) ── */}
       {selectedFormId !== 'none' && selectedSubmission && (
       <div className="flex-1 min-w-0 overflow-auto">
-        {!selectedSubmission ? (
-          <Card className="min-h-[400px] flex items-center justify-center">
-            <CardContent className="text-center text-muted-foreground py-16">
-              <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
-                <FileText className="h-7 w-7 opacity-40" />
-              </div>
-              <p className="font-medium">{t('forms.noSubmissionSelected')}</p>
-              <p className="text-sm mt-1 opacity-70">{t('forms.selectSubmissionHint')}</p>
-            </CardContent>
-          </Card>
-        ) : (
           <Card className="overflow-auto">
             <CardHeader className="pb-3">
               {/* Header row: submitter + status + export */}
@@ -1056,7 +1045,6 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
               )}
             </CardContent>
           </Card>
-        )}
       </div>
       )}
     </div>
