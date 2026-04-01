@@ -492,13 +492,11 @@ export async function getFormSubmissions(
   formId: string,
   filters: { status?: string } = {}
 ) {
+  // Simple query without FK-hint joins — avoids PostgREST errors when
+  // multiple FKs point to the same table. We resolve user names client-side.
   let query = supabase
     .from('form_submissions')
-    .select(`
-      *,
-      submitted_by:users!form_submissions_user_id_fkey(first_name, last_name, email),
-      reviewed_by:users!form_submissions_reviewed_by_fkey(first_name, last_name, email)
-    `)
+    .select('*')
     .eq('form_id', formId);
 
   if (filters.status) {
