@@ -318,11 +318,8 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
 
     // Validate start config fields
     if (startConfig) {
-      if ((startConfig.require_location || startConfig.identity_mode === 'location') && !formData._location_id) {
+      if (startConfig.identity_mode === 'location' && !formData._location_id) {
         errors._location_id = t('forms.fieldRequired');
-      }
-      if (startConfig.require_shift && !formData._shift) {
-        errors._shift = t('forms.fieldRequired');
       }
     }
 
@@ -1224,65 +1221,34 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
         </div>
       )}
 
-      {/* Start config fields: location & shift selectors */}
-      {startConfig && !readOnly && (startConfig.require_location || startConfig.require_shift || startConfig.identity_mode === 'location') && (
-        <div className="space-y-4 p-4 rounded-lg border border-primary/20 bg-primary/5">
-          {/* Location selector */}
-          {(startConfig.require_location || startConfig.identity_mode === 'location') && (
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">
-                {t('forms.startFieldLocation')} <span className="text-destructive">*</span>
-              </Label>
-              <Select
-                value={(formData._location_id as string) || 'none'}
-                onValueChange={(v) => {
-                  const store = stores.find(s => s.id === v);
-                  handleChange('_location_id', v === 'none' ? '' : v);
-                  handleChange('_location_name', store?.name || '');
-                }}
-              >
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder={t('forms.startFieldLocationPlaceholder')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">{t('forms.startFieldLocationPlaceholder')}</SelectItem>
-                  {stores.map((store) => (
-                    <SelectItem key={store.id} value={store.id}>
-                      {store.code ? `${store.code} - ${store.name}` : store.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {validationErrors._location_id && (
-                <p className="text-xs text-destructive">{validationErrors._location_id}</p>
-              )}
-            </div>
-          )}
-
-          {/* Shift selector */}
-          {startConfig.require_shift && (
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">
-                {t('forms.startFieldShift')} <span className="text-destructive">*</span>
-              </Label>
-              <Select
-                value={(formData._shift as string) || 'none'}
-                onValueChange={(v) => handleChange('_shift', v === 'none' ? '' : v)}
-              >
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder={t('forms.startFieldShiftPlaceholder')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">{t('forms.startFieldShiftPlaceholder')}</SelectItem>
-                  {(startConfig.shift_options ?? DEFAULT_SHIFT_OPTIONS).map((opt) => (
-                    <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {validationErrors._shift && (
-                <p className="text-xs text-destructive">{validationErrors._shift}</p>
-              )}
-            </div>
+      {/* Start config: location selector for location-based mode */}
+      {startConfig && !readOnly && startConfig.identity_mode === 'location' && stores.length > 0 && (
+        <div className="space-y-2 p-4 rounded-lg border border-primary/20 bg-primary/5">
+          <Label className="text-xs font-medium">
+            {t('forms.startFieldLocation')} <span className="text-destructive">*</span>
+          </Label>
+          <Select
+            value={(formData._location_id as string) || 'none'}
+            onValueChange={(v) => {
+              const store = stores.find(s => s.id === v);
+              handleChange('_location_id', v === 'none' ? '' : v);
+              handleChange('_location_name', store?.name || '');
+            }}
+          >
+            <SelectTrigger className="h-9 text-sm">
+              <SelectValue placeholder={t('forms.startFieldLocationPlaceholder')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">{t('forms.startFieldLocationPlaceholder')}</SelectItem>
+              {stores.map((store) => (
+                <SelectItem key={store.id} value={store.id}>
+                  {store.code ? `${store.code} - ${store.name}` : store.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {validationErrors._location_id && (
+            <p className="text-xs text-destructive">{validationErrors._location_id}</p>
           )}
         </div>
       )}
