@@ -57,6 +57,7 @@ export interface StartConfig {
 
 export interface FormMetadata {
   id: string;
+  organization_id: string;
   title: string;
   description?: string;
   type: string;
@@ -431,6 +432,7 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
           if (cancelled) return;
           setForm({
             id: newForm.id,
+            organization_id: newForm.organization_id,
             title: newForm.title,
             description: newForm.description || '',
             type: newForm.type,
@@ -758,6 +760,7 @@ function formDataToMetadata(data: FormWithSections): FormMetadata {
   const settings = (data as any).settings as Record<string, unknown> | null | undefined;
   return {
     id: data.id,
+    organization_id: data.organization_id,
     title: data.title,
     description: data.description || '',
     type: data.type,
@@ -813,6 +816,8 @@ function blockTypeLabel(blockType: string): string {
     photo: 'Photo',
     instruction: 'Instruction',
     divider: 'Divider',
+    store_lookup: 'Store',
+    role_lookup: 'Role',
   };
   return labels[blockType] || blockType;
 }

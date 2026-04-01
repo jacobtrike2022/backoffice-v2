@@ -6,6 +6,7 @@ import { supabase, getCurrentUserOrgId, getCurrentUserProfile, supabaseAnonKey }
 import { createNotification } from './notifications';
 import { logActivity } from './activity';
 import { getServerUrl } from '../../utils/supabase/info';
+import { upsertFormScope } from './formScopes';
 
 export interface CreateFormInput {
   title: string;
@@ -115,6 +116,17 @@ export async function createForm(input: CreateFormInput, orgId?: string) {
     .single();
 
   if (error) throw error;
+
+  // Default scope: COMPANY scoped to the creating org
+  if (form?.id && resolvedOrgId) {
+    upsertFormScope({
+      form_id: form.id,
+      organization_id: resolvedOrgId,
+      scope_level: 'COMPANY',
+      company_id: resolvedOrgId,
+    }).catch(() => {}); // non-fatal
+  }
+
   return form;
 }
 

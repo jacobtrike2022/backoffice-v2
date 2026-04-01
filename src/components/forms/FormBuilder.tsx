@@ -82,12 +82,28 @@ import {
   Repeat,
   UserCircle,
   GraduationCap,
+  Globe,
+  Tag,
 } from 'lucide-react';
 import { useFormBuilder, type LocalBlock, type SubmissionConfig, type EmailNotification, type OnFailConfig, type StartConfig } from '../../hooks/useFormBuilder';
-import { FormRenderer } from './shared/FormRenderer';
 import type { ConditionalLogic } from '../../lib/forms/conditionalLogic';
 import { buildBlockDependencyMap, conditionSummaryText } from '../../lib/forms/conditionalLogic';
 import { supabase } from '../../lib/supabase';
+import {
+  getFormScope,
+  upsertFormScope,
+  formatScopeLabel,
+  getScopeLevels,
+  getSectorOptions,
+  getUsStates,
+  getIndustriesForScope,
+  getProgramsForScope,
+  getOrganizationsForScope,
+  getStoresForScope,
+  type FormScopeEnriched,
+} from '../../lib/crud/formScopes';
+import type { TrackScopeLevel, SectorType } from '../../lib/crud/trackScopes';
+import { getTagsByCategory } from '../../lib/crud/tags';
 
 // ============================================================================
 // TYPES
@@ -1751,6 +1767,254 @@ function AutosaveIndicator({ isSaving, isDirty }: AutosaveIndicatorProps) {
 }
 
 // ============================================================================
+// FORM SCOPE MODAL
+// ============================================================================
+
+const SCOPE_LABELS: Record<string, string> = {
+  UNIVERSAL: 'Universal (all sectors)',
+  SECTOR: 'Sector',
+  INDUSTRY: 'Industry',
+  STATE: 'State',
+  COMPANY: 'Company',
+  PROGRAM: 'Program',
+  UNIT: 'Unit (location)',
+};
+
+function FormScopeModal({ isOpen, onClose, formId, organizationId, onSaved }: {
+  isOpen: boolean;
+  onClose: () => void;
+  formId: string;
+  organizationId: string;
+  onSaved: (scope: FormScopeEnriched) => void;
+}) {
+  const { t } = useTranslation();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [scopeLevel, setScopeLevel] = useState<TrackScopeLevel>('COMPANY');
+  const [sector, setSector] = useState<SectorType | ''>('');
+  const [industryId, setIndustryId] = useState('');
+  const [stateId, setStateId] = useState('');
+  const [companyId, setCompanyId] = useState('');
+  const [programId, setProgramId] = useState('');
+  const [unitId, setUnitId] = useState('');
+
+  const [usStates, setUsStates] = useState<{ id: string; code: string; name: string }[]>([]);
+  const [industries, setIndustries] = useState<{ id: string; name: string; code: string | null }[]>([]);
+  const [programs, setPrograms] = useState<{ id: string; name: string }[]>([]);
+  const [organizations, setOrganizations] = useState<{ id: string; name: string }[]>([]);
+  const [stores, setStores] = useState<{ id: string; name: string; code: string | null }[]>([]);
+
+  useEffect(() => {
+    if (!isOpen || !formId) return;
+    setLoading(true);
+    Promise.all([
+      getFormScope(formId),
+      getUsStates(),
+      getIndustriesForScope(null),
+      getProgramsForScope(),
+      getOrganizationsForScope(true),
+    ])
+      .then(([scope, states, ind, prog, orgs]) => {
+        setUsStates(states as any[]);
+        setIndustries(ind as any[]);
+        setPrograms(prog);
+        setOrganizations(orgs);
+        if (scope) {
+          setScopeLevel(scope.scope_level);
+          setSector((scope.sector as SectorType) || '');
+          setIndustryId(scope.industry_id || '');
+          setStateId(scope.state_id || '');
+          setCompanyId(scope.company_id || '');
+          setProgramId(scope.program_id || '');
+          setUnitId(scope.unit_id || '');
+        } else {
+          setScopeLevel('COMPANY');
+          setCompanyId(organizationId);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [isOpen, formId, organizationId]);
+
+  useEffect(() => {
+    if (scopeLevel !== 'INDUSTRY') return;
+    const sf = sector ? (sector as SectorType) : null;
+    getIndustriesForScope(sf).then(list => setIndustries(list as any[]));
+  }, [scopeLevel, sector]);
+
+  useEffect(() => {
+    if (scopeLevel !== 'UNIT' || !companyId) { setStores([]); setUnitId(''); return; }
+    getStoresForScope(companyId).then(s => { setStores(s as any[]); setUnitId(''); });
+  }, [scopeLevel, companyId]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await upsertFormScope({
+        form_id: formId,
+        organization_id: organizationId,
+        scope_level: scopeLevel,
+        sector: scopeLevel === 'SECTOR' && sector ? (sector as SectorType) : null,
+        industry_id: scopeLevel === 'INDUSTRY' && industryId ? industryId : null,
+        state_id: scopeLevel === 'STATE' && stateId ? stateId : null,
+        company_id: scopeLevel === 'COMPANY' && companyId ? companyId : null,
+        program_id: scopeLevel === 'PROGRAM' && programId ? programId : null,
+        unit_id: scopeLevel === 'UNIT' && unitId ? unitId : null,
+      });
+      const updated = await getFormScope(formId);
+      if (updated) onSaved(updated);
+      onClose();
+    } catch (e: any) {
+      console.error('[FormScope] Save error:', e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={open => !open && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Form Scope</DialogTitle>
+          <DialogDescription>
+            Set the visibility scope for this form. This controls which organizations and users can see it.
+          </DialogDescription>
+        </DialogHeader>
+        {loading ? (
+          <div className="py-6 text-center text-muted-foreground">Loading...</div>
+        ) : (
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Scope Level</Label>
+              <Select value={scopeLevel} onValueChange={v => setScopeLevel(v as TrackScopeLevel)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {getScopeLevels().map(level => (
+                    <SelectItem key={level} value={level}>{SCOPE_LABELS[level] || level}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {scopeLevel === 'SECTOR' && (
+              <div className="space-y-2">
+                <Label>Sector</Label>
+                <Select value={sector || 'none'} onValueChange={v => setSector(v === 'none' ? '' : v as SectorType)}>
+                  <SelectTrigger><SelectValue placeholder="Select sector..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Select sector...</SelectItem>
+                    {getSectorOptions().map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {scopeLevel === 'INDUSTRY' && (
+              <>
+                <div className="space-y-2">
+                  <Label>Sector (optional filter)</Label>
+                  <Select value={sector || 'none'} onValueChange={v => { setSector(v === 'none' ? '' : v as SectorType); setIndustryId(''); }}>
+                    <SelectTrigger><SelectValue placeholder="All sectors" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">All sectors</SelectItem>
+                      {getSectorOptions().map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Industry</Label>
+                  <Select value={industryId || 'none'} onValueChange={v => setIndustryId(v === 'none' ? '' : v)}>
+                    <SelectTrigger><SelectValue placeholder="Select industry..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Select industry...</SelectItem>
+                      {industries.map(i => <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+
+            {scopeLevel === 'STATE' && (
+              <div className="space-y-2">
+                <Label>State</Label>
+                <Select value={stateId || 'none'} onValueChange={v => setStateId(v === 'none' ? '' : v)}>
+                  <SelectTrigger><SelectValue placeholder="Select state..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Select state...</SelectItem>
+                    {usStates.map(s => <SelectItem key={s.id} value={s.id}>{s.code} – {s.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {scopeLevel === 'COMPANY' && (
+              <div className="space-y-2">
+                <Label>Company</Label>
+                <Select value={companyId || 'none'} onValueChange={v => setCompanyId(v === 'none' ? '' : v)}>
+                  <SelectTrigger><SelectValue placeholder="Select company..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Select company...</SelectItem>
+                    {organizations.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {scopeLevel === 'PROGRAM' && (
+              <div className="space-y-2">
+                <Label>Program</Label>
+                <Select value={programId || 'none'} onValueChange={v => setProgramId(v === 'none' ? '' : v)}>
+                  <SelectTrigger><SelectValue placeholder="Select program..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Select program...</SelectItem>
+                    {programs.map(p => <SelectItem key={p.id} value={p.id}>{(p as any).name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {scopeLevel === 'UNIT' && (
+              <>
+                <div className="space-y-2">
+                  <Label>Company</Label>
+                  <Select value={companyId || 'none'} onValueChange={v => setCompanyId(v === 'none' ? '' : v)}>
+                    <SelectTrigger><SelectValue placeholder="Select company first..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Select company first...</SelectItem>
+                      {organizations.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {companyId && (
+                  <div className="space-y-2">
+                    <Label>Unit / Store</Label>
+                    <Select value={unitId || 'none'} onValueChange={v => setUnitId(v === 'none' ? '' : v)}>
+                      <SelectTrigger><SelectValue placeholder="Select unit..." /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Select unit...</SelectItem>
+                        {stores.map(s => <SelectItem key={s.id} value={s.id}>{s.name}{s.code ? ` (${s.code})` : ''}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={onClose}>Cancel</Button>
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                Save
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================================
 // PER-ITEM ON-FAIL → ASSIGN TRAINING (inside Properties Drawer Settings tab)
 // ============================================================================
 
@@ -2784,12 +3048,27 @@ export function FormBuilder({
 }: FormBuilderProps) {
   const { t } = useTranslation();
   const hook = useFormBuilder({ formId, orgId, initialType });
-  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [showPublishConfirm, setShowPublishConfirm] = useState(false);
-  const [tagInput, setTagInput] = useState('');
   const [showDependencies, setShowDependencies] = useState(false);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+
+  // Scope
+  const [showScopeModal, setShowScopeModal] = useState(false);
+  const [scopeData, setScopeData] = useState<FormScopeEnriched | null>(null);
+  useEffect(() => {
+    if (!hook.form?.id || hook.form.id.startsWith('new-')) return;
+    getFormScope(hook.form.id).then(setScopeData).catch(() => {});
+  }, [hook.form?.id]);
+
+  // Content topic tags from tags table
+  const [contentTopics, setContentTopics] = useState<{ id: string; name: string }[]>([]);
+  const [showTagDropdown, setShowTagDropdown] = useState(false);
+  useEffect(() => {
+    getTagsByCategory('content').then(tags => {
+      setContentTopics(tags.map(t => ({ id: t.id, name: t.name })));
+    }).catch(() => {});
+  }, []);
 
   // Track blocks with out-of-order dependency issues: blockId → error message
   const orderIssues = useMemo(() => {
@@ -2814,20 +3093,18 @@ export function FormBuilder({
   }, [hook.blocks, t]);
 
   const addTag = useCallback((tag: string) => {
-    const trimmed = tag.trim().replace(/,/g, '');
+    const trimmed = tag.trim();
     if (!trimmed) return;
     const current = hook.form?.tags || [];
     if (!current.includes(trimmed)) {
       hook.setFormTags([...current, trimmed]);
     }
-    setTagInput('');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    setShowTagDropdown(false);
   }, [hook.form?.tags, hook.setFormTags]);
 
   const removeTag = useCallback((tag: string) => {
     const current = hook.form?.tags || [];
     hook.setFormTags(current.filter(t => t !== tag));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hook.form?.tags, hook.setFormTags]);
 
   const sensors = useSensors(
@@ -2914,29 +3191,6 @@ export function FormBuilder({
     await hook.publishForm();
     onPublished?.();
   }
-
-  // Map blocks to FormRenderer format for preview
-  const previewBlocks = hook.blocks.map(b => ({
-    id: b.id,
-    type: b.block_type,
-    label: b.label,
-    description: b.description,
-    placeholder: b.placeholder,
-    is_required: b.is_required,
-    options: b.options,
-    validation_rules: b.validation_rules,
-    conditional_logic: b.conditional_logic,
-    section_id: b.section_id,
-  }));
-
-  // Map sections to FormRenderer format for preview
-  const previewSections = hook.sections.map((s, i) => ({
-    id: s.id,
-    title: s.title,
-    description: s.description,
-    display_order: s.display_order ?? i,
-    settings: s.settings,
-  }));
 
   const selectedBlock = hook.selectedBlockId
     ? hook.blocks.find(b => b.id === hook.selectedBlockId) ?? null
@@ -3101,12 +3355,16 @@ export function FormBuilder({
           {/* Autosave indicator */}
           <AutosaveIndicator isSaving={hook.isSaving} isDirty={hook.isDirty} />
 
-          {/* Preview button */}
+          {/* Preview button — opens the live fill page in a new tab */}
           <Button
             variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={() => setShowPreviewDialog(true)}
+            onClick={() => {
+              if (hook.form?.id) {
+                window.open(`${window.location.origin}/fill/${hook.form.id}`, '_blank');
+              }
+            }}
           >
             <Eye className="h-3.5 w-3.5" />
             {t('forms.builderPreview')}
@@ -3202,13 +3460,25 @@ export function FormBuilder({
           </button>
         </div>
 
-        {/* Tags row */}
+        {/* Scope + Tags row */}
         <div className="flex items-center gap-2 flex-wrap px-4 pb-2">
+          {/* Scope badge */}
+          <button
+            type="button"
+            onClick={() => setShowScopeModal(true)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-500 text-xs font-medium hover:bg-blue-500/25 transition-colors cursor-pointer border border-blue-500/20"
+          >
+            <Globe className="h-3 w-3" />
+            {scopeData ? formatScopeLabel(scopeData) : 'Set scope'}
+          </button>
+
+          {/* Content topic tags */}
           {(hook.form?.tags || []).map((tag) => (
             <span
               key={tag}
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/20 text-primary text-xs font-medium"
             >
+              <Tag className="h-2.5 w-2.5" />
               {tag}
               <button
                 type="button"
@@ -3220,19 +3490,37 @@ export function FormBuilder({
               </button>
             </span>
           ))}
-          <input
-            type="text"
-            placeholder={t('forms.builderAddTag')}
-            value={tagInput}
-            onChange={(e) => setTagInput(e.target.value)}
-            onKeyDown={(e) => {
-              if ((e.key === 'Enter' || e.key === ',') && tagInput.trim()) {
-                e.preventDefault();
-                addTag(tagInput);
-              }
-            }}
-            className="text-xs bg-transparent border-none outline-none placeholder:text-muted-foreground w-24"
-          />
+
+          {/* Add tag dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowTagDropdown(v => !v)}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-dashed border-muted-foreground/30 text-muted-foreground text-xs hover:border-primary/40 hover:text-primary transition-colors"
+            >
+              <Plus className="h-2.5 w-2.5" />
+              {t('forms.builderAddTag')}
+            </button>
+            {showTagDropdown && (
+              <div className="absolute top-full left-0 mt-1 z-50 w-56 bg-popover border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto py-1">
+                {contentTopics
+                  .filter(ct => !(hook.form?.tags || []).includes(ct.name))
+                  .map(ct => (
+                    <button
+                      key={ct.id}
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors"
+                      onClick={() => addTag(ct.name)}
+                    >
+                      {ct.name}
+                    </button>
+                  ))}
+                {contentTopics.filter(ct => !(hook.form?.tags || []).includes(ct.name)).length === 0 && (
+                  <p className="px-3 py-1.5 text-xs text-muted-foreground italic">No more topics</p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -3504,29 +3792,6 @@ export function FormBuilder({
       </div>
 
       {/* ================================================================
-          PREVIEW DIALOG
-      ================================================================ */}
-      <Dialog open={showPreviewDialog} onOpenChange={setShowPreviewDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{hook.form?.title ?? t('forms.builderFormPreviewTitle')}</DialogTitle>
-            <DialogDescription>
-              {t('forms.builderFormPreviewDesc')}
-            </DialogDescription>
-          </DialogHeader>
-          <div>
-            {previewBlocks.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                {t('forms.builderNoBlocksPreview')}
-              </p>
-            ) : (
-              <FormRenderer blocks={previewBlocks} sections={previewSections} answers={{}} readOnly={false} formType={hook.form?.type} formTitle={hook.form?.title} />
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* ================================================================
           PUBLISH CONFIRM DIALOG
       ================================================================ */}
       <Dialog open={showPublishConfirm} onOpenChange={setShowPublishConfirm}>
@@ -3552,6 +3817,19 @@ export function FormBuilder({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ================================================================
+          FORM SCOPE MODAL
+      ================================================================ */}
+      {hook.form?.id && hook.form.organization_id && (
+        <FormScopeModal
+          isOpen={showScopeModal}
+          onClose={() => setShowScopeModal(false)}
+          formId={hook.form.id}
+          organizationId={hook.form.organization_id}
+          onSaved={(scope) => setScopeData(scope)}
+        />
+      )}
     </div>
   );
 }
