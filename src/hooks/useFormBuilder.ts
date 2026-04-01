@@ -310,8 +310,8 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
 
       setIsDirty(false);
       isDirtyRef.current = false;
-    } catch (err) {
-      console.error('Error saving form:', err);
+    } catch (err: any) {
+      console.error('[FormBuilder] Save failed:', err?.message || err, err?.details || '', err?.code || '');
       setError(err instanceof Error ? err.message : 'Failed to save form');
       // Keep isDirty so the user knows a save failure occurred and can retry
       setIsDirty(true);
