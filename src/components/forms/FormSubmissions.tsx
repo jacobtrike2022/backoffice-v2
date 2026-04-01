@@ -577,6 +577,9 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
           } else {
             displayVal = '<em style="color:#94a3b8;">No location</em>';
           }
+        } else if (block.type === 'store_lookup' || block.type === 'role_lookup') {
+          const labelVal = rd[`${block.id}__label`];
+          displayVal = labelVal ? escHtml(String(labelVal)) : (rawVal ? escHtml(String(rawVal)) : '<em style="color:#94a3b8;">No selection</em>');
         } else if (block.type === 'photo' || block.type === 'file' || block.type === 'file_upload') {
           if (Array.isArray(rawVal)) {
             displayVal = rawVal.map((f: unknown) => {

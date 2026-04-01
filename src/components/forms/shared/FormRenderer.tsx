@@ -157,6 +157,96 @@ const EMPTY_SECTIONS: FormSectionData[] = [];
 const EMPTY_STORES: StoreOption[] = [];
 const DEFAULT_SHIFT_OPTIONS = ['Opening', 'Mid-day', 'Closing', 'Overnight'];
 
+// ─── Reference Lookup Block Components ───────────────────────────────────────
+
+function StoreLookupBlock({ block, value, onChange, readOnly, t }: {
+  block: FormBlockData; value: unknown; onChange: (id: string, val: unknown) => void; readOnly: boolean; t: (k: string) => string;
+}) {
+  const [options, setOptions] = React.useState<{ id: string; name: string; code?: string }[]>([]);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from('stores').select('id, name, code').order('name');
+      if (!cancelled && data) setOptions(data);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  return (
+    <div className="space-y-2">
+      <Label>
+        {block.label || t('forms.storeLookup')}
+        {block.is_required && <span className="text-destructive ml-1">*</span>}
+      </Label>
+      {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
+      <Select
+        value={(value as string) || 'none'}
+        onValueChange={(v) => {
+          const selected = options.find(o => o.id === v);
+          onChange(block.id, v === 'none' ? '' : v);
+          if (selected) onChange(`${block.id}__label`, selected.code ? `${selected.name} (${selected.code})` : selected.name);
+        }}
+        disabled={readOnly}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder={t('forms.storeLookupPlaceholder')} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">{t('forms.storeLookupPlaceholder')}</SelectItem>
+          {options.map(s => (
+            <SelectItem key={s.id} value={s.id}>
+              {s.code ? `${s.name} (${s.code})` : s.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function RoleLookupBlock({ block, value, onChange, readOnly, t }: {
+  block: FormBlockData; value: unknown; onChange: (id: string, val: unknown) => void; readOnly: boolean; t: (k: string) => string;
+}) {
+  const [options, setOptions] = React.useState<{ id: string; name: string }[]>([]);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from('roles').select('id, name').order('name');
+      if (!cancelled && data) setOptions(data);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  return (
+    <div className="space-y-2">
+      <Label>
+        {block.label || t('forms.roleLookup')}
+        {block.is_required && <span className="text-destructive ml-1">*</span>}
+      </Label>
+      {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
+      <Select
+        value={(value as string) || 'none'}
+        onValueChange={(v) => {
+          const selected = options.find(o => o.id === v);
+          onChange(block.id, v === 'none' ? '' : v);
+          if (selected) onChange(`${block.id}__label`, selected.name);
+        }}
+        disabled={readOnly}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder={t('forms.roleLookupPlaceholder')} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">{t('forms.roleLookupPlaceholder')}</SelectItem>
+          {options.map(r => (
+            <SelectItem key={r.id} value={r.id}>
+              {r.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPTY_ANSWERS, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle, linkedContent, ojtMetadata, onOjtMetadataChange, startConfig, stores = EMPTY_STORES }: FormRendererProps) {
   const { t } = useTranslation();
   const [formData, setFormData] = React.useState<Record<string, unknown>>(answers);
@@ -1105,6 +1195,12 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
             )}
           </div>
         );
+
+      case 'store_lookup':
+        return <StoreLookupBlock key={block.id} block={block} value={value} onChange={handleChange} readOnly={readOnly} t={t} />;
+
+      case 'role_lookup':
+        return <RoleLookupBlock key={block.id} block={block} value={value} onChange={handleChange} readOnly={readOnly} t={t} />;
 
       case 'instruction': {
         // Render description with basic formatting: **bold**, _italic_, \n → <br>
