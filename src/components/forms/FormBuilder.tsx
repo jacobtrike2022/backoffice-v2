@@ -1812,19 +1812,26 @@ function FormScopeModal({ isOpen, onClose, formId, organizationId, onSaved }: {
       getUsStates(),
       getIndustriesForScope(null),
       getProgramsForScope(),
-      getOrganizationsForScope(true),
+      getOrganizationsForScope(true).catch(() => []),
+      // Also fetch current org name as fallback
+      supabase.from('organizations').select('id, name').eq('id', organizationId).then(r => r.data?.[0]),
     ])
-      .then(([scope, states, ind, prog, orgs]) => {
+      .then(([scope, states, ind, prog, orgs, currentOrg]) => {
         setUsStates(states as any[]);
         setIndustries(ind as any[]);
         setPrograms(prog);
-        setOrganizations(orgs);
+        // Ensure current org is always in the list
+        let orgList = (orgs || []) as { id: string; name: string }[];
+        if (currentOrg && !orgList.find(o => o.id === currentOrg.id)) {
+          orgList = [currentOrg as { id: string; name: string }, ...orgList];
+        }
+        setOrganizations(orgList);
         if (scope) {
           setScopeLevel(scope.scope_level);
           setSector((scope.sector as SectorType) || '');
           setIndustryId(scope.industry_id || '');
           setStateId(scope.state_id || '');
-          setCompanyId(scope.company_id || '');
+          setCompanyId(scope.company_id || organizationId);
           setProgramId(scope.program_id || '');
           setUnitId(scope.unit_id || '');
         } else {
@@ -3063,7 +3070,6 @@ export function FormBuilder({
 
   // Content topic tags from tags table
   const [contentTopics, setContentTopics] = useState<{ id: string; name: string }[]>([]);
-  const [showTagDropdown, setShowTagDropdown] = useState(false);
   useEffect(() => {
     getTagsByCategory('content').then(tags => {
       setContentTopics(tags.map(t => ({ id: t.id, name: t.name })));
@@ -3099,7 +3105,6 @@ export function FormBuilder({
     if (!current.includes(trimmed)) {
       hook.setFormTags([...current, trimmed]);
     }
-    setShowTagDropdown(false);
   }, [hook.form?.tags, hook.setFormTags]);
 
   const removeTag = useCallback((tag: string) => {
@@ -3492,35 +3497,27 @@ export function FormBuilder({
           ))}
 
           {/* Add tag dropdown */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowTagDropdown(v => !v)}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-dashed border-muted-foreground/30 text-muted-foreground text-xs hover:border-primary/40 hover:text-primary transition-colors"
-            >
+          <Select
+            value="__trigger__"
+            onValueChange={v => { if (v !== '__trigger__') addTag(v); }}
+          >
+            <SelectTrigger className="h-6 w-auto gap-1 px-2 py-0 rounded-full border-dashed border-muted-foreground/30 text-muted-foreground text-xs hover:border-primary/40 hover:text-primary bg-transparent shadow-none">
               <Plus className="h-2.5 w-2.5" />
-              {t('forms.builderAddTag')}
-            </button>
-            {showTagDropdown && (
-              <div className="absolute top-full left-0 mt-1 z-50 w-56 bg-popover border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto py-1">
-                {contentTopics
-                  .filter(ct => !(hook.form?.tags || []).includes(ct.name))
-                  .map(ct => (
-                    <button
-                      key={ct.id}
-                      type="button"
-                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors"
-                      onClick={() => addTag(ct.name)}
-                    >
-                      {ct.name}
-                    </button>
-                  ))}
-                {contentTopics.filter(ct => !(hook.form?.tags || []).includes(ct.name)).length === 0 && (
-                  <p className="px-3 py-1.5 text-xs text-muted-foreground italic">No more topics</p>
-                )}
-              </div>
-            )}
-          </div>
+              <span>{t('forms.builderAddTag')}</span>
+            </SelectTrigger>
+            <SelectContent>
+              {contentTopics
+                .filter(ct => !(hook.form?.tags || []).includes(ct.name))
+                .map(ct => (
+                  <SelectItem key={ct.id} value={ct.name}>
+                    {ct.name}
+                  </SelectItem>
+                ))}
+              {contentTopics.filter(ct => !(hook.form?.tags || []).includes(ct.name)).length === 0 && (
+                <SelectItem value="__none__" disabled>No more topics</SelectItem>
+              )}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
