@@ -2172,13 +2172,9 @@ function StartConfigPanel({ config, onChange }: StartConfigPanelProps) {
   const [expanded, setExpanded] = useState(false);
 
   const identityMode = config.identity_mode || 'individual';
-  const requireLocation = config.require_location ?? false;
-  const requireShift = config.require_shift ?? false;
   const submissionLimit = config.submission_limit || 'unlimited';
-  const shiftOptions = config.shift_options ?? DEFAULT_SHIFT_OPTIONS;
-  const [customShift, setCustomShift] = useState('');
 
-  const hasConfig = identityMode !== 'individual' || requireLocation || requireShift || submissionLimit !== 'unlimited';
+  const hasConfig = identityMode !== 'individual' || submissionLimit !== 'unlimited';
 
   return (
     <div className="mt-2 mb-2 border border-border rounded-lg overflow-hidden">
@@ -2235,90 +2231,6 @@ function StartConfigPanel({ config, onChange }: StartConfigPanelProps) {
               {identityMode === 'anonymous' && t('forms.startConfigIdentityAnonymousDesc')}
             </p>
           </div>
-
-          <Separator />
-
-          {/* Require Location */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-              <Label className="text-xs font-medium">{t('forms.startConfigRequireLocation')}</Label>
-            </div>
-            <Switch
-              checked={requireLocation}
-              onCheckedChange={(v) => onChange({ ...config, require_location: v })}
-            />
-          </div>
-          {requireLocation && (
-            <p className="text-[11px] text-muted-foreground/70 -mt-3 pl-5">
-              {t('forms.startConfigRequireLocationHint')}
-            </p>
-          )}
-
-          {/* Require Shift */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <Timer className="h-3.5 w-3.5 text-muted-foreground" />
-              <Label className="text-xs font-medium">{t('forms.startConfigRequireShift')}</Label>
-            </div>
-            <Switch
-              checked={requireShift}
-              onCheckedChange={(v) => onChange({ ...config, require_shift: v })}
-            />
-          </div>
-
-          {requireShift && (
-            <div className="space-y-2 pl-5 -mt-2">
-              <Label className="text-[11px] text-muted-foreground">{t('forms.startConfigShiftOptions')}</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {shiftOptions.map((opt, i) => (
-                  <Badge key={i} variant="secondary" className="text-xs gap-1 pl-2 pr-1 py-0.5">
-                    {opt}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const updated = shiftOptions.filter((_, idx) => idx !== i);
-                        onChange({ ...config, shift_options: updated });
-                      }}
-                      className="hover:text-destructive ml-0.5"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-              <div className="flex gap-1.5">
-                <Input
-                  value={customShift}
-                  onChange={(e) => setCustomShift(e.target.value)}
-                  placeholder={t('forms.startConfigAddShift')}
-                  className="h-7 text-xs flex-1"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && customShift.trim()) {
-                      e.preventDefault();
-                      onChange({ ...config, shift_options: [...shiftOptions, customShift.trim()] });
-                      setCustomShift('');
-                    }
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs px-2"
-                  disabled={!customShift.trim()}
-                  onClick={() => {
-                    if (customShift.trim()) {
-                      onChange({ ...config, shift_options: [...shiftOptions, customShift.trim()] });
-                      setCustomShift('');
-                    }
-                  }}
-                >
-                  <Plus className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          )}
 
           <Separator />
 
