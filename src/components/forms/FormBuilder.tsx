@@ -1373,6 +1373,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
 // ============================================================================
 
 interface SectionHeaderCardProps {
+  sectionId: string;
   title: string;
   description?: string;
   hasConditions?: boolean;
@@ -1384,6 +1385,7 @@ interface SectionHeaderCardProps {
 }
 
 function SectionHeaderCard({
+  sectionId,
   title,
   description,
   hasConditions,
@@ -1394,8 +1396,25 @@ function SectionHeaderCard({
   onClick,
 }: SectionHeaderCardProps) {
   const { t } = useTranslation();
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: `section-${sectionId}` });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
   return (
     <div
+      ref={setNodeRef}
+      style={style}
       className={`rounded-xl border-2 border-dashed px-5 py-3 mb-2 group relative cursor-pointer transition-colors ${
         isSelected
           ? 'border-primary bg-primary/10 ring-2 ring-primary/20'
@@ -1403,6 +1422,16 @@ function SectionHeaderCard({
       }`}
       onClick={onClick}
     >
+      {/* Drag handle */}
+      <div
+        {...attributes}
+        {...listeners}
+        className="absolute left-2 top-1/2 -translate-y-1/2 cursor-grab text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+        onClick={e => e.stopPropagation()}
+      >
+        <GripVertical className="h-4 w-4" />
+      </div>
+
       {/* Top-right controls */}
       <div className="absolute right-2 top-2 flex items-center gap-1">
         {hasConditions && (
@@ -2689,6 +2718,17 @@ export function FormBuilder({
     }
   }
 
+  function handleSectionDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const activeId = (active.id as string).replace('section-', '');
+    const overId = (over.id as string).replace('section-', '');
+    const oldIndex = hook.sections.findIndex(s => s.id === activeId);
+    const newIndex = hook.sections.findIndex(s => s.id === overId);
+    if (oldIndex === -1 || newIndex === -1) return;
+    hook.reorderSection(activeId, newIndex);
+  }
+
   async function handlePublish() {
     setShowPublishConfirm(false);
     await hook.publishForm();
@@ -3115,10 +3155,20 @@ export function FormBuilder({
               </SortableContext>
             </DndContext>
 
-            {/* Sectioned blocks */}
+            {/* Sectioned blocks — sections are drag-and-drop reorderable */}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleSectionDragEnd}
+            >
+              <SortableContext
+                items={hook.sections.map(s => `section-${s.id}`)}
+                strategy={verticalListSortingStrategy}
+              >
             {hook.sections.map(section => (
               <div key={section.id} className="mt-4">
                 <SectionHeaderCard
+                  sectionId={section.id}
                   title={section.title}
                   description={section.description}
                   hasConditions={!!(section.settings && (section.settings as Record<string, unknown>).conditional_logic && ((section.settings as Record<string, unknown>).conditional_logic as ConditionalLogic)?.conditions?.length)}
@@ -3161,6 +3211,8 @@ export function FormBuilder({
                 )}
               </div>
             ))}
+              </SortableContext>
+            </DndContext>
 
             {/* Add Section button */}
             <div className="flex justify-center mt-6 mb-4">
