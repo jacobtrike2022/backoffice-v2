@@ -16485,7 +16485,7 @@ function buildFormEmailHtml(params: {
 
   const brandDisplayName = orgName ? escapeHtml(orgName) : 'Trike';
   const headerLogoHtml = orgLogoUrl
-    ? `<img src="${escapeHtml(orgLogoUrl)}" alt="${brandDisplayName}" style="height:36px;margin-bottom:8px;" />`
+    ? `<img src="${escapeHtml(orgLogoUrl)}" alt="${brandDisplayName}" style="height:40px;" />`
     : `<div style="font-size: 20px; font-weight: 700; color: #fff; letter-spacing: -0.02em;">${brandDisplayName}</div>`;
 
   return `<!DOCTYPE html>
@@ -16495,7 +16495,7 @@ function buildFormEmailHtml(params: {
   <div style="max-width: 600px; margin: 0 auto; padding: 24px;">
     <div style="background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
       <!-- Header -->
-      <div style="background: #f97316; padding: 24px; text-align: center;">
+      <div style="background: #1e293b; padding: 24px; text-align: center;">
         ${headerLogoHtml}
       </div>
       <!-- Body -->
@@ -16650,16 +16650,20 @@ async function processFormSubmissionEmails(params: {
 
     // Fetch org info for branding
     let orgName = '';
-    let orgLogoUrl = '';
+    let orgLogoUrl = ''; // light logo for dark email header
+    let orgLogoDarkUrl = ''; // dark logo for white PDF background
     try {
       const { data: org } = await supabase
         .from('organizations')
-        .select('name, logo_dark_url')
+        .select('name, logo_dark_url, logo_light_url')
         .eq('id', params.organization_id)
         .single();
       if (org) {
         orgName = org.name || '';
-        orgLogoUrl = org.logo_dark_url || '';
+        // Email (dark header): prefer light logo so it's visible on dark bg
+        orgLogoUrl = org.logo_light_url || org.logo_dark_url || '';
+        // PDF (white background): prefer dark logo
+        orgLogoDarkUrl = org.logo_dark_url || org.logo_light_url || '';
       }
     } catch (_e) { /* non-fatal */ }
 
@@ -16729,7 +16733,7 @@ async function processFormSubmissionEmails(params: {
               score: params.score,
               blocks: blocks || [],
               responses: params.responses,
-              orgLogoUrl: orgLogoUrl || undefined,
+              orgLogoUrl: orgLogoDarkUrl || undefined,
               orgName: orgName || undefined,
             });
             // Resend expects base64-encoded content for attachments
@@ -16824,7 +16828,7 @@ async function processFormSubmissionEmails(params: {
             score: params.score,
             blocks: blocks || [],
             responses: params.responses,
-            orgLogoUrl: orgLogoUrl || undefined,
+            orgLogoUrl: orgLogoDarkUrl || undefined,
             orgName: orgName || undefined,
           });
           const base64Content = btoa(unescape(encodeURIComponent(thresholdPdfHtml)));
