@@ -496,8 +496,8 @@ export async function getFormSubmissions(
     .from('form_submissions')
     .select(`
       *,
-      submitted_by:users!form_submissions_submitted_by_id_fkey(name, email),
-      approved_by:users!form_submissions_approved_by_id_fkey(name, email)
+      submitted_by:users!form_submissions_user_id_fkey(first_name, last_name, email),
+      reviewed_by:users!form_submissions_reviewed_by_fkey(first_name, last_name, email)
     `)
     .eq('form_id', formId);
 
