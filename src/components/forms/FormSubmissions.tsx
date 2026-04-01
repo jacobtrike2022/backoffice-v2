@@ -695,7 +695,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
   return (
     <div className="flex flex-col lg:flex-row gap-4 min-h-[600px]">
       {/* ── Left pane: form selector + submission list ── */}
-      <div className="w-full lg:w-80 flex flex-col gap-3 shrink-0">
+      <div className={`flex flex-col gap-3 shrink-0 ${selectedFormId !== 'none' && filteredSubmissions.length > 0 ? 'w-full lg:w-80' : 'w-full'}`}>
         {/* Form selector */}
         <div>
           {!orgId ? (
@@ -895,8 +895,8 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
         )}
       </div>
 
-      {/* ── Right pane: submission detail (hidden when no form is selected) ── */}
-      {selectedFormId !== 'none' && (
+      {/* ── Right pane: submission detail (hidden when no form or no submissions) ── */}
+      {selectedFormId !== 'none' && filteredSubmissions.length > 0 && (
       <div className="flex-1 min-w-0">
         {!selectedSubmission ? (
           <Card className="min-h-[400px] flex items-center justify-center">
