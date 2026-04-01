@@ -72,6 +72,7 @@ import {
   Pen,
   Network,
   ArrowRight,
+  ShieldAlert,
 } from 'lucide-react';
 import { useFormBuilder, type LocalBlock, type SubmissionConfig, type EmailNotification } from '../../hooks/useFormBuilder';
 import { FormRenderer } from './shared/FormRenderer';
@@ -379,6 +380,7 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
     : 'border-l-primary';
 
   const hasLogic = !!(block.conditional_logic && (block.conditional_logic as ConditionalLogic).conditions?.length);
+  const isCritical = !!(block.validation_rules as Record<string, unknown> | undefined)?._critical;
   const summaryText = hasLogic && !isSelected
     ? conditionSummaryText(block.conditional_logic as ConditionalLogic, allBlocks, t)
     : '';
@@ -438,6 +440,12 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
             <span className="text-xs text-muted-foreground">
               {typeDef ? t(typeDef.labelKey) : block.block_type}
             </span>
+            {isCritical && (
+              <Badge variant="outline" className="text-xs px-1 py-0 h-4 ml-1 border-red-500/40 text-red-500">
+                <ShieldAlert className="h-2.5 w-2.5 mr-0.5" />
+                {t('forms.criticalBadge')}
+              </Badge>
+            )}
             {hasLogic && (
               <Badge variant="outline" className="text-xs px-1 py-0 h-4 ml-1">
                 <GitBranch className="h-2.5 w-2.5 mr-0.5" />
@@ -880,9 +888,6 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
               <span className={`absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full ${orderIssueMessage ? 'bg-red-500' : 'bg-primary'}`} style={{ border: '2px solid var(--background)' }} />
             )}
           </TabsTrigger>
-          {showScoringTab && (
-            <TabsTrigger value="scoring" className="text-xs h-7 px-3">{t('forms.propTabScoring')}</TabsTrigger>
-          )}
         </TabsList>
         </div>
 
@@ -1149,6 +1154,129 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
           </div>
         )}
 
+        {/* ── SCORING CONTROLS (inline in Settings tab) ──── */}
+        {showScoringTab && (() => {
+          const vr = (block.validation_rules ?? {}) as Record<string, unknown>;
+          const isCritical = !!(vr._critical);
+          const allowNa = !!(vr._allow_na);
+          const correctAnswer = ((vr._correct_answer as string) ?? '');
+          const opts = block.options ?? [];
+
+          const updateValidationRule = (key: string, value: unknown) => {
+            onUpdate({ validation_rules: { ...block.validation_rules, [key]: value } });
+          };
+
+          return (
+            <>
+              <Separator />
+              <div>
+                <p className="text-sm font-medium">{t('forms.propScoring')}</p>
+                <p className="text-xs text-muted-foreground">{t('forms.propScoringDescNew')}</p>
+              </div>
+
+              {/* Critical item toggle */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="block-critical" className="text-xs font-medium cursor-pointer flex items-center gap-1.5">
+                    <ShieldAlert className="h-3.5 w-3.5 text-red-500" />
+                    {t('forms.propCriticalItem')}
+                  </Label>
+                  <p className="text-[10px] text-muted-foreground">{t('forms.propCriticalItemDesc')}</p>
+                </div>
+                <Switch
+                  id="block-critical"
+                  checked={isCritical}
+                  onCheckedChange={checked => updateValidationRule('_critical', checked)}
+                />
+              </div>
+
+              {/* Allow N/A toggle — only for yes_no blocks */}
+              {block.block_type === 'yes_no' && (
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="block-allow-na" className="text-xs font-medium cursor-pointer">{t('forms.propAllowNA')}</Label>
+                    <p className="text-[10px] text-muted-foreground">{t('forms.propAllowNADesc')}</p>
+                  </div>
+                  <Switch
+                    id="block-allow-na"
+                    checked={allowNa}
+                    onCheckedChange={checked => updateValidationRule('_allow_na', checked)}
+                  />
+                </div>
+              )}
+
+              {/* Correct answer */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">{t('forms.propCorrectAnswer')}</Label>
+                {block.block_type === 'yes_no' ? (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateValidationRule('_correct_answer', 'yes')}
+                      className={`flex-1 py-2 rounded-lg border-2 font-medium text-xs transition-colors ${
+                        (!correctAnswer || correctAnswer === 'yes') ? 'border-green-500 bg-green-500/20 text-green-400' : 'border-border hover:border-green-500/50'
+                      }`}
+                    >
+                      {t('forms.propExpectedYes')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateValidationRule('_correct_answer', 'no')}
+                      className={`flex-1 py-2 rounded-lg border-2 font-medium text-xs transition-colors ${
+                        correctAnswer === 'no' ? 'border-red-500 bg-red-500/20 text-red-400' : 'border-border hover:border-red-500/50'
+                      }`}
+                    >
+                      {t('forms.propExpectedNo')}
+                    </button>
+                  </div>
+                ) : ['radio', 'dropdown'].includes(block.block_type) && opts.length > 0 ? (
+                  <Select
+                    value={correctAnswer || 'none'}
+                    onValueChange={v => updateValidationRule('_correct_answer', v === 'none' ? '' : v)}
+                  >
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder={t('forms.propSelectCorrectAnswer')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">{t('forms.propSelectCorrectAnswer')}</SelectItem>
+                      {opts.map((opt, i) => (
+                        <SelectItem key={i} value={opt}>{opt}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : block.block_type === 'checkboxes' && opts.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] text-muted-foreground">{t('forms.propCheckboxesCorrectHint')}</p>
+                    <Input
+                      value={correctAnswer}
+                      onChange={e => updateValidationRule('_correct_answer', e.target.value)}
+                      placeholder="e.g. Option 1, Option 3"
+                      className="text-sm"
+                    />
+                  </div>
+                ) : block.block_type === 'rating' ? (
+                  <Input
+                    type="number"
+                    min={1}
+                    max={(block.settings?.max_stars as number) ?? 5}
+                    value={correctAnswer}
+                    onChange={e => updateValidationRule('_correct_answer', e.target.value)}
+                    placeholder="e.g. 5"
+                    className="text-sm"
+                  />
+                ) : (
+                  <Input
+                    value={correctAnswer}
+                    onChange={e => updateValidationRule('_correct_answer', e.target.value)}
+                    placeholder={t('forms.propEnterCorrectAnswer')}
+                    className="text-sm"
+                  />
+                )}
+              </div>
+            </>
+          );
+        })()}
+
         </TabsContent>
 
         {/* ── LOGIC TAB ────────────────────────────────────── */}
@@ -1213,105 +1341,6 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
           </div>
         </TabsContent>
 
-        {/* ── SCORING TAB ──────────────────────────────────── */}
-        {showScoringTab && (() => {
-          const scoreWeight = ((block.settings?.score_weight as number) ?? 0);
-          const correctAnswer = ((block.settings?.correct_answer as string) ?? '');
-          const opts = block.options ?? [];
-
-          const updateScoringSetting = (key: string, value: unknown) => {
-            onUpdate({ settings: { ...block.settings, [key]: value } });
-          };
-
-          return (
-            <TabsContent value="scoring" className="flex-1 overflow-y-auto px-6 py-4 space-y-4 mt-2">
-              <div>
-                <p className="text-sm font-medium">{t('forms.propScoring')}</p>
-                <p className="text-xs text-muted-foreground">{t('forms.propScoringDesc')}</p>
-              </div>
-
-              {/* Score Weight */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">{t('forms.propScoreWeight')}</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={scoreWeight}
-                  onChange={e => {
-                    const v = e.target.value ? Math.min(100, Math.max(0, parseInt(e.target.value))) : 0;
-                    updateScoringSetting('score_weight', v);
-                  }}
-                  placeholder="0"
-                  className="text-sm"
-                />
-                <p className="text-[10px] text-muted-foreground">{t('forms.propScoreWeightHint')}</p>
-              </div>
-
-              {/* Correct Answer */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">{t('forms.propCorrectAnswer')}</Label>
-                {['radio', 'dropdown'].includes(block.block_type) && opts.length > 0 ? (
-                  <Select
-                    value={correctAnswer || 'none'}
-                    onValueChange={v => updateScoringSetting('correct_answer', v === 'none' ? '' : v)}
-                  >
-                    <SelectTrigger className="h-8 text-sm">
-                      <SelectValue placeholder={t('forms.propSelectCorrectAnswer')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">{t('forms.propSelectCorrectAnswer')}</SelectItem>
-                      {opts.map((opt, i) => (
-                        <SelectItem key={i} value={opt}>{opt}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : block.block_type === 'checkboxes' && opts.length > 0 ? (
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] text-muted-foreground">{t('forms.propCheckboxesCorrectHint')}</p>
-                    <Input
-                      value={correctAnswer}
-                      onChange={e => updateScoringSetting('correct_answer', e.target.value)}
-                      placeholder="e.g. Option 1, Option 3"
-                      className="text-sm"
-                    />
-                  </div>
-                ) : block.block_type === 'yes_no' ? (
-                  <Select
-                    value={correctAnswer || 'none'}
-                    onValueChange={v => updateScoringSetting('correct_answer', v === 'none' ? '' : v)}
-                  >
-                    <SelectTrigger className="h-8 text-sm">
-                      <SelectValue placeholder={t('forms.propSelectCorrectAnswer')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">{t('forms.propSelectCorrectAnswer')}</SelectItem>
-                      <SelectItem value="yes">{t('forms.propYes')}</SelectItem>
-                      <SelectItem value="no">{t('forms.propNo')}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : block.block_type === 'rating' ? (
-                  <Input
-                    type="number"
-                    min={1}
-                    max={(block.settings?.max_stars as number) ?? 5}
-                    value={correctAnswer}
-                    onChange={e => updateScoringSetting('correct_answer', e.target.value)}
-                    placeholder="e.g. 5"
-                    className="text-sm"
-                  />
-                ) : (
-                  <Input
-                    value={correctAnswer}
-                    onChange={e => updateScoringSetting('correct_answer', e.target.value)}
-                    placeholder="Enter correct answer..."
-                    className="text-sm"
-                  />
-                )}
-              </div>
-            </TabsContent>
-          );
-        })()}
 
       </Tabs>
 
@@ -2860,13 +2889,21 @@ export function FormBuilder({
               </div>
             )}
             {hook.form?.type === 'audit' && hook.form?.scoring_enabled && hook.blocks.length > 0 && (() => {
-              const scoredBlocks = hook.blocks.filter(b => (b.settings as Record<string, unknown> | undefined)?.score_weight !== undefined && (b.settings as Record<string, unknown>)?.score_weight !== 0);
-              const total = scoredBlocks.reduce((sum, b) => sum + (Number((b.settings as Record<string, unknown>)?.score_weight) || 0), 0);
-              return total > 0 ? (
-                <div className="flex justify-center mt-2">
+              const scoredBlocks = hook.blocks.filter(b => {
+                const vr = (b.validation_rules as Record<string, unknown> | undefined) ?? {};
+                return !!vr._correct_answer;
+              });
+              const criticalCount = scoredBlocks.filter(b => !!(b.validation_rules as Record<string, unknown> | undefined)?._critical).length;
+              return scoredBlocks.length > 0 ? (
+                <div className="flex justify-center mt-2 gap-2">
                   <div className="text-xs text-muted-foreground px-3 py-1 rounded-full bg-muted/60 border border-border">
-                    {t('forms.builderAuditScoreHint', { scored: scoredBlocks.length, total })}
+                    {t('forms.builderAuditScoreHintNew', { scored: scoredBlocks.length, total: hook.blocks.filter(b => SCOREABLE_BLOCK_TYPES.includes(b.block_type)).length })}
                   </div>
+                  {criticalCount > 0 && (
+                    <div className="text-xs text-red-500 px-3 py-1 rounded-full bg-red-500/10 border border-red-500/20">
+                      {t('forms.builderCriticalCount', { count: criticalCount })}
+                    </div>
+                  )}
                 </div>
               ) : null;
             })()}

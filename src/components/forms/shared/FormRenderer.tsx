@@ -43,6 +43,10 @@ export interface ScoringResult {
   passed: boolean;
   total_weight: number;
   earned_weight: number;
+  /** True when any critical item received a failing answer */
+  criticalFail?: boolean;
+  /** Block IDs of critical items that failed */
+  criticalItems?: string[];
 }
 
 export interface SubmissionConfig {
@@ -312,11 +316,12 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
     setValidationErrors({});
     setIsSubmitting(true);
     try {
-      // Compute scoring if enabled
+      // Compute scoring if enabled — equal-weight model with critical items
       let scoring: ScoringResult | undefined;
       if (scoringEnabled) {
-        let totalWeight = 0;
-        let earnedWeight = 0;
+        let totalQuestions = 0;
+        let correctCount = 0;
+        const failedCriticalItems: string[] = [];
 
         for (const block of blocks) {
           // Skip hidden blocks — they should not affect scoring
@@ -324,18 +329,25 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
           // Skip blocks in hidden sections
           if (block.section_id && allHiddenSectionIds.has(block.section_id)) continue;
 
-          const _settings = (block.validation_rules?._settings as Record<string, unknown>) || {};
-          const weight = (_settings.score_weight as number) || 0;
-          const correctAnswer = (_settings.correct_answer as string) || '';
-          if (weight <= 0 || !correctAnswer) continue;
+          const vr = (block.validation_rules ?? {}) as Record<string, unknown>;
+          // Support both new (_correct_answer in validation_rules) and legacy (_settings.correct_answer in validation_rules)
+          const legacySettings = (vr._settings as Record<string, unknown>) || {};
+          const correctAnswer = (vr._correct_answer as string) || (legacySettings.correct_answer as string) || '';
+          const isCritical = !!(vr._critical);
+          const allowNa = !!(vr._allow_na);
 
-          totalWeight += weight;
+          if (!correctAnswer) continue;
+
           const response = formData[block.id];
+
+          // If N/A is allowed and the user answered N/A, exclude from scoring
+          if (allowNa && String(response || '').toLowerCase() === 'n/a') continue;
+
+          totalQuestions += 1;
 
           // Compare response to correct answer
           let isCorrect = false;
           if (block.type === 'checkboxes') {
-            // For checkboxes, compare sorted comma-separated values
             const correctSet = correctAnswer.split(',').map(s => s.trim().toLowerCase()).sort();
             const responseArr = Array.isArray(response)
               ? (response as string[]).map(s => String(s).trim().toLowerCase()).sort()
@@ -349,16 +361,21 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
           }
 
           if (isCorrect) {
-            earnedWeight += weight;
+            correctCount += 1;
+          } else if (isCritical) {
+            failedCriticalItems.push(block.id);
           }
         }
 
-        const scorePercentage = totalWeight > 0 ? (earnedWeight / totalWeight) * 100 : 0;
+        const scorePercentage = totalQuestions > 0 ? (correctCount / totalQuestions) * 100 : 0;
+        const criticalFail = failedCriticalItems.length > 0;
         scoring = {
           score_percentage: Math.round(scorePercentage * 100) / 100,
-          passed: scorePercentage >= passThreshold,
-          total_weight: totalWeight,
-          earned_weight: earnedWeight,
+          passed: !criticalFail && scorePercentage >= passThreshold,
+          total_weight: totalQuestions,
+          earned_weight: correctCount,
+          criticalFail,
+          criticalItems: failedCriticalItems,
         };
       }
 
@@ -812,6 +829,7 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
       case 'yes_no': {
         const yesLabel = (block.validation_rules?.yes_label as string) || 'Yes';
         const noLabel = (block.validation_rules?.no_label as string) || 'No';
+        const allowNa = !!(block.validation_rules as Record<string, unknown> | undefined)?._allow_na;
         return (
           <div key={block.id} className="space-y-2">
             <Label>
@@ -823,8 +841,9 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
               <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
                 value === 'yes' ? 'bg-green-500/20 text-green-400' :
                 value === 'no' ? 'bg-red-500/20 text-red-400' :
+                value === 'n/a' ? 'bg-gray-500/20 text-gray-400' :
                 'text-muted-foreground'
-              }`}>{value === 'yes' ? yesLabel : value === 'no' ? noLabel : '—'}</div>
+              }`}>{value === 'yes' ? yesLabel : value === 'no' ? noLabel : value === 'n/a' ? 'N/A' : '—'}</div>
             ) : (
               <div className="flex gap-3">
                 <button type="button" onClick={() => handleChange(block.id, 'yes')}
@@ -835,6 +854,12 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
                   className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors ${
                     value === 'no' ? 'border-red-500 bg-red-500/20 text-red-400' : 'border-border hover:border-red-500/50'
                   }`}>{noLabel}</button>
+                {allowNa && (
+                  <button type="button" onClick={() => handleChange(block.id, 'n/a')}
+                    className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors ${
+                      value === 'n/a' ? 'border-gray-500 bg-gray-500/20 text-gray-400' : 'border-border hover:border-gray-500/50'
+                    }`}>N/A</button>
+                )}
               </div>
             )}
           </div>
