@@ -42,18 +42,24 @@ interface SubmissionRecord {
   id: string;
   form_id: string;
   organization_id: string;
-  responses: Record<string, unknown> | null;
-  response_data: Record<string, unknown> | null;
+  answers: Record<string, unknown> | null;
   status: string;
   submitted_at: string | null;
-  submitted_by_id: string | null;
-  approved_by_id: string | null;
+  user_id: string | null;
+  reviewed_by_id: string | null;
   total_score: number | null;
   max_possible_score: number | null;
   score_percentage: number | null;
   completion_time_seconds: number | null;
-  submitted_by: { name?: string; email?: string } | null;
-  approved_by: { name?: string; email?: string } | null;
+  submitted_by: { first_name?: string; last_name?: string; email?: string } | null;
+  reviewed_by: { first_name?: string; last_name?: string; email?: string } | null;
+}
+
+/** Get display name from a joined user record */
+function getSubmitterName(user: { first_name?: string; last_name?: string; email?: string } | null | undefined): string {
+  if (!user) return 'Anonymous';
+  const name = [user.first_name, user.last_name].filter(Boolean).join(' ');
+  return name || user.email || 'Anonymous';
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -217,8 +223,8 @@ async function exportSubmissionsCsv(
   // 4. Build rows
   const rows: string[][] = [];
   for (const sub of allSubmissions as any[]) {
-    const rd = sub.response_data || sub.responses || {};
-    const submitterName = sub.submitted_by?.name || 'Anonymous';
+    const rd = sub.answers || {};
+    const submitterName = getSubmitterName(sub.submitted_by);
     const submitterEmail = sub.submitted_by?.email || '';
 
     const fixedCells = [
@@ -506,10 +512,10 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
     const formTitle = form?.title || 'Form Submission';
 
     // Build block-aware response HTML from client-side data
-    const rd = submission.response_data || submission.responses || {};
+    const rd = submission.answers || {};
     const blocks = formBlocks.length > 0 ? formBlocks : [];
 
-    const submitterName = (submission.submitted_by as any)?.name || 'Anonymous';
+    const submitterName = getSubmitterName(submission.submitted_by as any);
     const submitterEmailAddr = (submission.submitted_by as any)?.email || '';
     const submittedAt = submission.submitted_at
       ? new Date(submission.submitted_at).toLocaleDateString('en-US', {
@@ -802,7 +808,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
             ) : (
               <ul className="divide-y divide-border">
                 {filteredSubmissions.map((sub) => {
-                  const submitterName = (sub.submitted_by as any)?.name || 'Anonymous';
+                  const submitterName = getSubmitterName(sub.submitted_by as any);
                   const isSelected = selectedSubmission?.id === sub.id;
                   return (
                     <li key={sub.id}>
@@ -835,7 +841,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                           <div className="mt-1 flex items-center gap-2">
                             {getStatusBadge(sub.status)}
                             {sub.score_percentage != null && (() => {
-                              const rd = sub.response_data || sub.responses || {};
+                              const rd = sub.answers || {};
                               const passed = rd._scoring_passed as boolean | undefined;
                               if (passed === true) {
                                 return (
@@ -863,7 +869,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                                   <div
                                     className={`h-full rounded-full ${
                                       (() => {
-                                        const rd = sub.response_data || sub.responses || {};
+                                        const rd = sub.answers || {};
                                         const passed = rd._scoring_passed as boolean | undefined;
                                         return passed === false ? 'bg-red-500' : 'bg-primary';
                                       })()
@@ -873,7 +879,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                                 </div>
                                 <span className={`text-[10px] font-semibold shrink-0 ${
                                   (() => {
-                                    const rd = sub.response_data || sub.responses || {};
+                                    const rd = sub.answers || {};
                                     const passed = rd._scoring_passed as boolean | undefined;
                                     return passed === false ? 'text-red-500' : 'text-primary';
                                   })()
@@ -916,12 +922,12 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                 <div className="flex items-center gap-3">
                   <Avatar className="h-10 w-10">
                     <AvatarFallback className="bg-primary text-primary-foreground">
-                      {getInitials((selectedSubmission.submitted_by as any)?.name)}
+                      {getInitials(getSubmitterName(selectedSubmission.submitted_by as any))}
                     </AvatarFallback>
                   </Avatar>
                   <div>
                     <CardTitle className="text-base">
-                      {(selectedSubmission.submitted_by as any)?.name || 'Anonymous'}
+                      {getSubmitterName(selectedSubmission.submitted_by as any)}
                     </CardTitle>
                     <p className="text-xs text-muted-foreground">
                       {(selectedSubmission.submitted_by as any)?.email || ''}
@@ -955,7 +961,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
 
               {/* Score gauge */}
               {selectedSubmission.score_percentage != null && (() => {
-                const rd = selectedSubmission.response_data || selectedSubmission.responses || {};
+                const rd = selectedSubmission.answers || {};
                 const passed = rd._scoring_passed as boolean | undefined;
                 const scoreColor = passed === false ? 'text-red-500' : 'text-primary';
                 const barColor = passed === false ? 'bg-red-500' : 'bg-brand-gradient';
@@ -1043,7 +1049,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
               ) : (
                 <FormRenderer
                   blocks={formBlocks}
-                  answers={selectedSubmission.responses || {}}
+                  answers={selectedSubmission.answers || {}}
                   readOnly
                   organizationId={orgId}
                 />
