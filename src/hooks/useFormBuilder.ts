@@ -44,7 +44,6 @@ export interface SubmissionConfig {
     below_threshold_email?: string;
     below_threshold_message?: string;
   };
-  allow_multiple_submissions?: boolean;
   on_fail?: OnFailConfig;
 }
 

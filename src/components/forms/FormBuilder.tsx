@@ -81,6 +81,7 @@ import {
   Timer,
   Repeat,
   UserCircle,
+  GraduationCap,
 } from 'lucide-react';
 import { useFormBuilder, type LocalBlock, type SubmissionConfig, type EmailNotification, type OnFailConfig, type StartConfig } from '../../hooks/useFormBuilder';
 import { FormRenderer } from './shared/FormRenderer';
@@ -390,6 +391,7 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
 
   const hasLogic = !!(block.conditional_logic && (block.conditional_logic as ConditionalLogic).conditions?.length);
   const isCritical = !!(block.validation_rules as Record<string, unknown> | undefined)?._critical;
+  const hasOnFailAssign = !!(block.validation_rules as Record<string, unknown> | undefined)?._on_fail_assign;
   const summaryText = hasLogic && !isSelected
     ? conditionSummaryText(block.conditional_logic as ConditionalLogic, allBlocks, t)
     : '';
@@ -453,6 +455,12 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
               <Badge variant="outline" className="text-xs px-1 py-0 h-4 ml-1 border-red-500/40 text-red-500">
                 <ShieldAlert className="h-2.5 w-2.5 mr-0.5" />
                 {t('forms.criticalBadge')}
+              </Badge>
+            )}
+            {hasOnFailAssign && (
+              <Badge variant="outline" className="text-xs px-1 py-0 h-4 ml-1 border-amber-500/40 text-amber-500">
+                <GraduationCap className="h-2.5 w-2.5 mr-0.5" />
+                {t('forms.onFailTrainingBadge')}
               </Badge>
             )}
             {hasLogic && (
@@ -1286,6 +1294,9 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
           );
         })()}
 
+        {/* ── PER-ITEM ON-FAIL → ASSIGN TRAINING ──── */}
+        {showScoringTab && <PerItemOnFailTraining block={block} onUpdate={onUpdate} />}
+
         </TabsContent>
 
         {/* ── LOGIC TAB ────────────────────────────────────── */}
@@ -1679,12 +1690,123 @@ function AutosaveIndicator({ isSaving, isDirty }: AutosaveIndicatorProps) {
 }
 
 // ============================================================================
+// PER-ITEM ON-FAIL → ASSIGN TRAINING (inside Properties Drawer Settings tab)
+// ============================================================================
+
+function PerItemOnFailTraining({ block, onUpdate }: { block: LocalBlock; onUpdate: (updates: Partial<LocalBlock>) => void }) {
+  const { t } = useTranslation();
+  const vr = (block.validation_rules ?? {}) as Record<string, unknown>;
+  const onFailAssign = vr._on_fail_assign as { type: 'playlist' | 'track'; id: string; title: string } | undefined;
+
+  const [playlists, setPlaylists] = useState<{ id: string; title: string }[]>([]);
+  const [tracks, setTracks] = useState<{ id: string; title: string }[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetch() {
+      const { data: pl } = await supabase.from('playlists').select('id, title').eq('status', 'published').order('title');
+      if (!cancelled && pl) setPlaylists(pl);
+      const { data: tr } = await supabase.from('tracks').select('id, title').eq('status', 'published').order('title');
+      if (!cancelled && tr) setTracks(tr);
+    }
+    fetch();
+    return () => { cancelled = true; };
+  }, []);
+
+  const actionType = onFailAssign?.type ?? 'none';
+  const actionId = onFailAssign?.id ?? '';
+
+  function setOnFail(type: string, id: string, title: string) {
+    if (type === 'none') {
+      const { _on_fail_assign, ...rest } = vr;
+      onUpdate({ validation_rules: rest as LocalBlock['validation_rules'] });
+    } else {
+      onUpdate({ validation_rules: { ...block.validation_rules, _on_fail_assign: { type, id, title } } });
+    }
+  }
+
+  return (
+    <>
+      <Separator />
+      <div className="space-y-2">
+        <div className="flex items-center gap-1.5">
+          <GraduationCap className="h-3.5 w-3.5 text-amber-500" />
+          <Label className="text-xs font-medium">{t('forms.propOnFailAction')}</Label>
+        </div>
+        <p className="text-[10px] text-muted-foreground">{t('forms.propOnFailActionDesc')}</p>
+
+        <Select
+          value={actionType}
+          onValueChange={v => setOnFail(v, '', '')}
+        >
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">{t('forms.propOnFailNoAction')}</SelectItem>
+            <SelectItem value="playlist">{t('forms.propOnFailAssignPlaylist')}</SelectItem>
+            <SelectItem value="track">{t('forms.propOnFailAssignTrack')}</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {actionType === 'playlist' && (
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground">{t('forms.propOnFailTitle')}</Label>
+            <Select
+              value={actionId || 'none'}
+              onValueChange={v => {
+                const selected = playlists.find(p => p.id === v);
+                setOnFail('playlist', v === 'none' ? '' : v, selected?.title ?? '');
+              }}
+            >
+              <SelectTrigger className="h-7 text-xs">
+                <SelectValue placeholder={t('forms.propOnFailIdPlaceholder')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t('forms.propOnFailIdPlaceholder')}</SelectItem>
+                {playlists.map(p => (
+                  <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {actionType === 'track' && (
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground">{t('forms.propOnFailTitle')}</Label>
+            <Select
+              value={actionId || 'none'}
+              onValueChange={v => {
+                const selected = tracks.find(tr => tr.id === v);
+                setOnFail('track', v === 'none' ? '' : v, selected?.title ?? '');
+              }}
+            >
+              <SelectTrigger className="h-7 text-xs">
+                <SelectValue placeholder={t('forms.propOnFailIdPlaceholder')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t('forms.propOnFailIdPlaceholder')}</SelectItem>
+                {tracks.map(tr => (
+                  <SelectItem key={tr.id} value={tr.id}>{tr.title}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ============================================================================
 // SUBMISSION ACTIONS PANEL
 // ============================================================================
 
 interface SubmissionActionsPanelProps {
   config: SubmissionConfig;
   scoringEnabled: boolean;
+  identityMode: 'individual' | 'location' | 'anonymous';
   onChange: (config: SubmissionConfig) => void;
 }
 
@@ -1693,7 +1815,7 @@ function isRoleKeyword(val: string | undefined): boolean {
   return !val || ['manager', 'district_manager', 'admin'].includes(val);
 }
 
-function SubmissionActionsPanel({ config, scoringEnabled, onChange }: SubmissionActionsPanelProps) {
+function SubmissionActionsPanel({ config, scoringEnabled, identityMode, onChange }: SubmissionActionsPanelProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   // Local state for custom threshold email input (when 'specific_email' is chosen in dropdown)
@@ -1762,23 +1884,20 @@ function SubmissionActionsPanel({ config, scoringEnabled, onChange }: Submission
             />
           </div>
 
-          {/* Allow multiple submissions */}
-          <div className="flex items-center justify-between">
-            <Label className="text-xs font-medium">{t('forms.submissionAllowMultiple')}</Label>
-            <Switch
-              checked={config.allow_multiple_submissions ?? false}
-              onCheckedChange={v => onChange({ ...config, allow_multiple_submissions: v })}
-            />
-          </div>
-
-          {/* Send confirmation email to submitter */}
-          <div className="flex items-center justify-between">
-            <Label className="text-xs font-medium">{t('forms.submissionToSubmitter')}</Label>
-            <Switch
-              checked={config.send_email_to_submitter ?? false}
-              onCheckedChange={v => onChange({ ...config, send_email_to_submitter: v })}
-            />
-          </div>
+          {/* Send confirmation email — hidden for anonymous mode */}
+          {identityMode !== 'anonymous' && (
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-medium">
+                {identityMode === 'location'
+                  ? t('forms.submissionToStore')
+                  : t('forms.submissionToSubmitter')}
+              </Label>
+              <Switch
+                checked={config.send_email_to_submitter ?? false}
+                onCheckedChange={v => onChange({ ...config, send_email_to_submitter: v })}
+              />
+            </div>
+          )}
 
           <Separator />
 
@@ -3283,6 +3402,7 @@ export function FormBuilder({
             <SubmissionActionsPanel
               config={hook.form?.submission_config ?? {}}
               scoringEnabled={hook.form?.scoring_enabled ?? false}
+              identityMode={hook.form?.start_config?.identity_mode ?? 'individual'}
               onChange={hook.setSubmissionConfig}
             />
 
