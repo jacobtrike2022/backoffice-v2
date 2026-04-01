@@ -15898,6 +15898,9 @@ If the instruction cannot be applied safely, return the original unchanged.`;
  */
 async function handleFormsPublicGet(req: Request, path: string): Promise<Response> {
   try {
+    const url = new URL(req.url);
+    const isPreview = url.searchParams.get('preview') === 'true';
+
     // Extract formId from path: /forms/public/:formId
     const formId = path.replace("/forms/public/", "").replace("/submit", "").trim();
 
@@ -15917,7 +15920,7 @@ async function handleFormsPublicGet(req: Request, path: string): Promise<Respons
       return jsonResponse({ error: 'not_found', message: 'Form not found' }, 404);
     }
 
-    if (form.status !== 'published') {
+    if (form.status !== 'published' && !isPreview) {
       console.log('❌ Form not published:', formId, form.status);
       return jsonResponse({ error: 'not_published', message: 'This form is not currently accepting responses' }, 403);
     }

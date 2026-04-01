@@ -104,7 +104,8 @@ export function PublicFormFill() {
       }
 
       const anonKey = publicAnonKey || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-      const url = `${EDGE_URL}/forms/public/${formId}`;
+      const isPreview = urlParams.get('preview') === 'true';
+      const url = `${EDGE_URL}/forms/public/${formId}${isPreview ? '?preview=true' : ''}`;
 
       const response = await fetch(url, {
         headers: {
