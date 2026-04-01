@@ -140,7 +140,7 @@ function getFormTypeBadge(type: string, t: (key: string) => string): FormTypeBad
     case 'ojt-checklist':
       return { label: t('forms.formTypeOJT'), className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' };
     case 'survey':
-      return { label: t('forms.formTypeSurvey'), className: 'bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-300' };
+      return { label: t('forms.formTypeSurvey'), className: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300' };
     default:
       return { label: type, className: 'bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-300' };
   }
