@@ -16258,102 +16258,83 @@ function generateSubmissionPdfHtml(params: {
       </div>`
     : '';
 
-  // Build response rows per block
-  const blockMap = new Map(blocks.map(b => [b.id, b]));
-  const responsesHtml = blocks
-    .filter(b => b.type !== 'heading' && b.type !== 'separator' && b.type !== 'section_header' && b.type !== 'paragraph')
-    .map(block => {
-      const rawVal = responses[block.id] ?? responses[block.label || ''] ?? null;
-      const label = block.label || 'Question';
-      let displayVal: string;
+  // Build response rows per block (in display_order)
+  const responsesHtml = blocks.map(block => {
+    const rawVal = responses[block.id] ?? responses[block.label || ''] ?? null;
+    const label = block.label || '';
 
-      // Handle block types specifically
-      if (block.type === 'signature') {
-        // Extract the data URL from the signature value (could be string URL, object with dataUrl/data_url, or raw base64)
-        let sigDataUrl: string | null = null;
-        if (rawVal && typeof rawVal === 'string' && rawVal.startsWith('data:')) {
-          sigDataUrl = rawVal;
-        } else if (rawVal && typeof rawVal === 'object') {
-          sigDataUrl = (rawVal as any).dataUrl || (rawVal as any).data_url || null;
-        }
-        if (sigDataUrl) {
-          displayVal = `<div><img src="${sigDataUrl}" alt="Signature" style="max-width:280px;max-height:100px;border:1px solid #e2e8f0;border-radius:4px;background:#fff;padding:4px;" /><br/><em style="color:#64748b;font-size:11px;">[Digital signature captured]</em></div>`;
-        } else if (rawVal) {
-          displayVal = '<em style="color:#64748b;">[Digital signature captured]</em>';
-        } else {
-          displayVal = '<em style="color:#94a3b8;">No signature</em>';
-        }
-      } else if (block.type === 'yes_no' || block.type === 'yesno') {
-        if (rawVal === true || rawVal === 'yes' || rawVal === 'Yes') {
-          displayVal = '<span style="color:#16a34a;font-weight:600;">&#10003; Yes</span>';
-        } else if (rawVal === false || rawVal === 'no' || rawVal === 'No') {
-          displayVal = '<span style="color:#dc2626;font-weight:600;">&#10007; No</span>';
-        } else {
-          displayVal = '<em style="color:#94a3b8;">No response</em>';
-        }
-      } else if (block.type === 'photo' || block.type === 'file_upload' || block.type === 'file') {
-        if (Array.isArray(rawVal)) {
-          displayVal = rawVal.map((f: any) => {
-            if (typeof f === 'object' && f.url) return `<a href="${escapeHtml(f.url)}" style="color:#3b82f6;">${escapeHtml(f.filename || f.name || 'File')}</a>`;
-            return escapeHtml(String(f));
-          }).join(', ') || '<em style="color:#94a3b8;">No files</em>';
-        } else if (rawVal && typeof rawVal === 'object' && 'url' in (rawVal as any)) {
-          displayVal = `<a href="${escapeHtml((rawVal as any).url)}" style="color:#3b82f6;">${escapeHtml((rawVal as any).filename || 'File')}</a>`;
-        } else {
-          displayVal = '<em style="color:#94a3b8;">No files</em>';
-        }
-      } else if (block.type === 'rating') {
-        const num = Number(rawVal);
-        if (!isNaN(num) && num > 0) {
-          displayVal = '&#9733;'.repeat(num) + '<span style="color:#d4d4d8;">&#9733;</span>'.repeat(Math.max(0, 5 - num)) + ` <span style="color:#64748b;">(${num}/5)</span>`;
-        } else {
-          displayVal = '<em style="color:#94a3b8;">No rating</em>';
-        }
-      } else if (block.type === 'slider') {
-        displayVal = rawVal != null ? `<strong>${escapeHtml(String(rawVal))}</strong>` : '<em style="color:#94a3b8;">No response</em>';
-      } else if (block.type === 'location') {
-        if (rawVal && typeof rawVal === 'object') {
-          const loc = rawVal as Record<string, unknown>;
-          displayVal = `${loc.latitude ?? '—'}, ${loc.longitude ?? '—'}`;
-        } else if (rawVal) {
-          displayVal = escapeHtml(String(rawVal));
-        } else {
-          displayVal = '<em style="color:#94a3b8;">No location</em>';
-        }
-      } else if (block.type === 'store_lookup' || block.type === 'role_lookup') {
-        // Use the companion __label field if available, otherwise show the raw ID
-        const labelVal = responses[`${block.id}__label`];
-        displayVal = labelVal ? escapeHtml(String(labelVal)) : (rawVal ? escapeHtml(String(rawVal)) : '<em style="color:#94a3b8;">No selection</em>');
-      } else if (rawVal === null || rawVal === undefined) {
-        displayVal = '<em style="color:#94a3b8;">No response</em>';
-      } else if (Array.isArray(rawVal)) {
-        displayVal = escapeHtml(rawVal.join(', '));
-      } else if (typeof rawVal === 'boolean') {
-        displayVal = rawVal ? 'Yes' : 'No';
+    // Content blocks: render as full-width elements, not table rows
+    if (block.type === 'instruction') {
+      return `<tr><td colspan="2" style="padding:12px 0;">
+        <div style="background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;padding:12px 16px;">
+          ${label ? `<div style="font-size:13px;font-weight:600;color:#334155;margin-bottom:4px;">${escapeHtml(label)}</div>` : ''}
+          ${block.description ? `<div style="font-size:12px;color:#64748b;line-height:1.5;">${escapeHtml(block.description)}</div>` : ''}
+        </div>
+      </td></tr>`;
+    }
+    if (block.type === 'divider') {
+      return label
+        ? `<tr><td colspan="2" style="padding:16px 0;"><div style="display:flex;align-items:center;gap:12px;"><div style="flex:1;border-top:1px solid #d1d5db;"></div><span style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;">${escapeHtml(label)}</span><div style="flex:1;border-top:1px solid #d1d5db;"></div></div></td></tr>`
+        : `<tr><td colspan="2" style="padding:16px 0;"><div style="border-top:1px solid #d1d5db;"></div></td></tr>`;
+    }
+    if (block.type === 'heading' || block.type === 'separator' || block.type === 'section_header' || block.type === 'paragraph') {
+      return ''; // skip legacy content types
+    }
+
+    let displayVal: string;
+
+    if (block.type === 'signature') {
+      let sigDataUrl: string | null = null;
+      if (rawVal && typeof rawVal === 'string' && (rawVal as string).startsWith('data:')) sigDataUrl = rawVal as string;
+      else if (rawVal && typeof rawVal === 'object') sigDataUrl = (rawVal as any).dataUrl || (rawVal as any).data_url || null;
+      if (sigDataUrl) {
+        displayVal = `<div style="padding:8px 0;"><img src="${sigDataUrl}" alt="Signature" style="max-width:300px;max-height:120px;border:1px solid #e2e8f0;border-radius:4px;background:#fff;padding:6px;display:block;" /><div style="font-size:11px;color:#64748b;margin-top:4px;font-style:italic;">Digital signature captured</div></div>`;
       } else {
-        displayVal = escapeHtml(String(rawVal));
+        displayVal = rawVal ? '<em style="color:#64748b;">Digital signature captured</em>' : '<em style="color:#94a3b8;">No signature</em>';
       }
+    } else if (block.type === 'yes_no' || block.type === 'yesno') {
+      if (rawVal === true || rawVal === 'yes' || rawVal === 'Yes') displayVal = '<span style="color:#16a34a;font-weight:600;">&#10003; Yes</span>';
+      else if (rawVal === false || rawVal === 'no' || rawVal === 'No') displayVal = '<span style="color:#dc2626;font-weight:600;">&#10007; No</span>';
+      else displayVal = '<em style="color:#94a3b8;">—</em>';
+    } else if (block.type === 'photo' || block.type === 'file_upload' || block.type === 'file') {
+      if (Array.isArray(rawVal)) {
+        displayVal = rawVal.map((f: any) => {
+          if (typeof f === 'object' && f.url) return `<a href="${escapeHtml(f.url)}" style="color:#3b82f6;">${escapeHtml(f.filename || f.name || 'File')}</a>`;
+          return escapeHtml(String(f));
+        }).join(', ') || '<em style="color:#94a3b8;">—</em>';
+      } else if (rawVal && typeof rawVal === 'object' && 'url' in (rawVal as any)) {
+        displayVal = `<a href="${escapeHtml((rawVal as any).url)}" style="color:#3b82f6;">${escapeHtml((rawVal as any).filename || 'File')}</a>`;
+      } else { displayVal = '<em style="color:#94a3b8;">—</em>'; }
+    } else if (block.type === 'rating') {
+      const num = Number(rawVal);
+      displayVal = (!isNaN(num) && num > 0) ? '&#9733;'.repeat(num) + '<span style="color:#d4d4d8;">&#9733;</span>'.repeat(Math.max(0, 5 - num)) + ` <span style="color:#64748b;">(${num}/5)</span>` : '<em style="color:#94a3b8;">—</em>';
+    } else if (block.type === 'slider') {
+      displayVal = rawVal != null ? `<strong>${escapeHtml(String(rawVal))}</strong>` : '<em style="color:#94a3b8;">—</em>';
+    } else if (block.type === 'location') {
+      if (rawVal && typeof rawVal === 'object') { const loc = rawVal as Record<string, unknown>; displayVal = `${loc.latitude ?? '—'}, ${loc.longitude ?? '—'}`; }
+      else displayVal = rawVal ? escapeHtml(String(rawVal)) : '<em style="color:#94a3b8;">—</em>';
+    } else if (block.type === 'store_lookup' || block.type === 'role_lookup') {
+      const labelVal = responses[`${block.id}__label`];
+      displayVal = labelVal ? escapeHtml(String(labelVal)) : (rawVal ? escapeHtml(String(rawVal)) : '<em style="color:#94a3b8;">—</em>');
+    } else if (rawVal === null || rawVal === undefined) {
+      displayVal = '<em style="color:#94a3b8;">—</em>';
+    } else if (Array.isArray(rawVal)) {
+      displayVal = escapeHtml(rawVal.join(', '));
+    } else if (typeof rawVal === 'boolean') {
+      displayVal = rawVal ? 'Yes' : 'No';
+    } else {
+      displayVal = escapeHtml(String(rawVal));
+    }
 
-      return `
-        <tr>
-          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-weight:500;color:#334155;vertical-align:top;width:35%;font-size:13px;">${escapeHtml(label)}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;color:#1e293b;font-size:14px;">${displayVal}</td>
-        </tr>`;
-    })
-    .join('');
+    return `<tr>
+      <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-weight:500;color:#334155;vertical-align:top;width:35%;font-size:13px;">${escapeHtml(label || 'Question')}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;color:#1e293b;font-size:14px;">${displayVal}</td>
+    </tr>`;
+  }).join('');
 
-  const now = new Date().toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
+  const now = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   const brandName = orgName ? escapeHtml(orgName) : 'TRIKE BACKOFFICE';
-  const logoHtml = orgLogoUrl
-    ? `<img src="${escapeHtml(orgLogoUrl)}" alt="${brandName}" style="height:32px;margin-bottom:8px;" />`
-    : '';
+  const logoHtml = orgLogoUrl ? `<img src="${escapeHtml(orgLogoUrl)}" alt="${brandName}" style="height:32px;margin-bottom:8px;" onerror="this.style.display='none'" />` : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -16363,21 +16344,31 @@ function generateSubmissionPdfHtml(params: {
   <title>${escapeHtml(formTitle)} — Submission Report</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #111; background: #fff; padding: 40px; max-width: 800px; margin: 0 auto; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #111; background: #fff; padding: 40px; max-width: 800px; margin: 0 auto; font-size: 14px; line-height: 1.5; }
     .header { padding-bottom: 20px; border-bottom: 3px solid #f97316; margin-bottom: 24px; }
-    .brand { font-size: 14px; font-weight: 700; color: #f97316; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 8px; }
-    .form-title { font-size: 24px; font-weight: 700; color: #0f172a; }
-    .meta { font-size: 13px; color: #64748b; margin-top: 4px; }
+    .brand { font-size: 13px; font-weight: 700; color: #f97316; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px; }
+    .form-title { font-size: 22px; font-weight: 700; color: #0f172a; line-height: 1.3; }
+    .meta { font-size: 12px; color: #64748b; margin-top: 4px; }
     table { width: 100%; border-collapse: collapse; }
     .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #94a3b8; text-align: center; }
+    .save-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 20px; background: #f97316; color: #fff; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 24px; }
+    .save-btn:hover { background: #ea580c; }
     @media print {
-      body { padding: 20px; }
-      @page { margin: 15mm; }
+      body { padding: 15px; font-size: 12px; }
+      @page { margin: 12mm; size: letter; }
       a { text-decoration: none; color: #111; }
+      .save-btn, .no-print { display: none !important; }
+      table { page-break-inside: auto; }
+      tr { page-break-inside: avoid; }
     }
   </style>
 </head>
 <body>
+  <!-- Save as PDF button (hidden when printing) -->
+  <div class="no-print" style="text-align:right;margin-bottom:16px;">
+    <button class="save-btn" onclick="window.print()">&#128196; Save as PDF</button>
+  </div>
+
   <div class="header">
     ${logoHtml}
     <div class="brand">${brandName}</div>
@@ -16423,25 +16414,20 @@ function buildFormEmailHtml(params: {
   }
 
   let responsesSection = '';
-  if (includeResponses && responses) {
-    const blockMap = new Map((blocks || []).map(b => [b.id, b]));
-    const rows = Object.entries(responses)
-      .filter(([key]) => !key.startsWith('_') && !key.includes('__label')) // skip internal keys and companion label fields
-      .map(([key, val]) => {
-        const block = blockMap.get(key);
-        const label = block?.label || key;
-        const blockType = block?.type || '';
+  if (includeResponses && responses && blocks && blocks.length > 0) {
+    // Iterate blocks in display_order (they're already sorted from the query)
+    // This ensures email matches the actual form order
+    const rows = blocks
+      .filter(b => b.type !== 'instruction' && b.type !== 'divider' && b.type !== 'heading' && b.type !== 'separator' && b.type !== 'section_header' && b.type !== 'paragraph')
+      .map(block => {
+        const val = responses[block.id] ?? responses[block.label || ''] ?? null;
+        const label = block.label || 'Question';
+        const blockType = block.type || '';
         let displayHtml: string;
 
         if (blockType === 'signature') {
-          let sigUrl: string | null = null;
-          if (val && typeof val === 'string' && val.startsWith('data:')) sigUrl = val;
-          else if (val && typeof val === 'object') sigUrl = (val as any).dataUrl || (val as any).data_url || null;
-          if (sigUrl) {
-            displayHtml = `<div><img src="${sigUrl}" alt="Signature" style="max-width:240px;max-height:80px;border:1px solid #e2e8f0;border-radius:4px;background:#fff;padding:3px;" /><br/><em style="color:#64748b;font-size:11px;">[Digital signature captured]</em></div>`;
-          } else {
-            displayHtml = val ? '<em style="color:#64748b;">[Digital signature captured]</em>' : '—';
-          }
+          // Gmail strips data: URLs — use text only in email
+          displayHtml = val ? '<em style="color:#64748b;">&#9998; Digital signature captured</em>' : '—';
         } else if (blockType === 'yes_no' || blockType === 'yesno') {
           if (val === true || val === 'yes' || val === 'Yes') {
             displayHtml = '<span style="color:#16a34a;font-weight:600;">&#10003; Yes</span>';
@@ -16452,26 +16438,18 @@ function buildFormEmailHtml(params: {
           }
         } else if (blockType === 'rating') {
           const num = Number(val);
-          if (!isNaN(num) && num > 0) {
-            displayHtml = '&#9733;'.repeat(num) + ` (${num}/5)`;
-          } else {
-            displayHtml = '—';
-          }
+          displayHtml = (!isNaN(num) && num > 0) ? '&#9733;'.repeat(num) + ` (${num}/5)` : '—';
         } else if (blockType === 'photo' || blockType === 'file' || blockType === 'file_upload') {
           if (Array.isArray(val)) {
             displayHtml = val.map((f: any) => typeof f === 'object' && f?.filename ? escapeHtml(f.filename) : escapeHtml(String(f))).join(', ') || '—';
-          } else {
-            displayHtml = '—';
-          }
+          } else { displayHtml = '—'; }
         } else if (blockType === 'location') {
           if (val && typeof val === 'object') {
             const loc = val as Record<string, unknown>;
             displayHtml = `${loc.latitude ?? '—'}, ${loc.longitude ?? '—'}`;
-          } else {
-            displayHtml = val ? escapeHtml(String(val)) : '—';
-          }
+          } else { displayHtml = val ? escapeHtml(String(val)) : '—'; }
         } else if (blockType === 'store_lookup' || blockType === 'role_lookup') {
-          const labelVal = responses?.[`${key}__label`];
+          const labelVal = responses[`${block.id}__label`];
           displayHtml = labelVal ? escapeHtml(String(labelVal)) : (val ? escapeHtml(String(val)) : '—');
         } else if (val === null || val === undefined) {
           displayHtml = '—';
