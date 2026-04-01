@@ -213,38 +213,22 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
       const persistedBlocks = blocks.filter(b => !b._isNew);
       const newBlocks = blocks.filter(b => b._isNew);
 
-      const blocksToUpsert = [
-        ...persistedBlocks.map(b => ({
-          id: b.id,
-          form_id: form.id,
-          section_id: b.section_id ?? null,
-          block_type: b.block_type,
-          label: b.label,
-          description: b.description,
-          placeholder: b.placeholder,
-          options: b.options,
-          validation_rules: b.validation_rules,
-          conditional_logic: b.conditional_logic,
-          settings: b.settings,
-          is_required: b.is_required,
-          display_order: Math.round(b.display_order),
-        })),
-        ...newBlocks.map(b => ({
-          // No id — will be INSERTed
-          form_id: form.id,
-          section_id: b.section_id ?? null,
-          block_type: b.block_type,
-          label: b.label,
-          description: b.description,
-          placeholder: b.placeholder,
-          options: b.options,
-          validation_rules: b.validation_rules,
-          conditional_logic: b.conditional_logic,
-          settings: b.settings,
-          is_required: b.is_required,
-          display_order: Math.round(b.display_order),
-        })),
-      ];
+      // Use sequential indices as display_order to avoid collisions from fractional rounding
+      const blocksToUpsert = blocks.map((b, idx) => ({
+        ...(b._isNew ? {} : { id: b.id }),
+        form_id: form.id,
+        section_id: b.section_id ?? null,
+        block_type: b.block_type,
+        label: b.label,
+        description: b.description,
+        placeholder: b.placeholder,
+        options: b.options,
+        validation_rules: b.validation_rules,
+        conditional_logic: b.conditional_logic,
+        settings: b.settings,
+        is_required: b.is_required,
+        display_order: idx,
+      }));
 
       await bulkUpsertFormBlocks(form.id, blocksToUpsert);
 

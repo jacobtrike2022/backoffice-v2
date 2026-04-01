@@ -5,7 +5,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
-import { Plus, Calendar, ClipboardList, Repeat } from 'lucide-react';
+import { Plus, Calendar, ClipboardList, Repeat, X } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -38,6 +38,18 @@ interface StoreOption {
 }
 
 interface DistrictOption {
+  id: string;
+  name: string;
+}
+
+interface PersonOption {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email?: string;
+}
+
+interface RoleOption {
   id: string;
   name: string;
 }
@@ -128,10 +140,13 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
   const [forms, setForms] = useState<FormOption[]>([]);
   const [stores, setStores] = useState<StoreOption[]>([]);
   const [districts, setDistricts] = useState<DistrictOption[]>([]);
+  const [people, setPeople] = useState<PersonOption[]>([]);
+  const [roles, setRoles] = useState<RoleOption[]>([]);
 
   const [selectedFormId, setSelectedFormId] = useState('');
-  const [assignType, setAssignType] = useState('store'); // 'store' | 'district'
-  const [selectedTargetId, setSelectedTargetId] = useState('none');
+  const [assignType, setAssignType] = useState('store'); // 'store' | 'district' | 'individual' | 'role'
+  const [selectedTargetId, setSelectedTargetId] = useState('none'); // for store/district single-select
+  const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([]); // for individual/role multi-select
   const [dueDate, setDueDate] = useState('');
   const [recurrenceRule, setRecurrenceRule] = useState('once');
 
@@ -214,7 +229,7 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
   async function loadDialogOptions() {
     if (!orgId) return;
 
-    const [formsRes, storesRes, districtsRes] = await Promise.all([
+    const [formsRes, storesRes, districtsRes, peopleRes, rolesRes] = await Promise.all([
       supabase
         .from('forms')
         .select('id, title')
@@ -229,17 +244,31 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
         .from('districts')
         .select('id, name')
         .eq('organization_id', orgId),
+      supabase
+        .from('users')
+        .select('id, first_name, last_name, email')
+        .eq('organization_id', orgId)
+        .eq('status', 'active')
+        .order('last_name'),
+      supabase
+        .from('roles')
+        .select('id, name')
+        .eq('organization_id', orgId)
+        .order('name'),
     ]);
 
     setForms((formsRes.data || []) as FormOption[]);
     setStores((storesRes.data || []) as StoreOption[]);
     setDistricts((districtsRes.data || []) as DistrictOption[]);
+    setPeople((peopleRes.data || []) as PersonOption[]);
+    setRoles((rolesRes.data || []) as RoleOption[]);
   }
 
   function openDialog() {
     setSelectedFormId('');
     setAssignType('store');
     setSelectedTargetId('none');
+    setSelectedTargetIds([]);
     setDueDate('');
     setRecurrenceRule('once');
     setSubmitError(null);
@@ -255,7 +284,13 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
       setSubmitError(t('forms.pleaseSelectForm'));
       return;
     }
-    if (selectedTargetId === 'none') {
+
+    const isMultiSelect = assignType === 'individual' || assignType === 'role';
+    if (isMultiSelect && selectedTargetIds.length === 0) {
+      setSubmitError(t('forms.pleaseSelectTarget'));
+      return;
+    }
+    if (!isMultiSelect && selectedTargetId === 'none') {
       setSubmitError(t('forms.pleaseSelectTarget'));
       return;
     }
@@ -264,17 +299,21 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
     setSubmitError(null);
 
     const nextDueAt = computeNextDueAt(dueDate || null, recurrenceRule);
-
-    const { error } = await supabase.from('form_assignments').insert({
+    const basePayload = {
       form_id: selectedFormId,
       assignment_type: assignType,
-      target_id: selectedTargetId,
       due_date: dueDate || null,
       status: 'active',
       recurrence_rule: recurrenceRule,
       next_due_at: nextDueAt,
       organization_id: orgId,
-    });
+    };
+
+    // For multi-select types, create one assignment per target
+    const targetIds = isMultiSelect ? selectedTargetIds : [selectedTargetId];
+    const rows = targetIds.map(tid => ({ ...basePayload, target_id: tid }));
+
+    const { error } = await supabase.from('form_assignments').insert(rows);
 
     if (error) {
       setSubmitError(error.message);
@@ -288,8 +327,6 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
   }
 
   // ─── Render ─────────────────────────────────────────────────────────────────
-
-  const targetOptions = assignType === 'store' ? stores : districts;
 
   if (!orgId) {
     return (
@@ -446,6 +483,7 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
                 onValueChange={(v) => {
                   setAssignType(v);
                   setSelectedTargetId('none');
+                  setSelectedTargetIds([]);
                 }}
               >
                 <SelectTrigger>
@@ -454,36 +492,129 @@ export function FormAssignments({ orgId, currentRole = 'admin' }: FormAssignment
                 <SelectContent>
                   <SelectItem value="store">{t('forms.store')}</SelectItem>
                   <SelectItem value="district">{t('forms.district')}</SelectItem>
+                  <SelectItem value="individual">{t('forms.individual')}</SelectItem>
+                  <SelectItem value="role">{t('forms.role')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Target picker */}
-            <div className="space-y-2">
-              <Label>{assignType === 'store' ? t('forms.store') : t('forms.district')}</Label>
-              <Select
-                value={selectedTargetId}
-                onValueChange={setSelectedTargetId}
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={assignType === 'store' ? t('forms.selectAStore') : t('forms.selectADistrict')}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">
-                    {assignType === 'store' ? t('forms.selectAStore') : t('forms.selectADistrict')}
-                  </SelectItem>
-                  {targetOptions.map((opt) => (
-                    <SelectItem key={opt.id} value={opt.id}>
-                      {'code' in opt && (opt as StoreOption).code
-                        ? `${opt.name} (${(opt as StoreOption).code})`
-                        : opt.name}
+            {/* Target picker — single select for store/district */}
+            {(assignType === 'store' || assignType === 'district') && (
+              <div className="space-y-2">
+                <Label>{assignType === 'store' ? t('forms.store') : t('forms.district')}</Label>
+                <Select
+                  value={selectedTargetId}
+                  onValueChange={setSelectedTargetId}
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={assignType === 'store' ? t('forms.selectAStore') : t('forms.selectADistrict')}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">
+                      {assignType === 'store' ? t('forms.selectAStore') : t('forms.selectADistrict')}
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                    {(assignType === 'store' ? stores : districts).map((opt) => (
+                      <SelectItem key={opt.id} value={opt.id}>
+                        {'code' in opt && (opt as StoreOption).code
+                          ? `${opt.name} (${(opt as StoreOption).code})`
+                          : opt.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Target picker — multi-select for individual (people) */}
+            {assignType === 'individual' && (
+              <div className="space-y-2">
+                <Label>{t('forms.selectPeople')}</Label>
+                {/* Selected tags */}
+                {selectedTargetIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-1">
+                    {selectedTargetIds.map(id => {
+                      const person = people.find(p => p.id === id);
+                      const name = person ? [person.first_name, person.last_name].filter(Boolean).join(' ') : id;
+                      return (
+                        <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-xs font-medium">
+                          {name}
+                          <button type="button" onClick={() => setSelectedTargetIds(prev => prev.filter(x => x !== id))} className="hover:text-destructive">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                <Select
+                  value="__add__"
+                  onValueChange={v => {
+                    if (v !== '__add__' && !selectedTargetIds.includes(v)) {
+                      setSelectedTargetIds(prev => [...prev, v]);
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('forms.addPerson')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__add__">{t('forms.addPerson')}</SelectItem>
+                    {people
+                      .filter(p => !selectedTargetIds.includes(p.id))
+                      .map(p => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {[p.first_name, p.last_name].filter(Boolean).join(' ')}{p.email ? ` (${p.email})` : ''}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Target picker — multi-select for role */}
+            {assignType === 'role' && (
+              <div className="space-y-2">
+                <Label>{t('forms.selectRoles')}</Label>
+                {/* Selected tags */}
+                {selectedTargetIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-1">
+                    {selectedTargetIds.map(id => {
+                      const role = roles.find(r => r.id === id);
+                      return (
+                        <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-xs font-medium">
+                          {role?.name || id}
+                          <button type="button" onClick={() => setSelectedTargetIds(prev => prev.filter(x => x !== id))} className="hover:text-destructive">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                <Select
+                  value="__add__"
+                  onValueChange={v => {
+                    if (v !== '__add__' && !selectedTargetIds.includes(v)) {
+                      setSelectedTargetIds(prev => [...prev, v]);
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('forms.addRole')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__add__">{t('forms.addRole')}</SelectItem>
+                    {roles
+                      .filter(r => !selectedTargetIds.includes(r.id))
+                      .map(r => (
+                        <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {/* Due date */}
             <div className="space-y-2">
