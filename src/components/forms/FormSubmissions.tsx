@@ -1038,6 +1038,7 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                   blocks={formBlocks}
                   answers={selectedSubmission.responses || {}}
                   readOnly
+                  organizationId={orgId}
                 />
               )}
             </CardContent>
