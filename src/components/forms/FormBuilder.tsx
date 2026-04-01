@@ -3367,7 +3367,7 @@ export function FormBuilder({
             className="gap-1.5"
             onClick={() => {
               if (hook.form?.id) {
-                window.open(`${window.location.origin}/fill/${hook.form.id}`, '_blank');
+                window.open(`${window.location.origin}/fill/${hook.form.id}?preview=true`, '_blank');
               }
             }}
           >
