@@ -824,6 +824,7 @@ function blockTypeLabel(blockType: string): string {
     divider: 'Divider',
     store_lookup: 'Store',
     role_lookup: 'Role',
+    person_lookup: 'Person',
   };
   return labels[blockType] || blockType;
 }

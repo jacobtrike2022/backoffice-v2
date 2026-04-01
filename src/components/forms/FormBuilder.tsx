@@ -154,6 +154,7 @@ const BLOCK_TYPES: BlockTypeDef[] = [
   { type: 'photo', labelKey: 'forms.photo', icon: ImageIcon, category: 'questions' },
   { type: 'store_lookup', labelKey: 'forms.storeLookup', icon: Building2, category: 'questions' },
   { type: 'role_lookup', labelKey: 'forms.roleLookup', icon: ShieldAlert, category: 'questions' },
+  { type: 'person_lookup', labelKey: 'forms.personLookup', icon: UserCircle, category: 'questions' },
   // Content
   { type: 'instruction', labelKey: 'forms.instruction', icon: Info, category: 'content' },
   { type: 'divider', labelKey: 'forms.divider', icon: Minus, category: 'content' },
