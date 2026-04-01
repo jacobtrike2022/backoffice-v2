@@ -16313,7 +16313,7 @@ function generateSubmissionPdfHtml(params: {
     } else if (block.type === 'location') {
       if (rawVal && typeof rawVal === 'object') { const loc = rawVal as Record<string, unknown>; displayVal = `${loc.latitude ?? '—'}, ${loc.longitude ?? '—'}`; }
       else displayVal = rawVal ? escapeHtml(String(rawVal)) : '<em style="color:#94a3b8;">—</em>';
-    } else if (block.type === 'store_lookup' || block.type === 'role_lookup') {
+    } else if (block.type === 'store_lookup' || block.type === 'role_lookup' || block.type === 'person_lookup') {
       const labelVal = responses[`${block.id}__label`];
       displayVal = labelVal ? escapeHtml(String(labelVal)) : (rawVal ? escapeHtml(String(rawVal)) : '<em style="color:#94a3b8;">—</em>');
     } else if (rawVal === null || rawVal === undefined) {
@@ -16448,7 +16448,7 @@ function buildFormEmailHtml(params: {
             const loc = val as Record<string, unknown>;
             displayHtml = `${loc.latitude ?? '—'}, ${loc.longitude ?? '—'}`;
           } else { displayHtml = val ? escapeHtml(String(val)) : '—'; }
-        } else if (blockType === 'store_lookup' || blockType === 'role_lookup') {
+        } else if (blockType === 'store_lookup' || blockType === 'role_lookup' || blockType === 'person_lookup') {
           const labelVal = responses[`${block.id}__label`];
           displayHtml = labelVal ? escapeHtml(String(labelVal)) : (val ? escapeHtml(String(val)) : '—');
         } else if (val === null || val === undefined) {

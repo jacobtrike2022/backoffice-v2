@@ -253,6 +253,58 @@ function RoleLookupBlock({ block, value, onChange, readOnly, t, organizationId }
   );
 }
 
+function PersonLookupBlock({ block, value, onChange, readOnly, t, organizationId }: {
+  block: FormBlockData; value: unknown; onChange: (id: string, val: unknown) => void; readOnly: boolean; t: (k: string) => string; organizationId?: string;
+}) {
+  const [options, setOptions] = React.useState<{ id: string; first_name: string; last_name: string; email?: string }[]>([]);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let query = supabase.from('users').select('id, first_name, last_name, email').eq('status', 'active').order('last_name');
+      if (organizationId) query = query.eq('organization_id', organizationId);
+      const { data } = await query;
+      if (!cancelled && data) setOptions(data as any[]);
+    })();
+    return () => { cancelled = true; };
+  }, [organizationId]);
+  return (
+    <div className="space-y-2">
+      <Label>
+        {block.label || t('forms.personLookup')}
+        {block.is_required && <span className="text-destructive ml-1">*</span>}
+      </Label>
+      {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
+      <Select
+        value={(value as string) || 'none'}
+        onValueChange={(v) => {
+          const selected = options.find(o => o.id === v);
+          onChange(block.id, v === 'none' ? '' : v);
+          if (selected) {
+            const displayName = [selected.first_name, selected.last_name].filter(Boolean).join(' ');
+            onChange(`${block.id}__label`, displayName);
+          }
+        }}
+        disabled={readOnly}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder={t('forms.personLookupPlaceholder')} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">{t('forms.personLookupPlaceholder')}</SelectItem>
+          {options.map(p => {
+            const name = [p.first_name, p.last_name].filter(Boolean).join(' ');
+            return (
+              <SelectItem key={p.id} value={p.id}>
+                {name}{p.email ? ` (${p.email})` : ''}
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPTY_ANSWERS, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle, linkedContent, ojtMetadata, onOjtMetadataChange, startConfig, stores = EMPTY_STORES, organizationId }: FormRendererProps) {
   const { t } = useTranslation();
   const [formData, setFormData] = React.useState<Record<string, unknown>>(answers);
@@ -1207,6 +1259,9 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
 
       case 'role_lookup':
         return <RoleLookupBlock key={block.id} block={block} value={value} onChange={handleChange} readOnly={readOnly} t={t} organizationId={organizationId} />;
+
+      case 'person_lookup':
+        return <PersonLookupBlock key={block.id} block={block} value={value} onChange={handleChange} readOnly={readOnly} t={t} organizationId={organizationId} />;
 
       case 'instruction': {
         // Render description with basic formatting: **bold**, _italic_, \n → <br>

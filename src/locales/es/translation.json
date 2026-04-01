@@ -921,6 +921,8 @@
     "roleLookup": "Rol",
     "storeLookupPlaceholder": "Seleccionar tienda...",
     "roleLookupPlaceholder": "Seleccionar rol...",
+    "personLookup": "Persona",
+    "personLookupPlaceholder": "Seleccionar persona...",
     "instruction": "Instrucción",
     "divider": "Divisor",
     "conditionalLogic": "Lógica Condicional",

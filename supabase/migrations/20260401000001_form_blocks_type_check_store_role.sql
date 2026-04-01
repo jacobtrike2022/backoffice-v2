@@ -12,7 +12,7 @@ ALTER TABLE form_blocks ADD CONSTRAINT form_blocks_type_check
     'radio', 'checkboxes', 'dropdown', 'yes_no', 'rating',
     'file', 'signature', 'slider', 'location', 'photo',
     -- Reference lookups
-    'store_lookup', 'role_lookup',
+    'store_lookup', 'role_lookup', 'person_lookup',
     -- Content
     'instruction', 'divider',
     -- Actions
