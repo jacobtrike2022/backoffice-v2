@@ -136,6 +136,8 @@ const BLOCK_TYPES: BlockTypeDef[] = [
   { type: 'slider', labelKey: 'forms.slider', icon: SlidersHorizontal, category: 'questions' },
   { type: 'location', labelKey: 'forms.location', icon: MapPin, category: 'questions' },
   { type: 'photo', labelKey: 'forms.photo', icon: ImageIcon, category: 'questions' },
+  { type: 'store_lookup', labelKey: 'forms.storeLookup', icon: Building2, category: 'questions' },
+  { type: 'role_lookup', labelKey: 'forms.roleLookup', icon: ShieldAlert, category: 'questions' },
   // Content
   { type: 'instruction', labelKey: 'forms.instruction', icon: Info, category: 'content' },
   { type: 'divider', labelKey: 'forms.divider', icon: Minus, category: 'content' },
@@ -395,6 +397,65 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
   const summaryText = hasLogic && !isSelected
     ? conditionSummaryText(block.conditional_logic as ConditionalLogic, allBlocks, t)
     : '';
+
+  // ── Divider: render as a visual line, not a full block card ──
+  if (block.block_type === 'divider') {
+    return (
+      <div>
+        <div
+          ref={setNodeRef}
+          style={style}
+          data-block-id={block.id}
+          className={`group relative cursor-pointer py-3 px-2 rounded-lg transition-all ${
+            isSelected ? 'ring-2 ring-primary/30 bg-primary/5' : 'hover:bg-muted/30'
+          }`}
+          onClick={onSelect}
+        >
+          {/* Drag handle */}
+          <div
+            {...attributes}
+            {...listeners}
+            className="absolute left-1 top-1/2 -translate-y-1/2 cursor-grab text-muted-foreground/30 hover:text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={e => e.stopPropagation()}
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </div>
+
+          {/* Delete button */}
+          <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-destructive transition-colors"
+              onClick={e => { e.stopPropagation(); onDelete(); }}
+              aria-label="Delete divider"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+
+          {/* The actual divider line */}
+          {block.label ? (
+            <div className="flex items-center gap-3 px-6">
+              <div className="flex-1 border-t border-border" />
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider shrink-0">{block.label}</span>
+              <div className="flex-1 border-t border-border" />
+            </div>
+          ) : (
+            <div className="px-6">
+              <div className="border-t border-border" />
+            </div>
+          )}
+        </div>
+
+        {/* Add block button after this card */}
+        <AddBlockButton
+          afterBlockId={block.id}
+          sectionId={block.section_id}
+          onAdd={onAdd}
+          formType={formType}
+        />
+      </div>
+    );
+  }
 
   return (
     <div>

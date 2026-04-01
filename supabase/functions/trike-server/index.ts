@@ -16310,6 +16310,10 @@ function generateSubmissionPdfHtml(params: {
         } else {
           displayVal = '<em style="color:#94a3b8;">No location</em>';
         }
+      } else if (block.type === 'store_lookup' || block.type === 'role_lookup') {
+        // Use the companion __label field if available, otherwise show the raw ID
+        const labelVal = responses[`${block.id}__label`];
+        displayVal = labelVal ? escapeHtml(String(labelVal)) : (rawVal ? escapeHtml(String(rawVal)) : '<em style="color:#94a3b8;">No selection</em>');
       } else if (rawVal === null || rawVal === undefined) {
         displayVal = '<em style="color:#94a3b8;">No response</em>';
       } else if (Array.isArray(rawVal)) {
@@ -16449,6 +16453,9 @@ function buildFormEmailHtml(params: {
           } else {
             displayHtml = val ? escapeHtml(String(val)) : '—';
           }
+        } else if (blockType === 'store_lookup' || blockType === 'role_lookup') {
+          const labelVal = responses?.[`${key}__label`];
+          displayHtml = labelVal ? escapeHtml(String(labelVal)) : (val ? escapeHtml(String(val)) : '—');
         } else if (val === null || val === undefined) {
           displayHtml = '—';
         } else if (Array.isArray(val)) {
