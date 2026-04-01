@@ -124,6 +124,8 @@ export interface FormRendererProps {
   startConfig?: StartConfig;
   /** Available stores for location selector */
   stores?: StoreOption[];
+  /** Organization ID — used to scope store/role lookup blocks to the form's org */
+  organizationId?: string;
 }
 
 /** Type-specific UX configuration */
@@ -159,18 +161,20 @@ const DEFAULT_SHIFT_OPTIONS = ['Opening', 'Mid-day', 'Closing', 'Overnight'];
 
 // ─── Reference Lookup Block Components ───────────────────────────────────────
 
-function StoreLookupBlock({ block, value, onChange, readOnly, t }: {
-  block: FormBlockData; value: unknown; onChange: (id: string, val: unknown) => void; readOnly: boolean; t: (k: string) => string;
+function StoreLookupBlock({ block, value, onChange, readOnly, t, organizationId }: {
+  block: FormBlockData; value: unknown; onChange: (id: string, val: unknown) => void; readOnly: boolean; t: (k: string) => string; organizationId?: string;
 }) {
   const [options, setOptions] = React.useState<{ id: string; name: string; code?: string }[]>([]);
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data } = await supabase.from('stores').select('id, name, code').order('name');
+      let query = supabase.from('stores').select('id, name, code').order('name');
+      if (organizationId) query = query.eq('organization_id', organizationId);
+      const { data } = await query;
       if (!cancelled && data) setOptions(data);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [organizationId]);
   return (
     <div className="space-y-2">
       <Label>
@@ -203,18 +207,20 @@ function StoreLookupBlock({ block, value, onChange, readOnly, t }: {
   );
 }
 
-function RoleLookupBlock({ block, value, onChange, readOnly, t }: {
-  block: FormBlockData; value: unknown; onChange: (id: string, val: unknown) => void; readOnly: boolean; t: (k: string) => string;
+function RoleLookupBlock({ block, value, onChange, readOnly, t, organizationId }: {
+  block: FormBlockData; value: unknown; onChange: (id: string, val: unknown) => void; readOnly: boolean; t: (k: string) => string; organizationId?: string;
 }) {
   const [options, setOptions] = React.useState<{ id: string; name: string }[]>([]);
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data } = await supabase.from('roles').select('id, name').order('name');
+      let query = supabase.from('roles').select('id, name').order('name');
+      if (organizationId) query = query.eq('organization_id', organizationId);
+      const { data } = await query;
       if (!cancelled && data) setOptions(data);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [organizationId]);
   return (
     <div className="space-y-2">
       <Label>
@@ -247,7 +253,7 @@ function RoleLookupBlock({ block, value, onChange, readOnly, t }: {
   );
 }
 
-export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPTY_ANSWERS, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle, linkedContent, ojtMetadata, onOjtMetadataChange, startConfig, stores = EMPTY_STORES }: FormRendererProps) {
+export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPTY_ANSWERS, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle, linkedContent, ojtMetadata, onOjtMetadataChange, startConfig, stores = EMPTY_STORES, organizationId }: FormRendererProps) {
   const { t } = useTranslation();
   const [formData, setFormData] = React.useState<Record<string, unknown>>(answers);
   const [validationErrors, setValidationErrors] = React.useState<Record<string, string>>({});
@@ -1197,10 +1203,10 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
         );
 
       case 'store_lookup':
-        return <StoreLookupBlock key={block.id} block={block} value={value} onChange={handleChange} readOnly={readOnly} t={t} />;
+        return <StoreLookupBlock key={block.id} block={block} value={value} onChange={handleChange} readOnly={readOnly} t={t} organizationId={organizationId} />;
 
       case 'role_lookup':
-        return <RoleLookupBlock key={block.id} block={block} value={value} onChange={handleChange} readOnly={readOnly} t={t} />;
+        return <RoleLookupBlock key={block.id} block={block} value={value} onChange={handleChange} readOnly={readOnly} t={t} organizationId={organizationId} />;
 
       case 'instruction': {
         // Render description with basic formatting: **bold**, _italic_, \n → <br>

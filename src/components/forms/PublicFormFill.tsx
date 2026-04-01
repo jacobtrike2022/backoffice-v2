@@ -24,6 +24,7 @@ interface FormSection {
 
 interface PublicForm {
   id: string;
+  organization_id?: string;
   title: string;
   description?: string;
   status: string;
@@ -438,6 +439,7 @@ export function PublicFormFill() {
             onOjtMetadataChange={setOjtMetadata}
             submissionConfig={formData.form.submission_config as any}
             startConfig={formData.form.settings?.start_config}
+            organizationId={formData.form.organization_id}
           />
           {submitting && (
             <div className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-2">

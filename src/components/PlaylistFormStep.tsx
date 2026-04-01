@@ -61,6 +61,7 @@ export function PlaylistFormStep({
     description?: string;
     blocks: FormBlockData[];
     settings?: { scoring_enabled?: boolean; pass_threshold?: number };
+    organization_id?: string;
   } | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -85,6 +86,7 @@ export function PlaylistFormStep({
         description: form.description,
         blocks: (form.form_blocks || []) as FormBlockData[],
         settings: form.settings,
+        organization_id: form.organization_id,
       });
     } catch (err) {
       console.error('Error loading playlist form:', err);
@@ -246,6 +248,7 @@ export function PlaylistFormStep({
             onSubmit={handleFormSubmit}
             scoringEnabled={formData.settings?.scoring_enabled}
             passThreshold={formData.settings?.pass_threshold}
+            organizationId={formData.organization_id}
           />
         </CardContent>
       </Card>
