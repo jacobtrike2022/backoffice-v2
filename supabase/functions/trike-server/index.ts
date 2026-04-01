@@ -16048,6 +16048,15 @@ async function handleFormsPublicSubmit(req: Request, path: string): Promise<Resp
       form_title: (body.form_title as string) || '',
     }).catch(err => console.error('[FormEmail] Fire-and-forget error:', err));
 
+    // Fire-and-forget: check per-block on-fail training assignments
+    checkOnFailTrainingAssignments({
+      form_id: formId,
+      submission_id: submission.id,
+      organization_id: form.organization_id,
+      submitter_user_id: (body.submitter_user_id as string) || undefined,
+      responses: answers,
+    }).catch(err => console.error('[OnFailTraining] Fire-and-forget error:', err));
+
     return jsonResponse({
       success: true,
       submission_id: submission.id,
@@ -16058,6 +16067,88 @@ async function handleFormsPublicSubmit(req: Request, path: string): Promise<Resp
   } catch (err) {
     console.error('❌ handleFormsPublicSubmit error:', err);
     return jsonResponse({ error: 'Internal server error' }, 500);
+  }
+}
+
+// =============================================================================
+// FORMS: PER-BLOCK ON-FAIL TRAINING ASSIGNMENT CHECK
+// =============================================================================
+
+/**
+ * After submission, check each block for _on_fail_assign rules.
+ * If the block has one AND the submitted answer doesn't match _correct_answer,
+ * log it. Actual assignment creation is a follow-up task.
+ */
+async function checkOnFailTrainingAssignments(params: {
+  form_id: string;
+  submission_id: string;
+  organization_id: string;
+  submitter_user_id?: string;
+  responses: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    // Fetch blocks with validation_rules
+    const { data: blocks, error: blocksError } = await supabase
+      .from('form_blocks')
+      .select('id, label, type, validation_rules')
+      .eq('form_id', params.form_id)
+      .order('order_index', { ascending: true });
+
+    if (blocksError || !blocks || blocks.length === 0) return;
+
+    const trainingAssignments: Array<{
+      block_id: string;
+      block_label: string;
+      assign_type: string;
+      assign_id: string;
+      assign_title: string;
+      given_answer: unknown;
+      correct_answer: string;
+    }> = [];
+
+    for (const block of blocks) {
+      const vr = (block.validation_rules || {}) as Record<string, unknown>;
+      const onFail = vr._on_fail_assign as { type: string; id: string; title: string } | undefined;
+      const correctAnswer = (vr._correct_answer as string) ?? '';
+
+      if (!onFail || !onFail.type || !correctAnswer) continue;
+
+      const givenAnswer = params.responses[block.id];
+      if (givenAnswer === undefined || givenAnswer === null) continue;
+
+      // Normalize for comparison
+      const givenStr = String(givenAnswer).trim().toLowerCase();
+      const correctStr = correctAnswer.trim().toLowerCase();
+
+      if (givenStr !== correctStr) {
+        trainingAssignments.push({
+          block_id: block.id,
+          block_label: block.label || 'Untitled block',
+          assign_type: onFail.type,
+          assign_id: onFail.id,
+          assign_title: onFail.title,
+          given_answer: givenAnswer,
+          correct_answer: correctAnswer,
+        });
+      }
+    }
+
+    if (trainingAssignments.length > 0) {
+      console.log(
+        `[OnFailTraining] Submission ${params.submission_id}: ${trainingAssignments.length} block(s) triggered training assignments`,
+        JSON.stringify(trainingAssignments.map(a => ({
+          block: a.block_label,
+          type: a.assign_type,
+          title: a.assign_title,
+          id: a.assign_id,
+          answer: a.given_answer,
+          expected: a.correct_answer,
+        }))),
+      );
+      // TODO: Create actual training assignments via assignments table
+    }
+  } catch (err) {
+    console.error('[OnFailTraining] checkOnFailTrainingAssignments error:', err);
   }
 }
 

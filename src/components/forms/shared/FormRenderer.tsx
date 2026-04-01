@@ -43,6 +43,17 @@ export interface ScoringResult {
   passed: boolean;
   total_weight: number;
   earned_weight: number;
+  /** True when any critical item received a failing answer */
+  criticalFail?: boolean;
+  /** Block IDs of critical items that failed */
+  criticalItems?: string[];
+}
+
+export interface OnFailConfig {
+  reassign?: { enabled: boolean; delay_hours: number };
+  assign_form?: { enabled: boolean; form_id: string; form_title: string };
+  assign_training?: { enabled: boolean; playlist_id: string; playlist_title: string };
+  fail_message?: string;
 }
 
 export interface SubmissionConfig {
@@ -55,6 +66,23 @@ export interface SubmissionConfig {
     below_threshold_email?: string;
     below_threshold_message?: string;
   };
+  on_fail?: OnFailConfig;
+}
+
+/** Start configuration for forms */
+export interface StartConfig {
+  identity_mode?: 'individual' | 'location' | 'anonymous';
+  require_location?: boolean;
+  require_shift?: boolean;
+  shift_options?: string[];
+  submission_limit?: 'unlimited' | 'daily' | 'shift' | 'weekly';
+}
+
+/** Store/location option for start config dropdowns */
+export interface StoreOption {
+  id: string;
+  name: string;
+  code?: string;
 }
 
 /** Linked content info for sign-off forms (e.g. the playlist this form belongs to) */
@@ -92,6 +120,10 @@ export interface FormRendererProps {
   ojtMetadata?: OjtMetadata;
   /** Callback when OJT metadata changes */
   onOjtMetadataChange?: (metadata: OjtMetadata) => void;
+  /** Start configuration (location/shift requirements) */
+  startConfig?: StartConfig;
+  /** Available stores for location selector */
+  stores?: StoreOption[];
 }
 
 /** Type-specific UX configuration */
@@ -122,13 +154,16 @@ function getOptions(block: FormBlockData): string[] {
 
 const EMPTY_ANSWERS: Record<string, unknown> = {};
 const EMPTY_SECTIONS: FormSectionData[] = [];
+const EMPTY_STORES: StoreOption[] = [];
+const DEFAULT_SHIFT_OPTIONS = ['Opening', 'Mid-day', 'Closing', 'Overnight'];
 
-export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPTY_ANSWERS, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle, linkedContent, ojtMetadata, onOjtMetadataChange }: FormRendererProps) {
+export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPTY_ANSWERS, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle, linkedContent, ojtMetadata, onOjtMetadataChange, startConfig, stores = EMPTY_STORES }: FormRendererProps) {
   const { t } = useTranslation();
   const [formData, setFormData] = React.useState<Record<string, unknown>>(answers);
   const [validationErrors, setValidationErrors] = React.useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [isSubmitted, setIsSubmitted] = React.useState(false);
+  const [lastScoringResult, setLastScoringResult] = React.useState<ScoringResult | null>(null);
   const [uploadStates, setUploadStates] = React.useState<Record<string, UploadState>>({});
   const sigCanvasRefs = React.useRef<Record<string, SignatureCanvas | null>>({});
   const prevSkippedRef = React.useRef<Set<string>>(new Set());
@@ -280,6 +315,17 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
   const handleSubmit = async () => {
     // Validate required fields that are currently visible
     const errors: Record<string, string> = {};
+
+    // Validate start config fields
+    if (startConfig) {
+      if ((startConfig.require_location || startConfig.identity_mode === 'location') && !formData._location_id) {
+        errors._location_id = t('forms.fieldRequired');
+      }
+      if (startConfig.require_shift && !formData._shift) {
+        errors._shift = t('forms.fieldRequired');
+      }
+    }
+
     const INPUT_BLOCK_TYPES = new Set([
       'text', 'textarea', 'number', 'date', 'time', 'radio', 'checkbox', 'checkboxes',
       'select', 'dropdown', 'multiselect', 'rating', 'file', 'yes_no', 'slider',
@@ -312,11 +358,12 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
     setValidationErrors({});
     setIsSubmitting(true);
     try {
-      // Compute scoring if enabled
+      // Compute scoring if enabled — equal-weight model with critical items
       let scoring: ScoringResult | undefined;
       if (scoringEnabled) {
-        let totalWeight = 0;
-        let earnedWeight = 0;
+        let totalQuestions = 0;
+        let correctCount = 0;
+        const failedCriticalItems: string[] = [];
 
         for (const block of blocks) {
           // Skip hidden blocks — they should not affect scoring
@@ -324,18 +371,25 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
           // Skip blocks in hidden sections
           if (block.section_id && allHiddenSectionIds.has(block.section_id)) continue;
 
-          const _settings = (block.validation_rules?._settings as Record<string, unknown>) || {};
-          const weight = (_settings.score_weight as number) || 0;
-          const correctAnswer = (_settings.correct_answer as string) || '';
-          if (weight <= 0 || !correctAnswer) continue;
+          const vr = (block.validation_rules ?? {}) as Record<string, unknown>;
+          // Support both new (_correct_answer in validation_rules) and legacy (_settings.correct_answer in validation_rules)
+          const legacySettings = (vr._settings as Record<string, unknown>) || {};
+          const correctAnswer = (vr._correct_answer as string) || (legacySettings.correct_answer as string) || '';
+          const isCritical = !!(vr._critical);
+          const allowNa = !!(vr._allow_na);
 
-          totalWeight += weight;
+          if (!correctAnswer) continue;
+
           const response = formData[block.id];
+
+          // If N/A is allowed and the user answered N/A, exclude from scoring
+          if (allowNa && String(response || '').toLowerCase() === 'n/a') continue;
+
+          totalQuestions += 1;
 
           // Compare response to correct answer
           let isCorrect = false;
           if (block.type === 'checkboxes') {
-            // For checkboxes, compare sorted comma-separated values
             const correctSet = correctAnswer.split(',').map(s => s.trim().toLowerCase()).sort();
             const responseArr = Array.isArray(response)
               ? (response as string[]).map(s => String(s).trim().toLowerCase()).sort()
@@ -349,20 +403,26 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
           }
 
           if (isCorrect) {
-            earnedWeight += weight;
+            correctCount += 1;
+          } else if (isCritical) {
+            failedCriticalItems.push(block.id);
           }
         }
 
-        const scorePercentage = totalWeight > 0 ? (earnedWeight / totalWeight) * 100 : 0;
+        const scorePercentage = totalQuestions > 0 ? (correctCount / totalQuestions) * 100 : 0;
+        const criticalFail = failedCriticalItems.length > 0;
         scoring = {
           score_percentage: Math.round(scorePercentage * 100) / 100,
-          passed: scorePercentage >= passThreshold,
-          total_weight: totalWeight,
-          earned_weight: earnedWeight,
+          passed: !criticalFail && scorePercentage >= passThreshold,
+          total_weight: totalQuestions,
+          earned_weight: correctCount,
+          criticalFail,
+          criticalItems: failedCriticalItems,
         };
       }
 
       await onSubmit?.(formData, scoring);
+      if (scoring) setLastScoringResult(scoring);
       setIsSubmitted(true);
     } finally {
       setIsSubmitting(false);
@@ -812,6 +872,7 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
       case 'yes_no': {
         const yesLabel = (block.validation_rules?.yes_label as string) || 'Yes';
         const noLabel = (block.validation_rules?.no_label as string) || 'No';
+        const allowNa = !!(block.validation_rules as Record<string, unknown> | undefined)?._allow_na;
         return (
           <div key={block.id} className="space-y-2">
             <Label>
@@ -823,8 +884,9 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
               <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
                 value === 'yes' ? 'bg-green-500/20 text-green-400' :
                 value === 'no' ? 'bg-red-500/20 text-red-400' :
+                value === 'n/a' ? 'bg-gray-500/20 text-gray-400' :
                 'text-muted-foreground'
-              }`}>{value === 'yes' ? yesLabel : value === 'no' ? noLabel : '—'}</div>
+              }`}>{value === 'yes' ? yesLabel : value === 'no' ? noLabel : value === 'n/a' ? 'N/A' : '—'}</div>
             ) : (
               <div className="flex gap-3">
                 <button type="button" onClick={() => handleChange(block.id, 'yes')}
@@ -835,6 +897,12 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
                   className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors ${
                     value === 'no' ? 'border-red-500 bg-red-500/20 text-red-400' : 'border-border hover:border-red-500/50'
                   }`}>{noLabel}</button>
+                {allowNa && (
+                  <button type="button" onClick={() => handleChange(block.id, 'n/a')}
+                    className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors ${
+                      value === 'n/a' ? 'border-gray-500 bg-gray-500/20 text-gray-400' : 'border-border hover:border-gray-500/50'
+                    }`}>N/A</button>
+                )}
               </div>
             )}
           </div>
@@ -1112,15 +1180,33 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
   const completionPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   if (isSubmitted) {
+    const didFail = lastScoringResult && !lastScoringResult.passed;
+    const failMessage = didFail ? submissionConfig?.on_fail?.fail_message : undefined;
     const confirmMsg = submissionConfig?.confirmation_message || t('forms.publicSubmissionReceived');
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center space-y-3">
-        <div className="rounded-full bg-green-100 p-3">
-          <svg className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-        <p className="text-base font-semibold">{confirmMsg}</p>
+        {failMessage ? (
+          <>
+            <div className="rounded-full bg-red-100 p-3">
+              <svg className="h-8 w-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M12 3l9.66 16.59A1 1 0 0120.66 21H3.34a1 1 0 01-.86-1.41L12 3z" />
+              </svg>
+            </div>
+            <div className="w-full max-w-md rounded-lg border border-red-300 bg-red-50 p-4">
+              <p className="text-sm font-semibold text-red-800">{t('forms.onFailBannerTitle')}</p>
+              <p className="mt-1 text-sm text-red-700">{failMessage}</p>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="rounded-full bg-green-100 p-3">
+              <svg className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <p className="text-base font-semibold">{confirmMsg}</p>
+          </>
+        )}
       </div>
     );
   }
@@ -1135,6 +1221,69 @@ export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPT
             <p className={`text-xs font-semibold uppercase tracking-wide ${typeUx.accent}`}>{t(typeUx.labelKey)}</p>
             {formTitle && <p className="text-sm font-medium truncate">{formTitle}</p>}
           </div>
+        </div>
+      )}
+
+      {/* Start config fields: location & shift selectors */}
+      {startConfig && !readOnly && (startConfig.require_location || startConfig.require_shift || startConfig.identity_mode === 'location') && (
+        <div className="space-y-4 p-4 rounded-lg border border-primary/20 bg-primary/5">
+          {/* Location selector */}
+          {(startConfig.require_location || startConfig.identity_mode === 'location') && (
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">
+                {t('forms.startFieldLocation')} <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={(formData._location_id as string) || 'none'}
+                onValueChange={(v) => {
+                  const store = stores.find(s => s.id === v);
+                  handleChange('_location_id', v === 'none' ? '' : v);
+                  handleChange('_location_name', store?.name || '');
+                }}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder={t('forms.startFieldLocationPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{t('forms.startFieldLocationPlaceholder')}</SelectItem>
+                  {stores.map((store) => (
+                    <SelectItem key={store.id} value={store.id}>
+                      {store.code ? `${store.code} - ${store.name}` : store.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {validationErrors._location_id && (
+                <p className="text-xs text-destructive">{validationErrors._location_id}</p>
+              )}
+            </div>
+          )}
+
+          {/* Shift selector */}
+          {startConfig.require_shift && (
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">
+                {t('forms.startFieldShift')} <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={(formData._shift as string) || 'none'}
+                onValueChange={(v) => handleChange('_shift', v === 'none' ? '' : v)}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder={t('forms.startFieldShiftPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{t('forms.startFieldShiftPlaceholder')}</SelectItem>
+                  {(startConfig.shift_options ?? DEFAULT_SHIFT_OPTIONS).map((opt) => (
+                    <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {validationErrors._shift && (
+                <p className="text-xs text-destructive">{validationErrors._shift}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
 

@@ -19,6 +19,7 @@ interface FormSection {
   title?: string;
   description?: string;
   order?: number;
+  settings?: Record<string, unknown> | null;
 }
 
 interface PublicForm {
@@ -31,7 +32,15 @@ interface PublicForm {
   settings?: {
     scoring_enabled?: boolean;
     pass_threshold?: number;
+    start_config?: {
+      identity_mode?: 'individual' | 'location' | 'anonymous';
+      require_location?: boolean;
+      require_shift?: boolean;
+      shift_options?: string[];
+      submission_limit?: 'unlimited' | 'daily' | 'shift' | 'weekly';
+    };
   };
+  submission_config?: Record<string, unknown>;
 }
 
 interface OrgBranding {
@@ -427,6 +436,8 @@ export function PublicFormFill() {
             linkedContent={linkedContent}
             ojtMetadata={ojtMetadata}
             onOjtMetadataChange={setOjtMetadata}
+            submissionConfig={formData.form.submission_config as any}
+            startConfig={formData.form.settings?.start_config}
           />
           {submitting && (
             <div className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-2">
