@@ -270,10 +270,10 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
                   type="monotone"
                   dataKey="count"
                   name="Submissions"
-                  stroke="hsl(var(--primary))"
+                  stroke="#f97316"
                   strokeWidth={3}
-                  dot={false}
-                  activeDot={{ r: 6 }}
+                  dot={{ r: 3, fill: '#f97316' }}
+                  activeDot={{ r: 6, fill: '#f97316' }}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -318,7 +318,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
                   />
                   <Bar
                     dataKey="rate"
-                    fill="hsl(var(--primary))"
+                    fill="#3b82f6"
                     radius={[0, 8, 8, 0]}
                   />
                 </BarChart>
@@ -362,7 +362,7 @@ export function FormAnalytics({ orgId, currentRole = 'admin' }: FormAnalyticsPro
                   />
                   <Bar
                     dataKey="avgScore"
-                    fill="hsl(var(--primary))"
+                    fill="#22c55e"
                     radius={[0, 8, 8, 0]}
                   />
                 </BarChart>
