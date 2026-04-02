@@ -355,6 +355,7 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
                 const parsed = JSON.parse(importedRaw);
                 // Support both old format (array) and new format (object with blocks + sections)
                 const importedBlocks: Array<{
+                  ref_id?: string;
                   block_type: string;
                   label: string;
                   description?: string;
@@ -362,6 +363,16 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
                   options?: string[];
                   section_title?: string;
                   display_order: number;
+                  conditional_logic?: {
+                    action: string;
+                    operator: string;
+                    conditions: Array<{
+                      source_block_ref_id?: string;
+                      source_block_id?: string;
+                      operator: string;
+                      value: string;
+                    }>;
+                  } | null;
                 }> = Array.isArray(parsed) ? parsed : (parsed.blocks || []);
                 const importedSections: Array<{ title: string; description?: string }> = parsed.sections || [];
 
@@ -388,19 +399,60 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
                   }
                 }
 
-                const localBlocks: LocalBlock[] = importedBlocks.map((b, i) => ({
-                  id: `new-${crypto.randomUUID()}`,
-                  _isNew: true,
-                  _isDirty: true,
-                  form_id: formId,
-                  section_id: (b.section_title && sectionIdMap.get(b.section_title)) || null,
-                  block_type: b.block_type,
-                  label: b.label,
-                  description: b.description,
-                  is_required: b.is_required,
-                  options: b.options,
-                  display_order: i,
-                }));
+                // First pass: generate IDs and build ref_id → real ID map
+                const refIdToRealId = new Map<string, string>();
+                const blockIds: string[] = [];
+                for (let i = 0; i < importedBlocks.length; i++) {
+                  const newId = `new-${crypto.randomUUID()}`;
+                  blockIds.push(newId);
+                  const refId = importedBlocks[i].ref_id;
+                  if (refId) {
+                    refIdToRealId.set(refId, newId);
+                  }
+                }
+
+                // Second pass: build blocks with remapped conditional_logic
+                const localBlocks: LocalBlock[] = importedBlocks.map((b, i) => {
+                  // Remap conditional_logic ref_ids to real block IDs
+                  let mappedLogic: LocalBlock['conditional_logic'] = undefined;
+                  if (b.conditional_logic?.conditions?.length) {
+                    const mappedConditions = b.conditional_logic.conditions
+                      .map(c => {
+                        const refId = c.source_block_ref_id || c.source_block_id;
+                        const realId = refId ? refIdToRealId.get(refId) : undefined;
+                        if (!realId) return null; // Skip conditions with unresolvable refs
+                        return {
+                          source_block_id: realId,
+                          operator: c.operator,
+                          value: c.value || '',
+                        };
+                      })
+                      .filter((c): c is NonNullable<typeof c> => c !== null);
+
+                    if (mappedConditions.length > 0) {
+                      mappedLogic = {
+                        action: b.conditional_logic.action as 'show' | 'hide',
+                        operator: (b.conditional_logic.operator as 'AND' | 'OR') || 'AND',
+                        conditions: mappedConditions,
+                      };
+                    }
+                  }
+
+                  return {
+                    id: blockIds[i],
+                    _isNew: true,
+                    _isDirty: true,
+                    form_id: formId,
+                    section_id: (b.section_title && sectionIdMap.get(b.section_title)) || null,
+                    block_type: b.block_type,
+                    label: b.label,
+                    description: b.description,
+                    is_required: b.is_required,
+                    options: b.options,
+                    conditional_logic: mappedLogic,
+                    display_order: i,
+                  };
+                });
                 setBlocks(localBlocks);
                 markDirty();
               } catch {

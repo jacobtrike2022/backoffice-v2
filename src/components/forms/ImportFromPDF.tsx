@@ -29,13 +29,24 @@ interface ImportFromPDFProps {
 
 interface ParseResult {
   blocks: Array<{
+    ref_id?: string;
     block_type: string;
     label: string;
     description?: string;
     is_required: boolean;
     options?: string[];
     display_order: number;
+    conditional_logic?: {
+      action: string;
+      operator: string;
+      conditions: Array<{
+        source_block_ref_id?: string;
+        operator: string;
+        value: string;
+      }>;
+    } | null;
   }>;
+  sections?: Array<{ title: string; description?: string }>;
   detected_form_type: string;
   title: string;
   description: string;

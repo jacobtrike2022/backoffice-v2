@@ -1457,15 +1457,47 @@ CRITICAL RULES:
 
 7. DESCRIPTIVE PARAGRAPHS (welcome text, phase introductions) should be "instruction" blocks with the full text as the label.
 
+8. INSPECTION TABLE PATTERN — PER-ROW FIELDS WITH CONDITIONAL LOGIC:
+Many inspection/audit forms use a table layout where each row has multiple columns like:
+  - Column A: Item label (e.g. "Lighting in working order")
+  - Column B: Compliance check (checkboxes per shift, or a single pass/fail)
+  - Column C: "If out of compliance, provide explanation / corrective action" (conditional text area)
+  - Column D: Optional flag checkbox (e.g. "Reported", "Limble Reported")
+
+When you detect this pattern, you MUST generate SEPARATE blocks for EACH row's columns — do NOT collapse Column C or Column D into a single global block. For each row, produce:
+  a) A compliance check block (yes_no, checkboxes, or radio depending on the form). Use ref_id like "block_0", "block_1", etc.
+  b) A conditional textarea block for the explanation/corrective action, with a ref_id AND conditional_logic that shows it only when the compliance check indicates non-compliance.
+  c) If Column D exists (e.g. a "Reported" flag), a yes_no block for that flag, also per-row.
+
+For the conditional textarea, set:
+  "conditional_logic": {
+    "action": "show",
+    "operator": "AND",
+    "conditions": [{ "source_block_ref_id": "<ref_id of the compliance check block>", "operator": "not_equals", "value": "<the compliant value>" }]
+  }
+
+For checkboxes-based compliance (e.g. "check all shifts in compliance"), the conditional textarea should show when the compliance checkbox is_empty (nothing checked means non-compliance):
+  "conditional_logic": {
+    "action": "show",
+    "operator": "AND",
+    "conditions": [{ "source_block_ref_id": "<ref_id>", "operator": "is_not_empty", "value": "" }]
+  }
+
+IMPORTANT: Use "source_block_ref_id" (NOT "source_block_id") in conditions. The system will remap these to real IDs.
+
+9. TEMPERATURE / NUMERIC ENTRY ROWS: Rows asking for temperature readings, counts, or measurements should be "number" blocks, not text.
+
 Available block_type values: text, textarea, number, date, time, radio, checkboxes, dropdown, yes_no, rating, signature, photo, instruction, divider
 
 For each block return:
+- ref_id: a unique reference like "block_0", "block_1", etc. (REQUIRED for every block)
 - block_type: string
 - label: the field label or question
 - description: optional helper text (string or null)
 - is_required: boolean (true for items that must be completed)
 - options: array of strings (for radio, checkboxes, dropdown only)
 - section_title: string or null (which section this block belongs to)
+- conditional_logic: object or null. When present: { "action": "show"|"hide", "operator": "AND"|"OR", "conditions": [{ "source_block_ref_id": "<ref_id>", "operator": "equals"|"not_equals"|"contains"|"is_empty"|"is_not_empty", "value": "<string>" }] }
 
 Also determine:
 - detected_form_type: one of "inspection", "audit", "sign-off", "ojt-checklist", "survey"
@@ -1536,17 +1568,62 @@ Return ONLY valid JSON:
 
     // Validate and sanitize blocks
     const blocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
+
+    // Build a ref_id → index map so we can remap conditional_logic references
+    const refIdToIndex = new Map<string, number>();
+    blocks.forEach((b: any, idx: number) => {
+      if (b && typeof b.ref_id === "string") {
+        refIdToIndex.set(b.ref_id, idx);
+      }
+    });
+
     const validatedBlocks = blocks
       .filter((b: any) => b && typeof b.label === "string" && b.label.trim())
-      .map((b: any, idx: number) => ({
-        block_type: VALID_BLOCK_TYPES.has(b.block_type) ? b.block_type : "text",
-        label: b.label.trim(),
-        description: typeof b.description === "string" ? b.description : undefined,
-        is_required: typeof b.is_required === "boolean" ? b.is_required : false,
-        options: Array.isArray(b.options) ? b.options.filter((o: any) => typeof o === "string") : undefined,
-        section_title: typeof b.section_title === "string" ? b.section_title : null,
-        display_order: idx,
-      }));
+      .map((b: any, idx: number) => {
+        // Parse and validate conditional_logic if present
+        let conditionalLogic: any = null;
+        if (b.conditional_logic && typeof b.conditional_logic === "object") {
+          const cl = b.conditional_logic;
+          const validActions = ["show", "hide"];
+          const validOperators = ["AND", "OR"];
+          const validCondOps = ["equals", "not_equals", "contains", "not_contains", "greater_than", "less_than", "is_empty", "is_not_empty"];
+
+          if (validActions.includes(cl.action) && Array.isArray(cl.conditions) && cl.conditions.length > 0) {
+            const validConditions = cl.conditions
+              .filter((c: any) =>
+                c && typeof c === "object" &&
+                (typeof c.source_block_ref_id === "string" || typeof c.source_block_id === "string") &&
+                validCondOps.includes(c.operator)
+              )
+              .map((c: any) => ({
+                // Store ref_id for now — useFormBuilder will remap to real IDs
+                source_block_ref_id: c.source_block_ref_id || c.source_block_id,
+                operator: c.operator,
+                value: typeof c.value === "string" ? c.value : "",
+              }));
+
+            if (validConditions.length > 0) {
+              conditionalLogic = {
+                action: cl.action,
+                operator: validOperators.includes(cl.operator) ? cl.operator : "AND",
+                conditions: validConditions,
+              };
+            }
+          }
+        }
+
+        return {
+          ref_id: typeof b.ref_id === "string" ? b.ref_id : `block_${idx}`,
+          block_type: VALID_BLOCK_TYPES.has(b.block_type) ? b.block_type : "text",
+          label: b.label.trim(),
+          description: typeof b.description === "string" ? b.description : undefined,
+          is_required: typeof b.is_required === "boolean" ? b.is_required : false,
+          options: Array.isArray(b.options) ? b.options.filter((o: any) => typeof o === "string") : undefined,
+          section_title: typeof b.section_title === "string" ? b.section_title : null,
+          conditional_logic: conditionalLogic,
+          display_order: idx,
+        };
+      });
 
     // Extract sections
     const sections = Array.isArray(parsed.sections)
