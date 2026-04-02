@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from './lib/hooks/useAuth';
 import Login from './components/Login';
-import { APP_CONFIG } from './lib/config';
+import { APP_CONFIG, getDefaultOrgId } from './lib/config';
 import { DashboardLayout } from "./components/DashboardLayout";
 import { Dashboard } from "./components/Dashboard";
 import { reindexAllTracks, backfillBrainIndex } from './lib/utils/brainIndexer';
@@ -253,8 +253,11 @@ export default function App() {
   const getTrackingContext = useCallback(() => {
     const params = new URLSearchParams(window.location.search);
     const demoOrgId = params.get("demo_org_id");
+    // Fall back to getDefaultOrgId() so prospect demo deployments
+    // (each with their own VITE_DEFAULT_ORG_ID) attribute events correctly.
+    const effectiveOrgId = viewingOrgId || demoOrgId || getDefaultOrgId();
     return {
-      organizationId: viewingOrgId || demoOrgId || null,
+      organizationId: effectiveOrgId,
       organizationName: viewingOrgName || null,
       currentRole,
     };

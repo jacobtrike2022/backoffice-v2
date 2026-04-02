@@ -40,7 +40,7 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { supabase, getCurrentUserOrgId } from '../lib/supabase';
-import { APP_CONFIG } from '../lib/config';
+import { APP_CONFIG, getDefaultOrgId } from '../lib/config';
 import { trackDemoActivityEvent } from '../lib/analytics/demoTracking';
 import { useTranslation } from 'react-i18next';
 
@@ -506,7 +506,7 @@ export function DashboardLayout({
                               },
                             },
                             {
-                              organizationId: viewingOrgId || demoOrgId || null,
+                              organizationId: viewingOrgId || demoOrgId || getDefaultOrgId(),
                               organizationName: viewingOrgName || null,
                               currentRole,
                             }
