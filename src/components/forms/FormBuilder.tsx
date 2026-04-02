@@ -210,6 +210,66 @@ function getBlockTypeDef(blockType: string): BlockTypeDef | undefined {
   return BLOCK_TYPES.find(b => b.type === blockType);
 }
 
+const CHOICE_TYPES = new Set(['radio', 'checkboxes', 'dropdown']);
+const CONTENT_TYPES = new Set(['instruction', 'divider']);
+
+/**
+ * Compute the updates needed to convert a block from one type to another,
+ * preserving as much data as possible.
+ */
+function computeBlockTypeConversion(
+  block: LocalBlock,
+  newType: string
+): Partial<LocalBlock> {
+  const oldType = block.block_type;
+  if (oldType === newType) return {};
+
+  const updates: Partial<LocalBlock> = { block_type: newType };
+
+  // Options: only preserve between choice types
+  if (CHOICE_TYPES.has(newType)) {
+    if (!CHOICE_TYPES.has(oldType)) {
+      // Converting TO a choice type from non-choice — add defaults if no options
+      updates.options = block.options?.length ? block.options : ['Option 1', 'Option 2', 'Option 3'];
+    }
+    // else: choice → choice, keep existing options
+  } else {
+    // Non-choice types don't have options
+    updates.options = undefined;
+  }
+
+  // Content types: instruction keeps label+description, divider keeps only label
+  if (newType === 'instruction') {
+    updates.is_required = false;
+    updates.validation_rules = undefined;
+    updates.placeholder = undefined;
+  } else if (newType === 'divider') {
+    updates.is_required = false;
+    updates.description = undefined;
+    updates.validation_rules = undefined;
+    updates.placeholder = undefined;
+    updates.options = undefined;
+  }
+
+  // Coming FROM a content type to a question type — restore sensible defaults
+  if (CONTENT_TYPES.has(oldType) && !CONTENT_TYPES.has(newType)) {
+    updates.is_required = false; // don't auto-require
+  }
+
+  // Reset validation rules when changing between fundamentally different input types
+  // (e.g. number → text, rating → checkboxes) — but keep for choice→choice
+  if (!(CHOICE_TYPES.has(oldType) && CHOICE_TYPES.has(newType))) {
+    updates.validation_rules = undefined;
+  }
+
+  // Reset settings (slider min/max/step, rating stars, etc.)
+  if (oldType !== newType) {
+    updates.settings = undefined;
+  }
+
+  return updates;
+}
+
 // ============================================================================
 // BLOCK PICKER POPOVER
 // ============================================================================
@@ -955,7 +1015,32 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
       <div className="flex items-center justify-between px-6 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
           <Icon className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">{typeDef ? t(typeDef.labelKey) : block.block_type}</span>
+          <Select
+            value={block.block_type}
+            onValueChange={(newType) => {
+              if (newType === block.block_type) return;
+              const updates = computeBlockTypeConversion(block, newType);
+              onUpdate(updates);
+            }}
+          >
+            <SelectTrigger className="h-7 w-auto gap-1.5 px-2 py-0 border-none shadow-none bg-transparent hover:bg-muted text-sm font-medium">
+              <SelectValue>{typeDef ? t(typeDef.labelKey) : block.block_type}</SelectValue>
+              <Pen className="h-3 w-3 text-muted-foreground" />
+            </SelectTrigger>
+            <SelectContent>
+              {BLOCK_TYPES.map(bt => {
+                const BtIcon = bt.icon;
+                return (
+                  <SelectItem key={bt.type} value={bt.type}>
+                    <span className="flex items-center gap-2">
+                      <BtIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                      {t(bt.labelKey)}
+                    </span>
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
           {hasConditionalLogic && (
             <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 gap-0.5">
               <GitBranch className="h-2.5 w-2.5" />
