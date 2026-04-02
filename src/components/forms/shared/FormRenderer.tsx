@@ -309,9 +309,10 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
   const { t } = useTranslation();
 
   // Auto-inject identity block based on submission mode (individual → person, location → store)
+  // Default is 'individual' when no start_config is set
   const blocks = React.useMemo(() => {
-    const identityMode = startConfig?.identity_mode;
-    if (!identityMode || identityMode === 'anonymous') return rawBlocks;
+    const identityMode = startConfig?.identity_mode || 'individual';
+    if (identityMode === 'anonymous') return rawBlocks;
 
     const IDENTITY_BLOCK_ID = '_identity_submitted_by';
     // Don't inject if already present (e.g. re-render)
