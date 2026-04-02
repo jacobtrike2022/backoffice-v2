@@ -825,7 +825,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                             {pt.required_form && (
                               <button
                                 type="button"
-                                className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="text-muted-foreground hover:text-destructive"
                                 title="Detach form"
                                 onClick={async () => {
                                   try {
