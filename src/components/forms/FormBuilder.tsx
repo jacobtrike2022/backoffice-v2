@@ -1098,15 +1098,17 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
           />
         </div>
 
-        {/* Required toggle */}
-        <div className="flex items-center justify-between">
-          <Label htmlFor="block-required" className="text-xs font-medium cursor-pointer">{t('forms.propRequired')}</Label>
-          <Switch
-            id="block-required"
-            checked={block.is_required}
-            onCheckedChange={checked => onUpdate({ is_required: checked })}
-          />
-        </div>
+        {/* Required toggle — hidden for content blocks that have no input */}
+        {block.block_type !== 'instruction' && block.block_type !== 'divider' && (
+          <div className="flex items-center justify-between">
+            <Label htmlFor="block-required" className="text-xs font-medium cursor-pointer">{t('forms.propRequired')}</Label>
+            <Switch
+              id="block-required"
+              checked={block.is_required}
+              onCheckedChange={checked => onUpdate({ is_required: checked })}
+            />
+          </div>
+        )}
 
         {/* Default to current — date/time blocks */}
         {(block.block_type === 'date' || block.block_type === 'time') && (
