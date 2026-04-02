@@ -315,7 +315,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
   const openEditSheet = (org: Organization) => {
     setEditingOrg(org);
     const industryDisplay = getOrgIndustryDisplay(org as Organization & { industries?: { name: string } | null; industry?: { name: string } | null });
-    const scrapedStoreCount = (org as any).scraped_data?.store_count;
+    const scrapedRelayTotal = (org as any).scraped_data?.relay_locations_total;
     setEditFormData({
       name: org.name || '',
       website: org.website || '',
@@ -325,7 +325,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
       operating_states: org.operating_states || [],
       next_action: org.next_action || '',
       next_action_date: org.next_action_date || '',
-      locations_scraped: scrapedStoreCount != null ? String(scrapedStoreCount) : '',
+      locations_scraped: scrapedRelayTotal != null ? String(scrapedRelayTotal) : '',
     });
     setNewStateInput('');
   };
@@ -339,7 +339,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
       const parsedCount = editFormData.locations_scraped.trim() === '' ? undefined : Number(editFormData.locations_scraped);
       const updatedScrapedData = {
         ...existingScraped,
-        store_count: parsedCount != null && !Number.isNaN(parsedCount) ? parsedCount : existingScraped.store_count,
+        relay_locations_total: parsedCount != null && !Number.isNaN(parsedCount) ? parsedCount : existingScraped.relay_locations_total,
       };
 
       const { error } = await supabase
