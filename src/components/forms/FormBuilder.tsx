@@ -441,9 +441,11 @@ interface BlockCardProps {
   onAdd: (blockType: string, sectionId?: string | null, afterBlockId?: string) => void;
   onOpenLogic: () => void;
   formType?: string;
+  isBulkSelected?: boolean;
+  onBulkToggle?: () => void;
 }
 
-function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, onSelect, onDelete, onAdd, onOpenLogic, formType }: BlockCardProps) {
+function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, onSelect, onDelete, onAdd, onOpenLogic, formType, isBulkSelected, onBulkToggle }: BlockCardProps) {
   const { t } = useTranslation();
   const {
     attributes,
@@ -535,13 +537,28 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
   }
 
   return (
-    <div>
+    <div className="flex items-start gap-0">
+      {/* Bulk selection checkbox — show on hover or when checked, hidden for dividers */}
+      {block.block_type !== 'divider' && onBulkToggle && (
+        <div className={`flex items-center pt-5 pr-1 ${isBulkSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onBulkToggle(); }}
+            className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${
+              isBulkSelected ? 'bg-primary border-primary text-white' : 'border-muted-foreground/40 hover:border-primary'
+            }`}
+          >
+            {isBulkSelected && <Check className="h-2.5 w-2.5" />}
+          </button>
+        </div>
+      )}
+      <div className="flex-1 min-w-0 group">
       <div
         ref={setNodeRef}
         style={style}
         data-block-id={block.id}
         className={`group relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
-          isSelected ? 'border-primary border-l-primary ring-2 ring-primary/20' : `${borderAccent} border-border hover:border-primary/40`
+          isSelected ? 'border-primary border-l-primary ring-2 ring-primary/20' : isBulkSelected ? 'border-primary/50 border-l-primary/50 ring-1 ring-primary/10' : `${borderAccent} border-border hover:border-primary/40`
         }`}
         onClick={onSelect}
       >
@@ -671,6 +688,7 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
         onAdd={onAdd}
         formType={formType}
       />
+    </div>
     </div>
   );
 }
@@ -3156,6 +3174,17 @@ export function FormBuilder({
     getFormScope(hook.form.id).then(setScopeData).catch(() => {});
   }, [hook.form?.id]);
 
+  // Bulk block selection
+  const [selectedBlockIds, setSelectedBlockIds] = useState<Set<string>>(new Set());
+  const toggleBlockSelection = useCallback((blockId: string) => {
+    setSelectedBlockIds(prev => {
+      const next = new Set(prev);
+      if (next.has(blockId)) next.delete(blockId); else next.add(blockId);
+      return next;
+    });
+  }, []);
+  const clearBlockSelection = useCallback(() => setSelectedBlockIds(new Set()), []);
+
   // Content topic tags from tags table
   const [contentTopics, setContentTopics] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => {
@@ -3609,6 +3638,52 @@ export function FormBuilder({
         </div>
       </div>
 
+      {/* Bulk action bar — sticky at top when blocks are selected */}
+      {selectedBlockIds.size > 0 && (
+        <div className="sticky top-0 z-20 border-b border-primary/30 bg-primary/5 px-4 py-2 flex items-center gap-3 shrink-0">
+          <span className="text-sm font-medium text-primary">{selectedBlockIds.size} selected</span>
+          <Select
+            value="__bulk__"
+            onValueChange={(newType) => {
+              if (newType === '__bulk__') return;
+              for (const blockId of selectedBlockIds) {
+                const block = hook.blocks.find(b => b.id === blockId);
+                if (block) {
+                  const updates = computeBlockTypeConversion(block, newType);
+                  hook.updateBlock(blockId, updates);
+                }
+              }
+              clearBlockSelection();
+            }}
+          >
+            <SelectTrigger className="h-7 w-auto gap-1 px-2 text-xs border-primary/30">
+              <SelectValue>Change type</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__bulk__">Change type to...</SelectItem>
+              {BLOCK_TYPES.map(bt => (
+                <SelectItem key={bt.type} value={bt.type}>{t(bt.labelKey)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+            onClick={() => {
+              for (const blockId of selectedBlockIds) hook.deleteBlock(blockId);
+              clearBlockSelection();
+            }}
+          >
+            <Trash2 className="h-3 w-3 mr-1" />
+            Delete
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearBlockSelection}>
+            Clear
+          </Button>
+        </div>
+      )}
+
       {/* ================================================================
           MAIN AREA
       ================================================================ */}
@@ -3666,14 +3741,8 @@ export function FormBuilder({
                       <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 ml-1 border-primary/30 text-primary">
                         Auto
                       </Badge>
-                      <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-primary/30 text-primary">
-                        Required
-                      </Badge>
                     </div>
-                    <p className="text-sm font-medium">Submitted by <span className="text-destructive">*</span></p>
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      Auto-injected based on submission mode. Cannot be edited or removed.
-                    </p>
+                    <p className="text-sm font-medium">Submitted by <span className="text-destructive ml-0.5">*</span></p>
                   </div>
                 </>
               );
@@ -3737,6 +3806,8 @@ export function FormBuilder({
                     onAdd={hook.addBlock}
                     onOpenLogic={() => handleOpenLogic(block.id)}
                     formType={hook.form?.type}
+                    isBulkSelected={selectedBlockIds.has(block.id)}
+                    onBulkToggle={() => toggleBlockSelection(block.id)}
                   />
                 ))}
               </SortableContext>
@@ -3787,6 +3858,8 @@ export function FormBuilder({
                         onAdd={hook.addBlock}
                         onOpenLogic={() => handleOpenLogic(block.id)}
                         formType={hook.form?.type}
+                        isBulkSelected={selectedBlockIds.has(block.id)}
+                        onBulkToggle={() => toggleBlockSelection(block.id)}
                       />
                     ))}
                   </SortableContext>
