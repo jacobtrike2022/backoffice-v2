@@ -765,16 +765,16 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
             title="Click to connect to another block"
             aria-label="Start connection from this block"
           >
-            <div className="w-[15px] h-[15px] rounded-full border-2 border-dashed border-green-500 bg-card hover:bg-green-500/20 hover:border-solid transition-all flex items-center justify-center">
-              <div className="w-[4.5px] h-[4.5px] rounded-full bg-green-500" />
+            <div className="w-5 h-5 rounded-full border-2 border-dashed border-green-500 bg-card hover:bg-green-500/20 hover:border-solid transition-all flex items-center justify-center">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
             </div>
           </button>
         )}
         {/* Green pulsing dot when this block is the connection source */}
         {connectingFromBlockId === block.id && (
           <div className="absolute right-2 top-1/2 -translate-y-1/2 z-20">
-            <div className="w-[15px] h-[15px] rounded-full border-2 border-solid border-green-500 bg-green-500/20 flex items-center justify-center animate-pulse">
-              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+            <div className="w-5 h-5 rounded-full border-2 border-solid border-green-500 bg-green-500/20 flex items-center justify-center animate-pulse">
+              <div className="w-2 h-2 rounded-full bg-green-500" />
             </div>
           </div>
         )}
