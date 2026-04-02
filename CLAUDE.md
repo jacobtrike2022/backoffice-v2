@@ -34,6 +34,12 @@ This is an enterprise multi-tenant LMS platform for convenience store and foodse
 - Avoid fetching entire collections when you only need one record
 - Forms that edit existing records must fetch and display all current values
 
+## CRITICAL: Icon & Design Rules — No Emojis
+
+**NEVER use emojis as UI/design elements.** Emojis (Unicode emoji characters, HTML emoji entities like `&#128196;`, emoji shortcodes) must not appear in buttons, labels, badges, status indicators, or any user-facing UI. They look amateurish and inconsistent across platforms.
+
+**Use Lucide React icons instead.** The project uses `lucide-react` as its icon library. For generated HTML pages (e.g. PDF exports, email templates), use inline SVG from the same Lucide icon set. Icons should be clean, monochrome, and consistent with the established design spec.
+
 ---
 
 ## CRITICAL: Database Schema Rules
@@ -353,6 +359,7 @@ Before submitting code, verify:
 5. [ ] Null checks for optional joined relations
 6. [ ] No references to `user_profiles` table - use `users` table
 7. [ ] New Supabase migrations: use `DROP POLICY IF EXISTS` / `DROP TRIGGER IF EXISTS` before `CREATE` so migrations are idempotent
+8. [ ] No emojis in UI — use Lucide React icons (or inline Lucide SVGs in generated HTML)
 
 ---
 
