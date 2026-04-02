@@ -50,6 +50,13 @@ import {
   SelectValue,
 } from './ui/select';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from './ui/dialog';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -123,12 +130,23 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
   const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistoryEntry[]>([]);
   const [assignmentHistoryLoading, setAssignmentHistoryLoading] = useState(false);
 
+  // Per-track form attachment
+  const [trackFormAttachTarget, setTrackFormAttachTarget] = useState<string | null>(null);
+  const [orgForms, setOrgForms] = useState<{ id: string; title: string }[]>([]);
+
   const { user } = useCurrentUser();
   const { orgId: effectiveOrgId } = useEffectiveOrgId();
 
   useEffect(() => {
     fetchPlaylists();
   }, [effectiveOrgId, viewFilter]);
+
+  // Load forms for per-track attachment dialog
+  useEffect(() => {
+    if (!trackFormAttachTarget || !effectiveOrgId) return;
+    supabase.from('forms').select('id, title').eq('organization_id', effectiveOrgId).eq('status', 'published').order('title')
+      .then(({ data }) => setOrgForms((data || []) as { id: string; title: string }[]));
+  }, [trackFormAttachTarget, effectiveOrgId]);
 
   // Function to fetch and set full playlist details
   const fetchAndSelectPlaylist = async (playlistId: string) => {
@@ -764,17 +782,58 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                         {t('playlists.standaloneTracksCount', { count: selectedPlaylist.tracks.length })}
                       </p>
                       {selectedPlaylist.tracks.map((pt: any) => (
-                        <div key={pt.id} className="flex items-center space-x-3 p-3 bg-muted/50 rounded-lg border">
-                          <div className="h-8 w-8 rounded bg-muted flex items-center justify-center">
+                        <div key={pt.id} className="group flex items-center space-x-3 p-3 bg-muted/50 rounded-lg border">
+                          <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0">
                             <Library className="h-4 w-4 text-muted-foreground" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm truncate">{pt.track?.title || t('playlists.unnamed')}</p>
-                            <p className="text-xs text-muted-foreground">{pt.track?.type}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <p className="text-xs text-muted-foreground">{pt.track?.type}</p>
+                              {pt.required_form ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400">
+                                  <FileText className="h-2.5 w-2.5" />
+                                  {pt.required_form.title}
+                                  {pt.form_gate_mode === 'required' ? ' · Required' : ' · Optional'}
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border border-dashed border-muted-foreground/30 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:border-orange-400 hover:text-orange-500"
+                                  onClick={() => {
+                                    setTrackFormAttachTarget(pt.id);
+                                  }}
+                                >
+                                  <FileText className="h-2.5 w-2.5" />
+                                  Attach form
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <span className="text-xs text-muted-foreground flex-shrink-0">
-                            {pt.track?.duration_minutes || 0} {t('playlists.min')}
-                          </span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-xs text-muted-foreground">
+                              {pt.track?.duration_minutes || 0} {t('playlists.min')}
+                            </span>
+                            {pt.required_form && (
+                              <button
+                                type="button"
+                                className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Detach form"
+                                onClick={async () => {
+                                  try {
+                                    await crud.setTrackFormAttachment(pt.id, null, 'none');
+                                    fetchPlaylists();
+                                    if (selectedPlaylist) {
+                                      const refreshed = await crud.getPlaylistById(selectedPlaylist.id);
+                                      if (refreshed) setSelectedPlaylist({ ...selectedPlaylist, ...refreshed });
+                                    }
+                                  } catch (e) { console.error(e); }
+                                }}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1816,6 +1875,50 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
         playlistTitle={playlistToArchive?.title || ''}
         onArchive={handleArchivePlaylist}
       />
+
+      {/* Per-Track Form Attachment Dialog */}
+      <Dialog open={!!trackFormAttachTarget} onOpenChange={(open) => !open && setTrackFormAttachTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Attach Form to Track</DialogTitle>
+            <DialogDescription>
+              Learners will be prompted to complete this form after finishing the track before advancing.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Select a form</label>
+              <Select
+                value="__pick__"
+                onValueChange={async (formId) => {
+                  if (formId === '__pick__' || !trackFormAttachTarget) return;
+                  try {
+                    await crud.setTrackFormAttachment(trackFormAttachTarget, formId, 'required');
+                    setTrackFormAttachTarget(null);
+                    // Refresh playlist detail
+                    if (selectedPlaylist) {
+                      const refreshed = await crud.getPlaylistById(selectedPlaylist.id);
+                      if (refreshed) setSelectedPlaylist({ ...selectedPlaylist, ...refreshed });
+                    }
+                  } catch (e: any) {
+                    console.error('Failed to attach form:', e);
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose a published form..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__pick__">Choose a published form...</SelectItem>
+                  {orgForms.map(f => (
+                    <SelectItem key={f.id} value={f.id}>{f.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

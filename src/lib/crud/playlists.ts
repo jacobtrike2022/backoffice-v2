@@ -391,7 +391,7 @@ export async function getPlaylistById(playlistId: string) {
   const [playlistTracksResult, ...albumResults] = await Promise.all([
     supabase
       .from('playlist_tracks')
-      .select('id, track_id, display_order, release_stage')
+      .select('id, track_id, display_order, release_stage, required_form_id, form_gate_mode')
       .eq('playlist_id', playlistId)
       .order('display_order'),
     // Fetch all albums in parallel
@@ -443,10 +443,22 @@ export async function getPlaylistById(playlistId: string) {
     });
   }
 
-  // Combine junction data with track data
+  // Resolve per-track form titles
+  const trackFormIds = (playlistTracksRaw || []).map((pt: any) => pt.required_form_id).filter(Boolean);
+  let trackFormsMap: Record<string, { id: string; title: string }> = {};
+  if (trackFormIds.length > 0) {
+    const { data: formRows } = await supabase
+      .from('forms')
+      .select('id, title')
+      .in('id', [...new Set(trackFormIds)]);
+    for (const f of formRows || []) trackFormsMap[f.id] = f;
+  }
+
+  // Combine junction data with track data + form data
   const playlistTracks = (playlistTracksRaw || []).map((pt: any) => ({
     ...pt,
     track: tracksMap[pt.track_id] || null,
+    required_form: pt.required_form_id ? (trackFormsMap[pt.required_form_id] || null) : null,
   }));
 
   // Get assignments stats
@@ -1125,4 +1137,31 @@ export async function getPlaylistFormRequirement(
   }
 
   return { required: true, completed, formId, formTitle, mode };
+}
+
+// ============================================================================
+// PER-TRACK FORM ATTACHMENT
+// ============================================================================
+
+/**
+ * Attach or detach a form from a specific track within a playlist.
+ * Pass formId=null to detach.
+ */
+export async function setTrackFormAttachment(
+  playlistTrackId: string,
+  formId: string | null,
+  gateMode: 'none' | 'required' | 'optional' = 'required'
+) {
+  const { data, error } = await supabase
+    .from('playlist_tracks')
+    .update({
+      required_form_id: formId,
+      form_gate_mode: formId ? gateMode : 'none',
+    })
+    .eq('id', playlistTrackId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
 }
