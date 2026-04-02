@@ -765,16 +765,16 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
             title="Click to connect to another block"
             aria-label="Start connection from this block"
           >
-            <div className="w-5 h-5 rounded-full border-2 border-dashed border-green-500 bg-card hover:bg-green-500/20 hover:border-solid transition-all flex items-center justify-center">
-              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+            <div className="w-[15px] h-[15px] rounded-full border-2 border-dashed border-green-500 bg-card hover:bg-green-500/20 hover:border-solid transition-all flex items-center justify-center">
+              <div className="w-[4.5px] h-[4.5px] rounded-full bg-green-500" />
             </div>
           </button>
         )}
         {/* Green pulsing dot when this block is the connection source */}
         {connectingFromBlockId === block.id && (
           <div className="absolute right-2 top-1/2 -translate-y-1/2 z-20">
-            <div className="w-5 h-5 rounded-full border-2 border-solid border-green-500 bg-green-500/20 flex items-center justify-center animate-pulse">
-              <div className="w-2 h-2 rounded-full bg-green-500" />
+            <div className="w-[15px] h-[15px] rounded-full border-2 border-solid border-green-500 bg-green-500/20 flex items-center justify-center animate-pulse">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
             </div>
           </div>
         )}
@@ -3764,6 +3764,7 @@ export function FormBuilder({
 
   // Handler for quick-add logic: select block, open drawer on Logic tab, create default condition if needed
   const handleOpenLogic = useCallback((blockId: string) => {
+    setInlineCondEdit(null);
     const targetBlock = hook.blocks.find(b => b.id === blockId);
     if (targetBlock) {
       const hasLogic = !!(targetBlock.conditional_logic && (targetBlock.conditional_logic as ConditionalLogic).conditions?.length);
@@ -3783,6 +3784,7 @@ export function FormBuilder({
 
   // Reset drawer tab when selection changes normally (clicking a card, not via quick-add)
   const handleSelectBlock = useCallback((blockId: string) => {
+    setInlineCondEdit(null);
     setDrawerInitialTab(undefined);
     setSelectedSectionId(null); // Clear section selection when selecting a block
     hook.setSelectedBlockId(hook.selectedBlockId === blockId ? null : blockId);
@@ -3790,10 +3792,18 @@ export function FormBuilder({
 
   // Handle section header click — open section properties drawer
   const handleSelectSection = useCallback((sectionId: string) => {
+    setInlineCondEdit(null);
     hook.setSelectedBlockId(null); // Clear block selection when selecting a section
     setDrawerInitialTab(undefined);
     setSelectedSectionId(prev => prev === sectionId ? null : sectionId);
   }, [hook]);
+
+  // Keep inline "?" editor and right drawer mutually exclusive.
+  useEffect(() => {
+    if (hook.selectedBlockId || selectedSectionId) {
+      setInlineCondEdit(null);
+    }
+  }, [hook.selectedBlockId, selectedSectionId]);
 
   // ── Early returns (AFTER all hooks to satisfy Rules of Hooks) ──────────────
   if (hook.isLoading) {
@@ -4142,7 +4152,12 @@ export function FormBuilder({
               showAll={showDependencies}
               canvasRef={canvasRef}
               orderIssues={orderIssues}
-              onClickIncomplete={(blockId, condIndex, px, py) => setInlineCondEdit({ blockId, condIndex, x: px, y: py })}
+              onClickIncomplete={(blockId, condIndex, px, py) => {
+                hook.setSelectedBlockId(null);
+                setSelectedSectionId(null);
+                setDrawerInitialTab(undefined);
+                setInlineCondEdit({ blockId, condIndex, x: px, y: py });
+              }}
             />
           )}
           <div
