@@ -9,7 +9,7 @@ alwaysApply: true
 ## Before changing the database (for AI assistants)
 
 1. **Only** add or edit SQL under **`supabase/migrations/`** for schema/functions/RLS that ship via `supabase db push`. Do not rely on ad-hoc SQL in chat as the source of truth.
-2. Read **`.cursor/docs/README_MIGRATIONS.mdc`** first: idempotent `DROP`, branch/demo safety, history repair, and PostgreSQL pitfalls (e.g. `round()` + float8).
+2. Read **`.cursor/docs/README_MIGRATIONS.mdc`** first: idempotent `DROP`, branch/demo safety, history repair, **CLI vs `schema_migrations.version` (timestamp prefix; do not hand-insert full filenames as `version` without verifying)**, and PostgreSQL pitfalls (e.g. `round()` + float8).
 3. **Never** rewrite SQL in a migration file that is already applied on a shared remote; add a **new** timestamped migration instead.
 4. **`CLAUDE.md`** (this repo) duplicates key migration commands for Claude Code.
 

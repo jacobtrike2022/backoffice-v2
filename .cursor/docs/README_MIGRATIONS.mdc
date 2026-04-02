@@ -1,5 +1,5 @@
 ---
-description: "Supabase migration best practices - idempotency and history repair"
+description: "Supabase migration best practices - idempotency, history repair, CLI version matching"
 globs: "supabase/migrations/**/*.sql"
 alwaysApply: false
 ---
@@ -96,7 +96,27 @@ Calling `similarity()` / `word_similarity()` for **every row** without index-fri
 
 **Reference-only SQL:** `src/supabase/migrations/` (older paths) may be used for seed or docs; canonical applied history is **`supabase/migrations/`** only.
 
-## 4. Reference in other docs
+## 4. CLI migration version matching and `schema_migrations.version`
+
+Use this when `supabase db push` fails with **Remote migration versions not found in local migrations directory**, or when you are tempted to fix history with raw SQL on `supabase_migrations.schema_migrations`.
+
+### How the CLI matches files to “versions”
+
+- Each local file must be named **`YYYYMMDDHHMMSS_description.sql`** (see CLI: skipped migrations log *file name must match pattern `<timestamp>_name.sql`*).
+- The Supabase CLI aligns the remote `schema_migrations.version` column with each file using the migration **version** shown in **`supabase migration list`** (the **Local** column). That is effectively the **leading numeric timestamp** for that file (e.g. `20260330100001`), not necessarily storing the full string `20260330100001_add_preferred_language` on the remote—**depending on CLI version and how the migration was applied.**
+
+### Rules for agents (and humans)
+
+1. **Do not** hand-`UPDATE` `schema_migrations.version` to the full `filename_without_.sql` unless you have verified **`supabase migration list`** and **`supabase db push`** both accept it. Wrong values cause *Remote migration versions not found in local migrations directory* even when the `.sql` file exists.
+2. Prefer **`supabase migration repair`** and normal **`supabase db push`** over ad-hoc edits to the history table.
+3. **Lexicographic order:** Migrations apply in **string sort order** of the filename. For example, `20260330100001_foo.sql` sorts **before** `20260330_add_bar.sql` (left-to-right character comparison). Use a full timestamp prefix that sorts in the order you need (e.g. `20260330000001_add_recurrence_...` **before** `20260330100001_...`).
+4. **Delete** accidental macOS duplicates such as `* 2.sql`; they are not valid migration names and confuse history.
+
+### Check
+
+- Run `supabase migration list` and confirm **Local** and **Remote** agree for every row before/after any repair.
+
+## 5. Reference in other docs
 
 - Cursor rules: `.cursor/rules/trike-backoffice.mdc` (Supabase migration best practices)
 - Project rules: `CLAUDE.md` (Migrations, Common Gotchas, Deployment)
