@@ -546,7 +546,15 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
 
     // Build response rows
     const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const responsesHtml = blocks
+    // Identity "Submitted by" row (from auto-injected identity block)
+    const identityLabel = rd['_identity_submitted_by__label'] as string | undefined;
+    const identityRow = identityLabel
+      ? `<tr>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-weight:600;color:#334155;vertical-align:top;width:35%;font-size:13px;">Submitted by</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;color:#1e293b;font-size:14px;font-weight:500;">${escHtml(identityLabel)}</td>
+        </tr>`
+      : '';
+    const responsesHtml = identityRow + blocks
       .filter((b) => b.type !== 'heading' && b.type !== 'separator' && b.type !== 'section_header' && b.type !== 'paragraph')
       .map((block) => {
         const rawVal = rd[block.id] ?? rd[block.label || ''] ?? null;

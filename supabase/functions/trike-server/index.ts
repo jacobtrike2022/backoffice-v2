@@ -16265,8 +16265,17 @@ function generateSubmissionPdfHtml(params: {
       </div>`
     : '';
 
+  // Render identity "Submitted by" row if present (auto-injected by FormRenderer)
+  const identityLabel = responses['_identity_submitted_by__label'] as string | undefined;
+  const identityRow = identityLabel
+    ? `<tr>
+        <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-weight:600;color:#334155;vertical-align:top;width:35%;font-size:13px;">Submitted by</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;color:#1e293b;font-size:14px;font-weight:500;">${escapeHtml(identityLabel)}</td>
+      </tr>`
+    : '';
+
   // Build response rows per block (in display_order)
-  const responsesHtml = blocks.map(block => {
+  const responsesHtml = identityRow + blocks.map(block => {
     const rawVal = responses[block.id] ?? responses[block.label || ''] ?? null;
     const label = block.label || '';
 
@@ -16422,9 +16431,18 @@ function buildFormEmailHtml(params: {
 
   let responsesSection = '';
   if (includeResponses && responses && blocks && blocks.length > 0) {
+    // Identity "Submitted by" row (auto-injected by FormRenderer at fill time)
+    const emailIdentityLabel = responses?.['_identity_submitted_by__label'] as string | undefined;
+    const emailIdentityRow = emailIdentityLabel
+      ? `<tr>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #334155; vertical-align: top; width: 35%;">Submitted by</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569; font-weight: 500;">${escapeHtml(emailIdentityLabel)}</td>
+        </tr>`
+      : '';
+
     // Iterate blocks in display_order (they're already sorted from the query)
     // This ensures email matches the actual form order
-    const rows = blocks
+    const rows = emailIdentityRow + blocks
       .filter(b => b.type !== 'instruction' && b.type !== 'divider' && b.type !== 'heading' && b.type !== 'separator' && b.type !== 'section_header' && b.type !== 'paragraph')
       .map(block => {
         const val = responses[block.id] ?? responses[block.label || ''] ?? null;

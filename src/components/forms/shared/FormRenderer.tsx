@@ -305,8 +305,41 @@ function PersonLookupBlock({ block, value, onChange, readOnly, t, organizationId
   );
 }
 
-export function FormRenderer({ blocks, sections = EMPTY_SECTIONS, answers = EMPTY_ANSWERS, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle, linkedContent, ojtMetadata, onOjtMetadataChange, startConfig, stores = EMPTY_STORES, organizationId }: FormRendererProps) {
+export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, answers = EMPTY_ANSWERS, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle, linkedContent, ojtMetadata, onOjtMetadataChange, startConfig, stores = EMPTY_STORES, organizationId }: FormRendererProps) {
   const { t } = useTranslation();
+
+  // Auto-inject identity block based on submission mode (individual → person, location → store)
+  const blocks = React.useMemo(() => {
+    const identityMode = startConfig?.identity_mode;
+    if (!identityMode || identityMode === 'anonymous') return rawBlocks;
+
+    const IDENTITY_BLOCK_ID = '_identity_submitted_by';
+    // Don't inject if already present (e.g. re-render)
+    if (rawBlocks.some(b => b.id === IDENTITY_BLOCK_ID)) return rawBlocks;
+
+    if (identityMode === 'individual') {
+      const identityBlock: FormBlockData = {
+        id: IDENTITY_BLOCK_ID,
+        type: 'person_lookup',
+        label: 'Submitted by',
+        is_required: true,
+      };
+      return [identityBlock, ...rawBlocks];
+    }
+
+    if (identityMode === 'location') {
+      const identityBlock: FormBlockData = {
+        id: IDENTITY_BLOCK_ID,
+        type: 'store_lookup',
+        label: 'Submitted by',
+        is_required: true,
+      };
+      return [identityBlock, ...rawBlocks];
+    }
+
+    return rawBlocks;
+  }, [rawBlocks, startConfig?.identity_mode]);
+
   const [formData, setFormData] = React.useState<Record<string, unknown>>(answers);
   const [validationErrors, setValidationErrors] = React.useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = React.useState(false);
