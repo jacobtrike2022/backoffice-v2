@@ -75,6 +75,7 @@ export interface Organization {
   last_activity_at: string | null;
   next_action: string | null;
   next_action_date: string | null;
+  demo_tracking_enabled: boolean;
 }
 
 export interface User {
