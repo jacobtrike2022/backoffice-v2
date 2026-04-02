@@ -1688,10 +1688,10 @@ Return ONLY valid JSON in this exact format, no other text:
       headers: {
         "Content-Type": "application/json",
         "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2025-01-01",
+        "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6-20250514",
+        model: "claude-sonnet-4-20250514",
         max_tokens: 8192,
         messages: [
           {
