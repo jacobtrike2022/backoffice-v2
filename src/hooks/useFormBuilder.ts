@@ -13,6 +13,8 @@ import {
   type FormWithSections,
 } from '../lib/crud/forms';
 import { createFormVersion } from '../lib/crud/formVersions';
+import type { BlockTemplate } from '../lib/crud/blockGroups';
+import { instantiateGroupTemplate } from '../lib/forms/blockGroupSerializer';
 
 // ============================================================================
 // TYPES
@@ -130,6 +132,7 @@ export interface UseFormBuilderReturn {
   selectedBlockId: string | null;
   setSelectedBlockId: (id: string | null) => void;
   addBlock: (blockType: string, sectionId?: string | null, afterBlockId?: string) => void;
+  addBlockGroup: (templates: import('../lib/crud/blockGroups').BlockTemplate[], sectionId?: string | null, afterBlockId?: string) => void;
   updateBlock: (blockId: string, updates: Partial<LocalBlock>) => void;
   deleteBlock: (blockId: string) => void;
   reorderBlock: (blockId: string, newIndex: number, sectionId?: string | null) => void;
@@ -700,6 +703,24 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
     markDirty();
   }, [form, markDirty]);
 
+  const addBlockGroup = useCallback((templates: BlockTemplate[], sectionId?: string | null, afterBlockId?: string) => {
+    if (!form) return;
+    const newBlocks = instantiateGroupTemplate(templates, form.id, sectionId ?? null, afterBlockId ?? null, blocks);
+
+    setBlocks(prev => {
+      let insertIndex = prev.length;
+      if (afterBlockId) {
+        const idx = prev.findIndex(b => b.id === afterBlockId);
+        if (idx !== -1) insertIndex = idx + 1;
+      }
+      const updated = [...prev];
+      updated.splice(insertIndex, 0, ...newBlocks);
+      return updated;
+    });
+
+    markDirty();
+  }, [form, blocks, markDirty]);
+
   const updateBlock = useCallback((blockId: string, updates: Partial<LocalBlock>) => {
     setBlocks(prev =>
       prev.map(b =>
@@ -779,6 +800,7 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
     selectedBlockId,
     setSelectedBlockId,
     addBlock,
+    addBlockGroup,
     updateBlock,
     deleteBlock,
     reorderBlock,

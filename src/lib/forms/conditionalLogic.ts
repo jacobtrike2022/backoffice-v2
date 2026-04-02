@@ -96,9 +96,11 @@ export function conditionSummaryText<T extends { id: string; label: string; bloc
 
   const condTexts = logic.conditions.map(c => {
     const srcBlock = allBlocks.find(b => b.id === c.source_block_id);
-    const srcLabel = srcBlock?.label
-      ? `'${srcBlock.label.length > 25 ? srcBlock.label.slice(0, 25) + '\u2026' : srcBlock.label}'`
-      : '?';
+    const srcLabel = c.source_block_id === '__PARENT__'
+      ? '[unconnected]'
+      : srcBlock?.label
+        ? `'${srcBlock.label.length > 25 ? srcBlock.label.slice(0, 25) + '\u2026' : srcBlock.label}'`
+        : '?';
     const opLabel = OPERATOR_LABELS[c.operator] || c.operator;
     if (c.operator === 'is_empty' || c.operator === 'is_not_empty') {
       return `${srcLabel} ${opLabel}`;
