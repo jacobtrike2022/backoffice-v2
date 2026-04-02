@@ -509,8 +509,8 @@ export function Organization({ currentRole, role, initialRoleId, onBackToDashboa
                 setSelectedRoleId(roleId);
               }}
               onCreateForm={(formId) => {
-                // Navigate to forms page with the new form ID for editing
-                window.open(`/?page=forms&formId=${formId}`, '_blank');
+                // Navigate to form builder in same window for editing
+                window.location.href = `/?page=forms&formId=${formId}`;
               }}
             />
           ) : (

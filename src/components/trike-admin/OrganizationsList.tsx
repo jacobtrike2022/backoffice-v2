@@ -126,6 +126,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
     operating_states: [] as string[],
     next_action: '',
     next_action_date: '',
+    locations_scraped: '',
   });
   const [isSaving, setIsSaving] = useState(false);
   const [newStateInput, setNewStateInput] = useState('');
@@ -314,6 +315,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
   const openEditSheet = (org: Organization) => {
     setEditingOrg(org);
     const industryDisplay = getOrgIndustryDisplay(org as Organization & { industries?: { name: string } | null; industry?: { name: string } | null });
+    const scrapedRelayTotal = (org as any).scraped_data?.relay_locations_total;
     setEditFormData({
       name: org.name || '',
       website: org.website || '',
@@ -323,6 +325,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
       operating_states: org.operating_states || [],
       next_action: org.next_action || '',
       next_action_date: org.next_action_date || '',
+      locations_scraped: scrapedRelayTotal != null ? String(scrapedRelayTotal) : '',
     });
     setNewStateInput('');
   };
@@ -331,6 +334,14 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
     if (!editingOrg) return;
     setIsSaving(true);
     try {
+      // Merge locations_scraped into existing scraped_data JSONB
+      const existingScraped = (editingOrg as any).scraped_data || {};
+      const parsedCount = editFormData.locations_scraped.trim() === '' ? undefined : Number(editFormData.locations_scraped);
+      const updatedScrapedData = {
+        ...existingScraped,
+        relay_locations_total: parsedCount != null && !Number.isNaN(parsedCount) ? parsedCount : existingScraped.relay_locations_total,
+      };
+
       const { error } = await supabase
         .from('organizations')
         .update({
@@ -342,6 +353,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
           operating_states: editFormData.operating_states,
           next_action: editFormData.next_action || null,
           next_action_date: editFormData.next_action_date || null,
+          scraped_data: updatedScrapedData,
         })
         .eq('id', editingOrg.id);
 
@@ -866,6 +878,22 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                 onChange={(e) => setEditFormData({ ...editFormData, industry: e.target.value })}
                 placeholder="e.g. Convenience Store, Foodservice"
               />
+            </div>
+
+            {/* Locations Scraped */}
+            <div className="space-y-2">
+              <Label htmlFor="org-locations-scraped"># Locations (Scraped)</Label>
+              <Input
+                id="org-locations-scraped"
+                type="number"
+                min="0"
+                value={editFormData.locations_scraped}
+                onChange={(e) => setEditFormData({ ...editFormData, locations_scraped: e.target.value })}
+                placeholder="From scraper — edit if incorrect"
+              />
+              <p className="text-xs text-muted-foreground">
+                Estimated location count from the scraper. Edit to correct if needed.
+              </p>
             </div>
 
             {/* Operating States */}
