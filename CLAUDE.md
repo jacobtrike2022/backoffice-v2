@@ -341,10 +341,11 @@ All database operations are in `/src/lib/crud/`:
 - etc.
 
 ### Migrations
-- **Database changes:** Use only `supabase/migrations/` for schema/RLS/functions and `supabase db push`. Before writing SQL, read `.cursor/docs/README_MIGRATIONS.mdc` (idempotency, branches/live demos, `round(numeric)` vs float8 with pg_trgm).
+- **Database changes:** Use only `supabase/migrations/` for schema/RLS/functions and `supabase db push`. Before writing SQL, read `.cursor/docs/README_MIGRATIONS.mdc` (idempotency, branches/live demos, **CLI vs `schema_migrations.version` / timestamp prefix**, `round(numeric)` vs float8 with pg_trgm).
 - Make migrations idempotent: use `DROP POLICY IF EXISTS` / `DROP TRIGGER IF EXISTS` before `CREATE POLICY` / `CREATE TRIGGER` so re-runs and partial applies don't fail.
 - Do not edit SQL in migrations already applied to shared remotes; add a new timestamped migration.
 - If `db push` says "local migration files to be inserted before": use `supabase migration repair <version> --status applied` only when the remote already has that schema; then run `db push` again. See `.cursor/docs/README_MIGRATIONS.mdc`.
+- **Manual history fixes:** Do not set `supabase_migrations.schema_migrations.version` to a full `filename_without_.sql` string unless you have confirmed it matches what the CLI expects—see **section 4** in `.cursor/docs/README_MIGRATIONS.mdc`. Prefer `supabase migration repair` over raw `UPDATE` on `version`.
 
 ---
 

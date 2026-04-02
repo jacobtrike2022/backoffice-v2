@@ -29,3 +29,4 @@ See **[docs/DEMO_MODE_DEVELOPMENT.md](docs/DEMO_MODE_DEVELOPMENT.md)** for full 
 - **"Local migration files to be inserted before":** If `supabase db push` fails with this message, repair history (only when the remote already has that schema) with:
   `supabase migration repair <version> --status applied`
   then run `supabase db push` again. See **.cursor/docs/README_MIGRATIONS.mdc** for details.
+- **CLI vs migration history table:** If you edit `supabase_migrations.schema_migrations` manually, the CLI matches local files using the migration **version** format described in **.cursor/docs/README_MIGRATIONS.mdc** (section 4). Avoid setting `version` to the full `filename_without_.sql` unless you have verified with `supabase migration list` / `db push`.
