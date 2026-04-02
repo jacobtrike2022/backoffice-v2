@@ -84,9 +84,13 @@ import {
   GraduationCap,
   Globe,
   Tag,
+  CircleDot,
+  FolderPlus,
+  Layers,
+  Link2,
 } from 'lucide-react';
 import { useFormBuilder, type LocalBlock, type SubmissionConfig, type EmailNotification, type OnFailConfig, type StartConfig } from '../../hooks/useFormBuilder';
-import type { ConditionalLogic } from '../../lib/forms/conditionalLogic';
+import type { ConditionalLogic, ConditionOperator } from '../../lib/forms/conditionalLogic';
 import { buildBlockDependencyMap, conditionSummaryText } from '../../lib/forms/conditionalLogic';
 import { supabase } from '../../lib/supabase';
 import {
@@ -104,6 +108,8 @@ import {
 } from '../../lib/crud/formScopes';
 import type { TrackScopeLevel, SectorType } from '../../lib/crud/trackScopes';
 import { getTagsByCategory } from '../../lib/crud/tags';
+import { getBlockGroups, saveBlockGroup, deleteBlockGroup, type BlockGroup, type BlockTemplate } from '../../lib/crud/blockGroups';
+import { serializeBlocksToGroupTemplate, hasUnboundParent, getGroupInstanceId, PARENT_PLACEHOLDER } from '../../lib/forms/blockGroupSerializer';
 
 // ============================================================================
 // TYPES
@@ -279,9 +285,11 @@ interface BlockPickerProps {
   onClose: () => void;
   anchorRef: React.RefObject<HTMLDivElement | null>;
   formType?: string;
+  savedGroups?: BlockGroup[];
+  onInsertGroup?: (group: BlockGroup) => void;
 }
 
-function BlockPicker({ onSelect, onClose, anchorRef, formType }: BlockPickerProps) {
+function BlockPicker({ onSelect, onClose, anchorRef, formType, savedGroups, onInsertGroup }: BlockPickerProps) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'questions' | 'content' | 'actions'>('questions');
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -367,6 +375,33 @@ function BlockPicker({ onSelect, onClose, anchorRef, formType }: BlockPickerProp
         </div>
       )}
 
+      {/* Saved block groups */}
+      {savedGroups && savedGroups.length > 0 && (
+        <div className="mb-2">
+          <p className="text-[11px] text-muted-foreground mb-1">Saved Groups</p>
+          <div className="grid grid-cols-1 gap-1">
+            {savedGroups.map(group => (
+              <button
+                key={group.id}
+                type="button"
+                onClick={() => {
+                  onInsertGroup?.(group);
+                  onClose();
+                }}
+                className="flex items-center gap-2 rounded-md px-2 py-2 text-sm bg-amber-500/5 border border-amber-500/20 hover:bg-amber-500/10 transition-colors text-left"
+              >
+                <Layers className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                <span className="truncate">{group.name}</span>
+                <Badge variant="outline" className="ml-auto text-[10px] px-1 py-0 h-4 border-amber-500/30 text-amber-600 shrink-0">
+                  {group.block_templates.length} blocks
+                </Badge>
+              </button>
+            ))}
+          </div>
+          <Separator className="mt-2" />
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-1">
         {filtered.map(bt => {
           const Icon = bt.icon;
@@ -399,9 +434,11 @@ interface AddBlockButtonProps {
   sectionId?: string | null;
   onAdd: (blockType: string, sectionId?: string | null, afterBlockId?: string) => void;
   formType?: string;
+  savedGroups?: BlockGroup[];
+  onInsertGroup?: (group: BlockGroup, sectionId?: string | null, afterBlockId?: string) => void;
 }
 
-function AddBlockButton({ afterBlockId, sectionId, onAdd, formType }: AddBlockButtonProps) {
+function AddBlockButton({ afterBlockId, sectionId, onAdd, formType, savedGroups, onInsertGroup }: AddBlockButtonProps) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
 
@@ -421,6 +458,8 @@ function AddBlockButton({ afterBlockId, sectionId, onAdd, formType }: AddBlockBu
           onClose={() => setOpen(false)}
           anchorRef={anchorRef}
           formType={formType}
+          savedGroups={savedGroups}
+          onInsertGroup={(group) => onInsertGroup?.(group, sectionId, afterBlockId)}
         />
       )}
     </div>
@@ -443,9 +482,15 @@ interface BlockCardProps {
   formType?: string;
   isBulkSelected?: boolean;
   onBulkToggle?: () => void;
+  showDependencies?: boolean;
+  connectingFromBlockId?: string | null;
+  onStartConnect?: (blockId: string) => void;
+  onCompleteConnect?: (blockId: string) => void;
+  savedGroups?: BlockGroup[];
+  onInsertGroup?: (group: BlockGroup, sectionId?: string | null, afterBlockId?: string) => void;
 }
 
-function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, onSelect, onDelete, onAdd, onOpenLogic, formType, isBulkSelected, onBulkToggle }: BlockCardProps) {
+function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, onSelect, onDelete, onAdd, onOpenLogic, formType, isBulkSelected, onBulkToggle, showDependencies, connectingFromBlockId, onStartConnect, onCompleteConnect, savedGroups, onInsertGroup }: BlockCardProps) {
   const { t } = useTranslation();
   const {
     attributes,
@@ -476,6 +521,10 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
   const summaryText = hasLogic && !isSelected
     ? conditionSummaryText(block.conditional_logic as ConditionalLogic, allBlocks, t)
     : '';
+
+  // Group membership detection
+  const groupInstanceId = getGroupInstanceId(block);
+  const isUnbound = hasUnboundParent(block);
 
   // ── Divider: render as a visual line, not a full block card ──
   if (block.block_type === 'divider') {
@@ -531,6 +580,8 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
           sectionId={block.section_id}
           onAdd={onAdd}
           formType={formType}
+          savedGroups={savedGroups}
+          onInsertGroup={onInsertGroup}
         />
       </div>
     );
@@ -556,28 +607,28 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
         ) : block.block_type !== 'divider' ? (
           <div className="shrink-0 w-4" />
         ) : null}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 relative">
         <div
           ref={setNodeRef}
           style={style}
           data-block-id={block.id}
-          className={`group relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
-            isSelected ? 'border-primary border-l-primary ring-2 ring-primary/20' : isBulkSelected ? 'border-primary/50 border-l-primary/50 ring-1 ring-primary/10' : `${borderAccent} border-border hover:border-primary/40`
-          }`}
-          onClick={onSelect}
+          className={`group/card relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
+            isSelected ? 'border-primary border-l-primary ring-2 ring-primary/20' : isBulkSelected ? 'border-primary/50 border-l-primary/50 ring-1 ring-primary/10' : isUnbound ? 'border-amber-500/50 border-l-amber-500 border-dashed' : `${borderAccent} border-border hover:border-primary/40`
+          } ${connectingFromBlockId === block.id ? 'ring-2 ring-green-500/50 border-green-500/50' : ''} ${connectingFromBlockId && connectingFromBlockId !== block.id ? 'cursor-crosshair hover:ring-2 hover:ring-green-400/40' : ''} ${groupInstanceId && !isUnbound ? 'border-l-amber-400' : ''}`}
+          onClick={connectingFromBlockId && connectingFromBlockId !== block.id ? (e) => { e.preventDefault(); e.stopPropagation(); onCompleteConnect?.(block.id); } : onSelect}
         >
         {/* Drag handle */}
         <div
           {...attributes}
           {...listeners}
-          className="absolute left-2 top-1/2 -translate-y-1/2 cursor-grab text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute left-2 top-1/2 -translate-y-1/2 cursor-grab text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover/card:opacity-100 transition-opacity"
           onClick={e => e.stopPropagation()}
         >
           <GripVertical className="h-4 w-4" />
         </div>
 
         {/* Quick-add logic button + Delete button */}
-        <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 group-hover/card:opacity-100 transition-opacity">
           {!hasLogic && (
             <button
               className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-primary transition-colors"
@@ -634,6 +685,26 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
                 {t('forms.referencedBy', { count: referencedByCount })}
               </Badge>
             )}
+            {groupInstanceId && (
+              <Badge variant="outline" className="text-xs px-1 py-0 h-4 ml-1 border-amber-500/30 text-amber-600">
+                <Layers className="h-2.5 w-2.5 mr-0.5" />
+                Group
+              </Badge>
+            )}
+            {isUnbound && (
+              <button
+                type="button"
+                className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0 h-4 ml-1 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 transition-colors animate-pulse"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStartConnect?.(block.id);
+                }}
+                title="Click, then click a parent block to connect"
+              >
+                <Link2 className="h-2.5 w-2.5" />
+                Connect
+              </button>
+            )}
           </div>
 
           {/* Question label */}
@@ -684,6 +755,27 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
           )}
         </div>{/* padding */}
       </div>{/* card */}
+      {/* Green connection dot — positioned on the right edge of the card wrapper, outside the card to avoid clipping */}
+      {showDependencies && !connectingFromBlockId && block.block_type !== 'divider' && (
+        <button
+          type="button"
+          className="absolute -right-2.5 top-1/2 -translate-y-1/2 z-20 opacity-0 group-hover/card:opacity-100 transition-opacity"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onStartConnect?.(block.id); }}
+          title="Click to connect to another block"
+        >
+          <div className="w-5 h-5 rounded-full border-2 border-dashed border-green-500 bg-card hover:bg-green-500/20 hover:border-solid transition-all flex items-center justify-center">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+          </div>
+        </button>
+      )}
+      {/* Green pulsing dot when this block is the connection source */}
+      {connectingFromBlockId === block.id && (
+        <div className="absolute -right-2.5 top-1/2 -translate-y-1/2 z-20">
+          <div className="w-5 h-5 rounded-full border-2 border-solid border-green-500 bg-green-500/20 flex items-center justify-center animate-pulse">
+            <div className="w-2 h-2 rounded-full bg-green-500" />
+          </div>
+        </div>
+      )}
       </div>{/* flex-1 */}
       </div>{/* flex-row */}
 
@@ -693,6 +785,8 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
         sectionId={block.section_id}
         onAdd={onAdd}
         formType={formType}
+        savedGroups={savedGroups}
+        onInsertGroup={onInsertGroup}
       />
     </div>
   );
@@ -982,6 +1076,144 @@ function ConditionBuilder({ block, allBlocks, sections = [], onChange }: Conditi
       >
         <Plus className="h-3 w-3" />
         {t('forms.addCondition')}
+      </button>
+    </div>
+  );
+}
+
+// ============================================================================
+// INLINE CONDITION PICKER — floating popover for setting conditions from SVG "?"
+// ============================================================================
+
+interface InlineConditionPickerProps {
+  block: LocalBlock;
+  condIndex: number;
+  allBlocks: LocalBlock[];
+  x: number;
+  y: number;
+  onUpdate: (updates: Partial<LocalBlock>) => void;
+  onClose: () => void;
+}
+
+function InlineConditionPicker({ block, condIndex, allBlocks, x, y, onUpdate, onClose }: InlineConditionPickerProps) {
+  const { t } = useTranslation();
+  const logic: ConditionalLogic = (block.conditional_logic as ConditionalLogic) || {
+    action: 'show', operator: 'AND', conditions: [],
+  };
+  const cond = logic.conditions[condIndex];
+  if (!cond) return null;
+
+  const sourceBlock = allBlocks.find(b => b.id === cond.source_block_id) ?? null;
+  const isChoiceBlock = sourceBlock ? CHOICE_BLOCK_TYPES.includes(sourceBlock.block_type) : false;
+  const isYesNo = sourceBlock?.block_type === 'yes_no';
+  const isNumeric = sourceBlock?.block_type === 'number' || sourceBlock?.block_type === 'rating' || sourceBlock?.block_type === 'slider';
+  const choiceOptions = isYesNo
+    ? [
+        (sourceBlock?.settings?.yes_label as string) || 'Yes',
+        (sourceBlock?.settings?.no_label as string) || 'No',
+        ...((sourceBlock?.validation_rules as any)?._allow_na ? ['N/A'] : []),
+      ]
+    : isChoiceBlock
+    ? (sourceBlock?.options ?? [])
+    : [];
+  const showChoicePicker = (isChoiceBlock || isYesNo) && !['is_empty', 'is_not_empty'].includes(cond.operator);
+  const showValueInput = !showChoicePicker && !['is_empty', 'is_not_empty'].includes(cond.operator);
+
+  const updateCond = (patch: Partial<ConditionalLogic['conditions'][0]>) => {
+    const updated = logic.conditions.map((c, i) => i === condIndex ? { ...c, ...patch } : c);
+    onUpdate({ conditional_logic: { ...logic, conditions: updated } as ConditionalLogic });
+  };
+
+  const sourceName = sourceBlock?.label
+    ? (sourceBlock.label.length > 25 ? sourceBlock.label.slice(0, 25) + '\u2026' : sourceBlock.label)
+    : t('forms.unknownBlock');
+
+  return (
+    <div
+      className="fixed z-50 bg-card border border-border rounded-lg shadow-xl p-3 space-y-2 w-72"
+      style={{ left: Math.min(x, window.innerWidth - 300), top: Math.min(y + 12, window.innerHeight - 200) }}
+      onClick={e => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs font-semibold text-foreground flex items-center gap-1">
+          <GitBranch className="h-3 w-3 text-primary" />
+          Set Condition
+        </span>
+        <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {/* Source block label */}
+      <div className="text-[10px] text-muted-foreground">
+        When <span className="font-medium text-foreground">{sourceName}</span>
+      </div>
+
+      {/* Operator picker */}
+      <Select
+        value={cond.operator}
+        onValueChange={(v) => updateCond({ operator: v as ConditionOperator })}
+      >
+        <SelectTrigger className="h-7 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="equals">{t('forms.opEquals')}</SelectItem>
+          <SelectItem value="not_equals">{t('forms.opNotEquals')}</SelectItem>
+          {!isChoiceBlock && !isYesNo && (
+            <>
+              <SelectItem value="contains">{t('forms.opContains')}</SelectItem>
+              <SelectItem value="not_contains">{t('forms.opNotContains')}</SelectItem>
+            </>
+          )}
+          {(isNumeric || (!isChoiceBlock && !isYesNo)) && (
+            <>
+              <SelectItem value="greater_than">{t('forms.opGreaterThan')}</SelectItem>
+              <SelectItem value="less_than">{t('forms.opLessThan')}</SelectItem>
+            </>
+          )}
+          <SelectItem value="is_empty">{t('forms.opIsEmpty')}</SelectItem>
+          <SelectItem value="is_not_empty">{t('forms.opIsNotEmpty')}</SelectItem>
+        </SelectContent>
+      </Select>
+
+      {/* Value picker */}
+      {showChoicePicker && (
+        <Select
+          value={cond.value || 'none'}
+          onValueChange={(v) => { updateCond({ value: v === 'none' ? '' : v }); }}
+        >
+          <SelectTrigger className="h-7 text-xs">
+            <SelectValue placeholder={t('forms.conditionSelectValue')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">{t('forms.conditionSelectValue')}</SelectItem>
+            {choiceOptions.map(opt => (
+              <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+
+      {showValueInput && (
+        <input
+          type={isNumeric ? 'number' : 'text'}
+          value={cond.value}
+          onChange={(e) => updateCond({ value: e.target.value })}
+          placeholder={t('forms.conditionValuePlaceholder')}
+          className="w-full h-7 px-2 text-xs rounded-md border bg-background border-input"
+          autoFocus
+        />
+      )}
+
+      {/* Done button */}
+      <button
+        type="button"
+        onClick={onClose}
+        className="w-full h-7 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors font-medium"
+      >
+        Done
       </button>
     </div>
   );
@@ -2887,6 +3119,8 @@ interface DependencyLine {
   targetId: string;
   action: string;
   label: string;
+  isIncomplete: boolean;
+  condIndex: number;
 }
 
 interface DependencyLinesOverlayProps {
@@ -2895,12 +3129,14 @@ interface DependencyLinesOverlayProps {
   showAll: boolean;
   canvasRef: React.RefObject<HTMLDivElement | null>;
   orderIssues?: Map<string, string>;
+  onClickIncomplete?: (blockId: string, condIndex: number, x: number, y: number) => void;
 }
 
-function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef, orderIssues }: DependencyLinesOverlayProps) {
+function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef, orderIssues, onClickIncomplete }: DependencyLinesOverlayProps) {
   const [lines, setLines] = useState<Array<{
     x1: number; y1: number; x2: number; y2: number;
     action: string; label: string; targetId: string;
+    isIncomplete: boolean; condIndex: number;
   }>>([]);
 
   const OPERATOR_SYMBOLS: Record<string, string> = {
@@ -2925,9 +3161,12 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef, o
         if (!isSourceForSelected && !isTargetOfSelected) continue;
       }
 
-      for (const cond of logic.conditions) {
+      for (let ci = 0; ci < logic.conditions.length; ci++) {
+        const cond = logic.conditions[ci];
         if (!cond.source_block_id) continue;
         const opSymbol = OPERATOR_SYMBOLS[cond.operator] || cond.operator;
+        const needsValue = !['is_empty', 'is_not_empty'].includes(cond.operator);
+        const isIncomplete = needsValue && !cond.value;
         const labelText = cond.operator === 'is_empty' || cond.operator === 'is_not_empty'
           ? opSymbol
           : `${opSymbol} ${cond.value || '?'}`;
@@ -2936,6 +3175,8 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef, o
           targetId: block.id,
           action: logic.action,
           label: labelText,
+          isIncomplete,
+          condIndex: ci,
         });
       }
     }
@@ -2967,7 +3208,7 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef, o
       const x2 = targetRect.right - canvasRect.left + scrollLeft;
       const y2 = targetRect.top + targetRect.height / 2 - canvasRect.top + scrollTop;
 
-      newLines.push({ x1, y1, x2, y2, action: dep.action, label: dep.label, targetId: dep.targetId });
+      newLines.push({ x1, y1, x2, y2, action: dep.action, label: dep.label, targetId: dep.targetId, isIncomplete: dep.isIncomplete, condIndex: dep.condIndex });
     }
     setLines(newLines);
   }, [dependencyLines, canvasRef]);
@@ -2996,8 +3237,8 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef, o
 
   return (
     <svg
-      className="absolute top-0 left-0 pointer-events-none z-10"
-      style={{ width: maxX, height: maxY }}
+      className="absolute top-0 left-0 z-10"
+      style={{ width: maxX, height: maxY, pointerEvents: 'none' }}
     >
       <defs>
         {/* Arrowhead markers for each color */}
@@ -3046,27 +3287,69 @@ function DependencyLinesOverlay({ blocks, selectedBlockId, showAll, canvasRef, o
               />
             </path>
             {/* Label */}
-            <rect
-              x={labelX - 2}
-              y={labelY - 7}
-              width={line.label.length * 5.5 + 8}
-              height={14}
-              rx="3"
-              fill="var(--background, #1e293b)"
-              stroke={color}
-              strokeWidth="0.5"
-              opacity="0.85"
-            />
-            <text
-              x={labelX + 2}
-              y={labelY + 3}
-              fontSize="9"
-              fill={color}
-              fontFamily="monospace"
-              fontWeight="500"
-            >
-              {line.label}
-            </text>
+            {line.isIncomplete ? (
+              <g
+                style={{ pointerEvents: 'all', cursor: 'pointer' }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const svgEl = (e.currentTarget as SVGGElement).ownerSVGElement;
+                  if (!svgEl) return;
+                  const svgRect = svgEl.getBoundingClientRect();
+                  onClickIncomplete?.(line.targetId, line.condIndex, svgRect.left + labelX, svgRect.top + labelY);
+                }}
+              >
+                {/* Background pill */}
+                <rect
+                  x={labelX - 2}
+                  y={labelY - 9}
+                  width={28}
+                  height={18}
+                  rx="9"
+                  fill="var(--background, #1e293b)"
+                  stroke="#f59e0b"
+                  strokeWidth="1"
+                  opacity="0.95"
+                />
+                {/* "?" text */}
+                <text
+                  x={labelX + 6}
+                  y={labelY + 4}
+                  fontSize="11"
+                  fill="#f59e0b"
+                  fontFamily="sans-serif"
+                  fontWeight="700"
+                  textAnchor="middle"
+                >
+                  ?
+                </text>
+                {/* Hover tooltip */}
+                <title>Click to set condition</title>
+              </g>
+            ) : (
+              <>
+                <rect
+                  x={labelX - 2}
+                  y={labelY - 7}
+                  width={line.label.length * 5.5 + 8}
+                  height={14}
+                  rx="3"
+                  fill="var(--background, #1e293b)"
+                  stroke={color}
+                  strokeWidth="0.5"
+                  opacity="0.85"
+                />
+                <text
+                  x={labelX + 2}
+                  y={labelY + 3}
+                  fontSize="9"
+                  fill={color}
+                  fontFamily="monospace"
+                  fontWeight="500"
+                >
+                  {line.label}
+                </text>
+              </>
+            )}
           </g>
         );
       })}
@@ -3175,6 +3458,16 @@ export function FormBuilder({
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
+  // ── Visual logic-flow click-to-connect state ──
+  const [connectingFromBlockId, setConnectingFromBlockId] = useState<string | null>(null);
+  // Inline condition picker state: shown when clicking "?" on an incomplete dependency line
+  const [inlineCondEdit, setInlineCondEdit] = useState<{
+    blockId: string;      // block whose conditional_logic we're editing
+    condIndex: number;    // which condition in the array
+    x: number;            // popover position
+    y: number;
+  } | null>(null);
+
   // Scope
   const [showScopeModal, setShowScopeModal] = useState(false);
   const [scopeData, setScopeData] = useState<FormScopeEnriched | null>(null);
@@ -3193,6 +3486,45 @@ export function FormBuilder({
     });
   }, []);
   const clearBlockSelection = useCallback(() => setSelectedBlockIds(new Set()), []);
+
+  // ── Saved block groups ──
+  const [savedGroups, setSavedGroups] = useState<BlockGroup[]>([]);
+  const [showSaveGroupDialog, setShowSaveGroupDialog] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [savingGroup, setSavingGroup] = useState(false);
+
+  // Fetch saved groups on mount / when org changes
+  useEffect(() => {
+    if (!orgId) return;
+    getBlockGroups(orgId).then(setSavedGroups).catch(() => {});
+  }, [orgId]);
+
+  const handleSaveGroup = useCallback(async () => {
+    if (!groupName.trim() || !orgId) return;
+    setSavingGroup(true);
+    try {
+      const selectedBlocks = hook.blocks.filter(b => selectedBlockIds.has(b.id));
+      const templates = serializeBlocksToGroupTemplate(selectedBlocks, hook.blocks);
+      await saveBlockGroup(orgId, groupName.trim(), templates);
+      // Refresh the list
+      const updated = await getBlockGroups(orgId);
+      setSavedGroups(updated);
+      toast.success(`Group "${groupName.trim()}" saved`);
+      setShowSaveGroupDialog(false);
+      setGroupName('');
+      clearBlockSelection();
+    } catch (err) {
+      console.error('Failed to save block group:', err);
+      toast.error('Failed to save group');
+    } finally {
+      setSavingGroup(false);
+    }
+  }, [groupName, orgId, hook.blocks, selectedBlockIds, clearBlockSelection]);
+
+  const handleInsertGroup = useCallback((group: BlockGroup, sectionId?: string | null, afterBlockId?: string) => {
+    hook.addBlockGroup(group.block_templates as BlockTemplate[], sectionId, afterBlockId);
+    toast.success(`Inserted "${group.name}" — connect to a parent block to activate conditions`);
+  }, [hook]);
 
   // Content topic tags from tags table
   const [contentTopics, setContentTopics] = useState<{ id: string; name: string }[]>([]);
@@ -3237,6 +3569,93 @@ export function FormBuilder({
     const current = hook.form?.tags || [];
     hook.setFormTags(current.filter(t => t !== tag));
   }, [hook.form?.tags, hook.setFormTags]);
+
+  // ── Click-to-connect: complete connection from source → target ──
+  const handleCompleteConnect = useCallback((targetBlockId: string) => {
+    if (!connectingFromBlockId || connectingFromBlockId === targetBlockId) {
+      setConnectingFromBlockId(null);
+      return;
+    }
+
+    const sourceBlock = hook.blocks.find(b => b.id === connectingFromBlockId);
+
+    // ── GROUP BINDING: if the source block has __PARENT__ refs, bind the entire group ──
+    const sourceGroupId = sourceBlock ? getGroupInstanceId(sourceBlock) : null;
+    if (sourceGroupId && sourceBlock && hasUnboundParent(sourceBlock)) {
+      // Find all blocks in this group instance that have __PARENT__ references
+      const groupBlocks = hook.blocks.filter(b => getGroupInstanceId(b) === sourceGroupId);
+      let boundCount = 0;
+      for (const gb of groupBlocks) {
+        const logic = gb.conditional_logic as ConditionalLogic | null;
+        if (!logic?.conditions?.length) continue;
+        const hasParentRef = logic.conditions.some(c => c.source_block_id === PARENT_PLACEHOLDER);
+        if (!hasParentRef) continue;
+        const updatedConditions = logic.conditions.map(c =>
+          c.source_block_id === PARENT_PLACEHOLDER
+            ? { ...c, source_block_id: targetBlockId }
+            : c
+        );
+        hook.updateBlock(gb.id, {
+          conditional_logic: { ...logic, conditions: updatedConditions } as ConditionalLogic,
+        });
+        boundCount++;
+      }
+      setConnectingFromBlockId(null);
+      toast.success(`Group connected to parent — ${boundCount} block${boundCount !== 1 ? 's' : ''} bound`);
+      return;
+    }
+
+    // ── STANDARD CONNECTION (non-group) ──
+    const sourceIdx = hook.blocks.findIndex(b => b.id === connectingFromBlockId);
+    const targetIdx = hook.blocks.findIndex(b => b.id === targetBlockId);
+    if (sourceIdx === -1 || targetIdx === -1) { setConnectingFromBlockId(null); return; }
+
+    // Determine which block gets the conditional_logic:
+    // If target is BELOW source → target becomes child (show when source...)
+    // If target is ABOVE source → source becomes child (show when target...)
+    const childBlockId = targetIdx > sourceIdx ? targetBlockId : connectingFromBlockId;
+    const parentBlockId = targetIdx > sourceIdx ? connectingFromBlockId : targetBlockId;
+
+    const childBlock = hook.blocks.find(b => b.id === childBlockId);
+    const existingLogic = childBlock?.conditional_logic as ConditionalLogic | null;
+
+    if (existingLogic?.conditions?.length) {
+      // Add a new condition to existing logic
+      const alreadyLinked = existingLogic.conditions.some(c => c.source_block_id === parentBlockId);
+      if (!alreadyLinked) {
+        hook.updateBlock(childBlockId, {
+          conditional_logic: {
+            ...existingLogic,
+            conditions: [...existingLogic.conditions, { source_block_id: parentBlockId, operator: 'equals', value: '' }],
+          } as ConditionalLogic,
+        });
+      }
+    } else {
+      // Create fresh conditional logic
+      hook.updateBlock(childBlockId, {
+        conditional_logic: {
+          action: 'show',
+          operator: 'AND',
+          conditions: [{ source_block_id: parentBlockId, operator: 'equals', value: '' }],
+        } as ConditionalLogic,
+      });
+    }
+
+    setConnectingFromBlockId(null);
+    toast.success(t('forms.connectionCreated') || 'Connection created — click the ? to set conditions');
+  }, [connectingFromBlockId, hook, t]);
+
+  // ── Escape key cancels connect mode or inline editor ──
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (connectingFromBlockId) { setConnectingFromBlockId(null); e.stopPropagation(); }
+        if (inlineCondEdit) { setInlineCondEdit(null); e.stopPropagation(); }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [connectingFromBlockId, inlineCondEdit]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -3687,6 +4106,15 @@ export function FormBuilder({
             <Trash2 className="h-3 w-3 mr-1" />
             Delete
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs gap-1 border-amber-500/30 text-amber-600 hover:bg-amber-500/10"
+            onClick={() => setShowSaveGroupDialog(true)}
+          >
+            <FolderPlus className="h-3 w-3" />
+            Save as Group
+          </Button>
           <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearBlockSelection}>
             Clear
           </Button>
@@ -3701,6 +4129,7 @@ export function FormBuilder({
         <div
           ref={canvasRef}
           className="flex-1 overflow-y-auto py-8 transition-all relative min-w-0"
+          onClick={connectingFromBlockId ? (e) => { if (e.target === e.currentTarget || !(e.target as HTMLElement).closest('[data-block-id]')) setConnectingFromBlockId(null); } : undefined}
         >
           {/* SVG dependency lines overlay */}
           {(showDependencies || selectedBlock) && (
@@ -3710,6 +4139,7 @@ export function FormBuilder({
               showAll={showDependencies}
               canvasRef={canvasRef}
               orderIssues={orderIssues}
+              onClickIncomplete={(blockId, condIndex, px, py) => setInlineCondEdit({ blockId, condIndex, x: px, y: py })}
             />
           )}
           <div
@@ -3765,6 +4195,8 @@ export function FormBuilder({
                 sectionId={null}
                 onAdd={hook.addBlock}
                 formType={hook.form?.type}
+                savedGroups={savedGroups}
+                onInsertGroup={handleInsertGroup}
               />
             )}
 
@@ -3817,6 +4249,12 @@ export function FormBuilder({
                     formType={hook.form?.type}
                     isBulkSelected={selectedBlockIds.has(block.id)}
                     onBulkToggle={() => toggleBlockSelection(block.id)}
+                    showDependencies={showDependencies}
+                    connectingFromBlockId={connectingFromBlockId}
+                    onStartConnect={setConnectingFromBlockId}
+                    onCompleteConnect={handleCompleteConnect}
+                    savedGroups={savedGroups}
+                    onInsertGroup={handleInsertGroup}
                   />
                 ))}
               </SortableContext>
@@ -3869,6 +4307,12 @@ export function FormBuilder({
                         formType={hook.form?.type}
                         isBulkSelected={selectedBlockIds.has(block.id)}
                         onBulkToggle={() => toggleBlockSelection(block.id)}
+                        showDependencies={showDependencies}
+                        connectingFromBlockId={connectingFromBlockId}
+                        onStartConnect={setConnectingFromBlockId}
+                        onCompleteConnect={handleCompleteConnect}
+                        savedGroups={savedGroups}
+                        onInsertGroup={handleInsertGroup}
                       />
                     ))}
                   </SortableContext>
@@ -3876,7 +4320,7 @@ export function FormBuilder({
 
                 {/* Only show section-level + when section is empty (cards render their own + after themselves) */}
                 {(blocksBySection[section.id] ?? []).length === 0 && (
-                  <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} formType={hook.form?.type} />
+                  <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} formType={hook.form?.type} savedGroups={savedGroups} onInsertGroup={handleInsertGroup} />
                 )}
               </div>
             ))}
@@ -4020,6 +4464,46 @@ export function FormBuilder({
       </Dialog>
 
       {/* ================================================================
+          SAVE AS GROUP DIALOG
+      ================================================================ */}
+      <Dialog open={showSaveGroupDialog} onOpenChange={setShowSaveGroupDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FolderPlus className="h-5 w-5 text-amber-600" />
+              Save as Group
+            </DialogTitle>
+            <DialogDescription>
+              Save {selectedBlockIds.size} selected block{selectedBlockIds.size !== 1 ? 's' : ''} as a reusable group.
+              Conditional logic will be preserved as relative references.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 mt-2">
+            <div>
+              <Label htmlFor="group-name">Group name</Label>
+              <Input
+                id="group-name"
+                placeholder="e.g. Safety Follow-Up"
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && groupName.trim()) handleSaveGroup(); }}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => { setShowSaveGroupDialog(false); setGroupName(''); }}>
+                Cancel
+              </Button>
+              <Button size="sm" disabled={!groupName.trim() || savingGroup} onClick={handleSaveGroup}>
+                {savingGroup ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Check className="h-3.5 w-3.5 mr-1.5" />}
+                Save Group
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ================================================================
           FORM SCOPE MODAL
       ================================================================ */}
       {hook.form?.id && hook.form.organization_id && (
@@ -4031,6 +4515,46 @@ export function FormBuilder({
           onSaved={(scope) => setScopeData(scope)}
         />
       )}
+
+      {/* ================================================================
+          CONNECTION MODE BANNER
+      ================================================================ */}
+      {connectingFromBlockId && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-green-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 text-sm font-medium animate-in fade-in slide-in-from-bottom-2">
+          <CircleDot className="h-4 w-4" />
+          Click another block to connect &mdash; or press Esc to cancel
+          <button
+            type="button"
+            onClick={() => setConnectingFromBlockId(null)}
+            className="ml-2 bg-white/20 hover:bg-white/30 rounded-full p-0.5 transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* ================================================================
+          INLINE CONDITION PICKER (from clicking "?" on dependency line)
+      ================================================================ */}
+      {inlineCondEdit && (() => {
+        const editBlock = hook.blocks.find(b => b.id === inlineCondEdit.blockId);
+        if (!editBlock) return null;
+        return (
+          <>
+            {/* Backdrop to dismiss */}
+            <div className="fixed inset-0 z-40" onClick={() => setInlineCondEdit(null)} />
+            <InlineConditionPicker
+              block={editBlock}
+              condIndex={inlineCondEdit.condIndex}
+              allBlocks={hook.blocks}
+              x={inlineCondEdit.x}
+              y={inlineCondEdit.y}
+              onUpdate={(updates) => hook.updateBlock(inlineCondEdit.blockId, updates)}
+              onClose={() => setInlineCondEdit(null)}
+            />
+          </>
+        );
+      })()}
     </div>
   );
 }

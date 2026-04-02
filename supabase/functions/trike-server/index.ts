@@ -1517,7 +1517,7 @@ Return ONLY valid JSON:
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 16384,
+        max_tokens: 32768,
         messages: [
           {
             role: "user",
@@ -1543,19 +1543,30 @@ Return ONLY valid JSON:
 
     if (!claudeResponse.ok) {
       const errText = await claudeResponse.text();
-      console.error("Anthropic API error:", errText);
+      console.error("Anthropic API error:", claudeResponse.status, errText);
       return jsonResponse({ error: `AI analysis failed: ${claudeResponse.status}` }, 502);
     }
 
     const claudeData = await claudeResponse.json();
     const rawText = claudeData.content?.[0]?.text || "";
+    const stopReason = claudeData.stop_reason;
+
+    if (!rawText) {
+      console.error("Empty AI response. stop_reason:", stopReason, "usage:", JSON.stringify(claudeData.usage));
+      return jsonResponse({ error: "AI returned an empty response. Please try again." }, 502);
+    }
+
+    if (stopReason === "max_tokens") {
+      console.error("AI response truncated (hit max_tokens). Output length:", rawText.length);
+      return jsonResponse({ error: "The document is too complex for a single pass. Try a shorter PDF or one with fewer fields." }, 502);
+    }
 
     // Parse JSON from Claude's response (handle code fences, preamble text, etc.)
     let parsed: any;
     try {
       parsed = extractJSON(rawText);
     } catch {
-      console.error("Failed to parse Claude response:", rawText.substring(0, 500));
+      console.error("Failed to parse Claude response. stop_reason:", stopReason, "raw (first 800 chars):", rawText.substring(0, 800));
       return jsonResponse({ error: "AI returned invalid JSON. Please try again." }, 502);
     }
 
