@@ -128,17 +128,15 @@ export async function trackDemoActivityEvent(
     const body = JSON.stringify(payload);
     const url = `${getServerUrl()}/demo/activity`;
 
-    if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
-      const blob = new Blob([body], { type: "application/json" });
-      const beaconSent = navigator.sendBeacon(url, blob);
-      if (beaconSent) return;
-    }
-
+    // Use fetch with keepalive (survives page unload like sendBeacon)
+    // instead of sendBeacon, because Supabase edge functions require
+    // Authorization/apikey headers that sendBeacon cannot set.
     await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${publicAnonKey}`,
+        apikey: publicAnonKey,
       },
       body,
       keepalive: true,
