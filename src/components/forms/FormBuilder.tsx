@@ -834,7 +834,11 @@ function ConditionBuilder({ block, allBlocks, sections = [], onChange }: Conditi
         const isYesNo = sourceBlock?.block_type === 'yes_no';
         const isNumeric = sourceBlock?.block_type === 'number' || sourceBlock?.block_type === 'rating' || sourceBlock?.block_type === 'slider';
         const choiceOptions = isYesNo
-          ? YES_NO_OPTIONS
+          ? [
+              (sourceBlock?.settings?.yes_label as string) || 'Yes',
+              (sourceBlock?.settings?.no_label as string) || 'No',
+              ...((sourceBlock?.validation_rules as any)?._allow_na ? ['N/A'] : []),
+            ]
           : isChoiceBlock
           ? (sourceBlock?.options ?? [])
           : [];
