@@ -1,0 +1,28 @@
+# Pushes to main are merged into demo/stable so the Vercel demo environment
+# (Git branch demo/stable) stays current without manual merge steps.
+name: Sync main to demo/stable
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge main into demo/stable
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout demo/stable
+          git merge origin/main -m "chore: sync main into demo/stable"
+          git push origin demo/stable

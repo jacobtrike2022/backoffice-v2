@@ -15975,20 +15975,27 @@ async function handleFormsPublicGet(req: Request, path: string): Promise<Respons
  */
 async function handleFormsPublicSubmit(req: Request, path: string): Promise<Response> {
   try {
+    const url = new URL(req.url);
+    const isPreview = url.searchParams.get('preview') === 'true';
+
     // Extract formId from path: /forms/public/:formId/submit
-    const formId = path.replace("/forms/public/", "").replace("/submit", "").trim();
+    const formId = path.replace("/forms/public/", "").replace("/submit", "").replace(/\//g, "").trim();
 
     if (!formId) {
       return jsonResponse({ error: 'Form ID is required' }, 400);
     }
 
-    // Verify form exists and is published
-    const { data: form, error: formError } = await supabase
+    // Verify form exists — allow draft in preview mode
+    let formQuery = supabase
       .from('forms')
       .select('id, organization_id, status, requires_approval')
-      .eq('id', formId)
-      .eq('status', 'published')
-      .maybeSingle();
+      .eq('id', formId);
+
+    if (!isPreview) {
+      formQuery = formQuery.eq('status', 'published');
+    }
+
+    const { data: form, error: formError } = await formQuery.maybeSingle();
 
     if (formError || !form) {
       return jsonResponse({ error: 'not_found', message: 'Form not found or not published' }, 404);

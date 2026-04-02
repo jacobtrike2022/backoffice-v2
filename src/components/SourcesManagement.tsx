@@ -36,6 +36,7 @@ import {
   Zap,
   Layers,
   Sparkles,
+  ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { supabase, getCurrentUserOrgId, supabaseAnonKey } from '../lib/supabase';
@@ -192,6 +193,42 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
       setContentSummaries(summaries);
     } catch (error: any) {
       console.error('Error loading content summaries:', error);
+    }
+  };
+
+  // Reclassify all chunks of a given content_class within a file to a new class
+  const reclassifyChunks = async (fileId: string, fromClass: string, toClass: string) => {
+    try {
+      const { error } = await supabase
+        .from('source_chunks')
+        .update({ content_class: toClass })
+        .eq('source_file_id', fileId)
+        .eq('content_class', fromClass);
+
+      if (error) throw error;
+
+      // Refresh summaries for this file
+      const { data: chunks } = await supabase
+        .from('source_chunks')
+        .select('source_file_id, content_class')
+        .eq('source_file_id', fileId);
+
+      const summaries: ChunkContentSummary[] = [];
+      (chunks || []).forEach((chunk: { source_file_id: string; content_class: string }) => {
+        const existing = summaries.find(s => s.content_class === chunk.content_class);
+        if (existing) {
+          existing.count++;
+        } else {
+          summaries.push({ source_file_id: fileId, content_class: chunk.content_class || 'other', count: 1 });
+        }
+      });
+
+      setContentSummaries(prev => ({ ...prev, [fileId]: summaries }));
+      const toLabel = CONTENT_TYPE_CONFIG[toClass]?.label || toClass;
+      toast.success(`Reclassified chunks to ${toLabel}`);
+    } catch (error: any) {
+      console.error('Error reclassifying chunks:', error);
+      toast.error('Failed to reclassify chunks');
     }
   };
 
@@ -634,18 +671,39 @@ export function SourcesManagement({ onOpenEditor }: SourcesManagementProps) {
                         {contentSummaries[file.id].map((summary) => {
                           const config = CONTENT_TYPE_CONFIG[summary.content_class] || CONTENT_TYPE_CONFIG.other;
                           return (
-                            <button
-                              key={summary.content_class}
-                              onClick={() => onOpenEditor?.(file.id)}
-                              className="transition-opacity hover:opacity-80"
-                            >
+                            <div key={summary.content_class} className="inline-flex items-center">
                               <Badge
                                 variant="secondary"
-                                className={`${config.bgColor} ${config.color} text-xs cursor-pointer`}
+                                className={`${config.bgColor} ${config.color} text-xs cursor-pointer pr-0 flex items-center gap-0`}
                               >
-                                {config.label} ({summary.count})
+                                <button
+                                  onClick={() => onOpenEditor?.(file.id)}
+                                  className="hover:opacity-80 transition-opacity py-0.5"
+                                >
+                                  {config.label} ({summary.count})
+                                </button>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <button className="ml-0.5 pl-0.5 pr-1 py-0.5 border-l border-current/20 hover:opacity-60 transition-opacity">
+                                      <ChevronDown className="h-3 w-3" />
+                                    </button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="start" className="min-w-[160px]">
+                                    {Object.entries(CONTENT_TYPE_CONFIG).map(([key, cfg]) => (
+                                      <DropdownMenuItem
+                                        key={key}
+                                        disabled={key === summary.content_class}
+                                        onClick={() => reclassifyChunks(file.id, summary.content_class, key)}
+                                        className="flex items-center justify-between text-xs"
+                                      >
+                                        <span className={cfg.color}>{cfg.label}</span>
+                                        {key === summary.content_class && <Check className="h-3 w-3 ml-2 text-muted-foreground" />}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </Badge>
-                            </button>
+                            </div>
                           );
                         })}
                       </div>
