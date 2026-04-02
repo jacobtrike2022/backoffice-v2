@@ -799,8 +799,9 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                               ) : (
                                 <button
                                   type="button"
-                                  className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border border-dashed border-muted-foreground/30 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:border-orange-400 hover:text-orange-500"
-                                  onClick={() => {
+                                  className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-orange-400 hover:text-orange-500 transition-colors"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     setTrackFormAttachTarget(pt.id);
                                   }}
                                 >
