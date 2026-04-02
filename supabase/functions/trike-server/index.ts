@@ -1391,6 +1391,71 @@ function extractJSON(raw: string): any {
   throw new Error("Could not extract valid JSON from AI response");
 }
 
+/**
+ * Reorder blocks so conditional-logic children appear immediately after their
+ * parent question.  Produces: Parent → child → child → next Parent → child …
+ *
+ * Works on flat block arrays regardless of whether the AI used row_patterns.
+ * Handles multi-level nesting (child of child) by recursing.
+ */
+function reorderBlocksParentFirst(blocks: any[]): any[] {
+  // Build ref_id → block index and parent → children map
+  const refIdToIdx = new Map<string, number>();
+  for (let i = 0; i < blocks.length; i++) {
+    const rid = blocks[i]?.ref_id;
+    if (rid) refIdToIdx.set(rid, i);
+  }
+
+  // Map: parent ref_id → list of child block indices (in original order)
+  const parentToChildren = new Map<string, number[]>();
+  const isChild = new Set<number>(); // indices of blocks that are children
+
+  for (let i = 0; i < blocks.length; i++) {
+    const cl = blocks[i]?.conditional_logic;
+    if (!cl || !Array.isArray(cl.conditions)) continue;
+    for (const cond of cl.conditions) {
+      const sourceRef = cond.source_block_ref_id || cond.source_block_id;
+      if (!sourceRef || !refIdToIdx.has(sourceRef)) continue;
+      // This block is a child of sourceRef
+      if (!parentToChildren.has(sourceRef)) parentToChildren.set(sourceRef, []);
+      parentToChildren.get(sourceRef)!.push(i);
+      isChild.add(i);
+      break; // only use first condition to determine parent
+    }
+  }
+
+  // Walk blocks in original order; emit each non-child, then recursively emit its children
+  const result: any[] = [];
+  const emitted = new Set<number>();
+
+  function emitWithChildren(idx: number) {
+    if (emitted.has(idx)) return;
+    emitted.add(idx);
+    result.push(blocks[idx]);
+
+    const childIndices = parentToChildren.get(blocks[idx]?.ref_id);
+    if (childIndices) {
+      for (const ci of childIndices) {
+        emitWithChildren(ci);
+      }
+    }
+  }
+
+  for (let i = 0; i < blocks.length; i++) {
+    if (isChild.has(i)) continue; // skip children — they'll be pulled in by their parent
+    emitWithChildren(i);
+  }
+
+  // Safety: emit any blocks that were somehow missed (orphaned children with bad refs)
+  for (let i = 0; i < blocks.length; i++) {
+    if (!emitted.has(i)) {
+      result.push(blocks[i]);
+    }
+  }
+
+  return result;
+}
+
 // =============================================================================
 // FORMS AI - Parse PDF to form blocks
 // =============================================================================
@@ -1616,7 +1681,13 @@ Return ONLY valid JSON:
               },
               {
                 type: "text",
-                text: "Analyze this document and extract all form fields. Return the structured JSON as instructed.",
+                text: `Analyze this document and extract all form fields. Return the structured JSON as instructed.
+
+IMPORTANT: If you see repeating table rows (inspection items, checklist items, etc.) that all share the same column structure, you MUST use "row_patterns" instead of generating hundreds of individual blocks. This is critical — generating flat blocks for 40+ identical-structure rows wastes tokens and may truncate. Describe the pattern ONCE in "row_patterns" and list the items. The server expands them automatically.
+
+For non-repeating fields (header info, dates, signatures, standalone questions), use "blocks" as normal.
+
+If the ENTIRE document is repeating rows with no variation, "blocks" can be empty [] and everything goes in "row_patterns".`,
               },
             ],
           },
@@ -1766,9 +1837,15 @@ Return ONLY valid JSON:
       });
 
     // ── Merge: standalone blocks first, then expanded pattern blocks ─────────
-    // Interleave: for each section, place standalone blocks that belong to it,
-    // then the expanded pattern blocks for that section, maintaining order.
-    const allBlocks = [...validatedStandalone, ...expandedFromPatterns]
+    const mergedBlocks = [...validatedStandalone, ...expandedFromPatterns];
+
+    // ── Post-process: reorder so conditional children follow their parent ────
+    // The AI often returns blocks in flat order where children (conditional
+    // follow-up questions) are scattered far from their parent. This reorders
+    // so it goes: Parent → child → child → child → next Parent.
+    const reorderedBlocks = reorderBlocksParentFirst(mergedBlocks);
+
+    const allBlocks = reorderedBlocks
       .map((b, idx) => ({ ...b, display_order: idx }));
 
     // Extract sections
@@ -1784,7 +1861,7 @@ Return ONLY valid JSON:
       ? parsed.detected_form_type
       : "inspection";
 
-    console.log(`PDF parse: ${validatedStandalone.length} standalone blocks + ${expandedFromPatterns.length} expanded from ${rowPatterns.length} patterns = ${allBlocks.length} total`);
+    console.log(`PDF parse: ${validatedStandalone.length} standalone + ${expandedFromPatterns.length} expanded from ${rowPatterns.length} patterns → ${mergedBlocks.length} merged → ${allBlocks.length} after reorder`);
 
     return jsonResponse({
       blocks: allBlocks,
