@@ -7,7 +7,6 @@ import {
   Map,
   MoreHorizontal,
   Globe,
-  Calendar,
   AlertCircle,
   RefreshCw,
   Trash2,
@@ -66,6 +65,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from '../ui/hover-card';
+import { Switch } from '../ui/switch';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { cn } from '../ui/utils';
@@ -157,6 +157,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
           last_activity_at,
           next_action,
           next_action_date,
+          demo_tracking_enabled,
           scraped_data,
           stores(count)
         `)
@@ -370,6 +371,23 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
     }
   };
 
+  const handleToggleTracking = async (orgId: string, enabled: boolean) => {
+    // Optimistically update local state
+    setOrganizations((prev) =>
+      prev.map((o) => (o.id === orgId ? { ...o, demo_tracking_enabled: enabled } : o))
+    );
+    const { error } = await supabase
+      .from('organizations')
+      .update({ demo_tracking_enabled: enabled })
+      .eq('id', orgId);
+    if (error) {
+      toast.error('Failed to update tracking');
+      setOrganizations((prev) =>
+        prev.map((o) => (o.id === orgId ? { ...o, demo_tracking_enabled: !enabled } : o))
+      );
+    }
+  };
+
   const addOperatingState = () => {
     const state = newStateInput.trim().toUpperCase();
     if (!state) return;
@@ -492,7 +510,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                   <TableHead>States</TableHead>
                   <TableHead>Demo</TableHead>
                   <TableHead>Demo Link</TableHead>
-                  <TableHead>Next Action</TableHead>
+                  <TableHead className="text-center">Tracking</TableHead>
                   <TableHead className="w-[50px]" />
                 </TableRow>
               </TableHeader>
@@ -660,23 +678,13 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                           )}
                         </TableCell>
 
-                        {/* Next action */}
-                        <TableCell>
-                          {org.next_action ? (
-                            <div className="max-w-[180px]">
-                              <div className="text-xs bg-primary/5 text-primary rounded px-2 py-1 truncate">
-                                {org.next_action}
-                              </div>
-                              {org.next_action_date && (
-                                <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" />
-                                  {formatDate(org.next_action_date)}
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground text-sm">-</span>
-                          )}
+                        {/* Tracking toggle */}
+                        <TableCell className="text-center">
+                          <Switch
+                            checked={org.demo_tracking_enabled ?? true}
+                            onCheckedChange={(checked) => handleToggleTracking(org.id, checked)}
+                            aria-label={`Toggle tracking for ${org.name}`}
+                          />
                         </TableCell>
 
                         {/* Actions */}

@@ -80,19 +80,29 @@ export function DemoActivityAnalytics() {
       const authToken = sessionData?.session?.access_token || publicAnonKey;
       const endpoint = `${getServerUrl()}/demo/activity?days=${daysNum}&limit=5000`;
 
-      const response = await fetch(endpoint, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          apikey: publicAnonKey,
-        },
-      });
+      // Fetch events and tracking-disabled orgs in parallel
+      const [response, { data: disabledOrgs }] = await Promise.all([
+        fetch(endpoint, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+            apikey: publicAnonKey,
+          },
+        }),
+        supabase
+          .from("organizations")
+          .select("id")
+          .eq("demo_tracking_enabled", false),
+      ]);
+
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to fetch activity");
       }
 
-      setEvents((payload?.data || []) as DemoEvent[]);
+      const disabledIds = new Set((disabledOrgs || []).map((o) => o.id));
+      const allEvents = (payload?.data || []) as DemoEvent[];
+      setEvents(allEvents.filter((e) => !e.organization_id || !disabledIds.has(e.organization_id)));
     } catch (error) {
       console.error("Failed to load demo activity analytics:", error);
       setEvents([]);
