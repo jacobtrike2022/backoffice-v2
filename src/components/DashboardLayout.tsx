@@ -229,7 +229,7 @@ export function DashboardLayout({
   }, [currentView]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const isPreviewingOrg = !!viewingOrgId && viewingOrgId !== APP_CONFIG.TRIKE_CO_ORG_ID;
+  const isPreviewingOrg = currentRole === 'trike-super-admin' && !!viewingOrgId && viewingOrgId !== APP_CONFIG.TRIKE_CO_ORG_ID;
 
   // Fetch organization name and logo
   useEffect(() => {
