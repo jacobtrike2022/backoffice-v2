@@ -91,6 +91,7 @@ import {
   getProcessedContentAndTocForKb,
 } from '../lib/utils/kbPdfExport';
 import { trackDemoActivityEvent } from '../lib/analytics/demoTracking';
+import { getDefaultOrgId } from '../lib/config';
 
 // Helper for date formatting
 function formatDistanceToNow(date: Date, options?: { addSuffix?: boolean }) {
@@ -1691,7 +1692,7 @@ export function KnowledgeBaseRevamp({ onTrackClick, currentRole, onCreateArticle
         },
       },
       {
-        organizationId: selectedTrack.organization_id || demoOrgId || null,
+        organizationId: selectedTrack.organization_id || demoOrgId || getDefaultOrgId(),
         currentRole,
       }
     );

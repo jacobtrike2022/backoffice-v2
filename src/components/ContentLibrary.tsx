@@ -68,6 +68,7 @@ import * as tagsCrud from '../lib/crud/tags';
 import * as trackRelCrud from '../lib/crud/trackRelationships';
 import { toast } from 'sonner';
 import { trackDemoActivityEvent } from '../lib/analytics/demoTracking';
+import { getDefaultOrgId } from '../lib/config';
 import {
   Dialog,
   DialogContent,
@@ -275,7 +276,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
         },
       },
       {
-        organizationId: selectedTrack.organization_id || demoOrgId || null,
+        organizationId: selectedTrack.organization_id || demoOrgId || getDefaultOrgId(),
         currentRole,
       }
     );
