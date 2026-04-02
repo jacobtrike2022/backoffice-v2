@@ -138,7 +138,7 @@ interface ExtractedEntity {
 }
 
 interface LinkedContent {
-  type: 'role' | 'track';
+  type: 'role' | 'track' | 'form';
   id: string;
   name: string;
 }
@@ -587,6 +587,26 @@ export function DocumentIntelligenceEditor({
           type: 'track',
           id: link.tracks.id,
           name: link.tracks.title, // tracks table uses 'title' not 'name'
+        });
+      }
+    });
+
+    // Get forms linked via source_chunk_id on forms table
+    const { data: linkedForms, error: formError } = await supabase
+      .from('forms')
+      .select('id, title, source_chunk_id')
+      .in('source_chunk_id', chunkIds);
+
+    if (formError) {
+      console.log('forms linked query error:', formError.message);
+    }
+
+    linkedForms?.forEach((form: any) => {
+      if (form.source_chunk_id && linkedMap[form.source_chunk_id]) {
+        linkedMap[form.source_chunk_id].push({
+          type: 'form',
+          id: form.id,
+          name: form.title || 'Form',
         });
       }
     });
@@ -1392,15 +1412,18 @@ export function DocumentIntelligenceEditor({
       );
 
       setProcessing(false);
+
+      // Reload chunks to show the new linked form in the connector
+      await loadChunks();
+
       toast.success(t('contentAuthoring.toastFormCreated'), {
         description: parseResult.title || chunk.title,
       });
 
-      // Navigate to form builder if callback provided
+      // Navigate to form builder for editing
       if (onCreateForm) {
         onCreateForm(newForm.id);
       } else {
-        // Fallback: open form in new tab
         window.open(`/?page=forms&formId=${newForm.id}`, '_blank');
       }
     } catch (error: any) {
@@ -1422,13 +1445,19 @@ export function DocumentIntelligenceEditor({
     loadChunks();
 
     const trackName = tracks?.[0]?.title || 'Training content';
+    const trackId = tracks?.[0]?.track_id || tracks?.[0]?.id;
     toast.success(t('contentAuthoring.toastTrackCreated'), {
       description: trackName,
-      action: tracks?.[0] ? {
-        label: 'View',
-        onClick: () => window.open(`/?track=${tracks[0].track_id || tracks[0].id}&type=article`, '_blank')
-      } : undefined
     });
+
+    // Navigate to the track editor so user can review/edit/publish
+    if (trackId) {
+      if (onNavigateToTrack) {
+        onNavigateToTrack(trackId);
+      } else {
+        window.location.href = `/?track=${trackId}&type=article`;
+      }
+    }
   }
 
   // Computed values
@@ -1640,6 +1669,13 @@ export function DocumentIntelligenceEditor({
                 onCreateForm={() => handleCreateForm(chunk)}
                 onViewRole={(roleId) => viewLinkedRole(roleId)}
                 onViewTrack={onNavigateToTrack}
+                onViewForm={(formId) => {
+                  if (onCreateForm) {
+                    onCreateForm(formId);
+                  } else {
+                    window.open(`/?page=forms&formId=${formId}`, '_blank');
+                  }
+                }}
                 onDragStart={() => setDraggedChunkId(chunk.id)}
                 onDragEnd={() => {
                   setDraggedChunkId(null);
@@ -1841,6 +1877,7 @@ interface ChunkBlockProps {
   onCreateForm: () => void;
   onViewRole: (roleId: string) => void;
   onViewTrack?: (trackId: string) => void;
+  onViewForm?: (formId: string) => void;
   onDragStart: () => void;
   onDragEnd: () => void;
   onDragOver: () => void;
@@ -1870,6 +1907,7 @@ function ChunkBlock({
   onCreateForm,
   onViewRole,
   onViewTrack,
+  onViewForm,
   onDragStart,
   onDragEnd,
   onDragOver,
@@ -1885,6 +1923,7 @@ function ChunkBlock({
   const Icon = config.icon;
   const linkedRole = chunk.linkedContent.find(c => c.type === 'role');
   const linkedTracks = chunk.linkedContent.filter(c => c.type === 'track');
+  const linkedForms = chunk.linkedContent.filter(c => c.type === 'form');
   const contentRef = useRef<HTMLDivElement>(null);
 
   // Title editing state
@@ -2132,19 +2171,6 @@ function ChunkBlock({
               <Briefcase className="h-3.5 w-3.5 flex-shrink-0" />
               <span className="truncate">{linkedRole.name}</span>
             </button>
-          ) : chunk.content_class === 'job_description' ? (
-            <button
-              type="button"
-              title={t('contentAuthoring.extractJdToRole')}
-              onClick={(e) => {
-                e.stopPropagation();
-                onCreateRole();
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-dashed border-primary/35 bg-primary/5 text-foreground/90 hover:text-foreground hover:bg-primary/10 hover:border-primary/50 transition-colors text-left w-full max-w-full"
-            >
-              <Plus className="h-3.5 w-3.5 flex-shrink-0" />
-              <span className="truncate">{t('contentAuthoring.roleLabel')}</span>
-            </button>
           ) : null}
 
           {/* Linked tracks */}
@@ -2167,33 +2193,98 @@ function ChunkBlock({
                 </button>
               ))}
             </div>
-          ) : chunk.content_class === 'form' ? (
-            <button
-              type="button"
-              title={t('contentAuthoring.createFormFromChunk')}
-              onClick={(e) => {
-                e.stopPropagation();
-                onCreateForm();
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-dashed border-cyan-500/35 bg-cyan-500/5 text-foreground/90 hover:text-foreground hover:bg-cyan-500/10 hover:border-cyan-500/50 transition-colors text-left w-full max-w-full"
-            >
-              <Plus className="h-3.5 w-3.5 flex-shrink-0" />
-              <span className="truncate">{t('contentAuthoring.formLabel')}</span>
-            </button>
-          ) : chunk.content_class !== 'job_description' && chunk.content_class !== 'other' ? (
-            <button
-              type="button"
-              title={t('contentAuthoring.createTrackFromChunk')}
-              onClick={(e) => {
-                e.stopPropagation();
-                onCreateContent();
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-dashed border-orange-500/35 bg-orange-500/5 text-foreground/90 hover:text-foreground hover:bg-orange-500/10 hover:border-orange-500/50 transition-colors text-left w-full max-w-full"
-            >
-              <Plus className="h-3.5 w-3.5 flex-shrink-0" />
-              <span className="truncate">{t('contentAuthoring.contentLabel')}</span>
-            </button>
           ) : null}
+
+          {/* Linked forms */}
+          {linkedForms.length > 0 ? (
+            <div className="space-y-1.5">
+              {linkedForms.map(form => (
+                <button
+                  key={form.id}
+                  onClick={() => {
+                    if (onViewForm) {
+                      onViewForm(form.id);
+                    } else {
+                      window.open(`/?page=forms&formId=${form.id}`, '_blank');
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-400 hover:bg-cyan-200 dark:hover:bg-cyan-900/50 transition-colors max-w-full"
+                >
+                  <ClipboardList className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span className="truncate">{form.name}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {/* Connector pill with type override dropdown */}
+          {(() => {
+            // Map content_class → connector config
+            const connectorMap: Record<string, { label: string; action: () => void; borderClass: string; bgClass: string }> = {
+              job_description: { label: t('contentAuthoring.roleLabel'), action: onCreateRole, borderClass: 'border-primary/35 hover:border-primary/50', bgClass: 'bg-primary/5 hover:bg-primary/10' },
+              form: { label: t('contentAuthoring.formLabel'), action: onCreateForm, borderClass: 'border-cyan-500/35 hover:border-cyan-500/50', bgClass: 'bg-cyan-500/5 hover:bg-cyan-500/10' },
+              policy: { label: t('contentAuthoring.contentLabel'), action: onCreateContent, borderClass: 'border-orange-500/35 hover:border-orange-500/50', bgClass: 'bg-orange-500/5 hover:bg-orange-500/10' },
+              procedure: { label: t('contentAuthoring.contentLabel'), action: onCreateContent, borderClass: 'border-orange-500/35 hover:border-orange-500/50', bgClass: 'bg-orange-500/5 hover:bg-orange-500/10' },
+              training_materials: { label: t('contentAuthoring.contentLabel'), action: onCreateContent, borderClass: 'border-orange-500/35 hover:border-orange-500/50', bgClass: 'bg-orange-500/5 hover:bg-orange-500/10' },
+            };
+            const activeConnector = connectorMap[chunk.content_class];
+            // Don't show connector if already linked or if 'other' type
+            if (!activeConnector || linkedRole || linkedTracks.length > 0 || linkedForms.length > 0) return null;
+
+            // Dropdown options: selecting one reclassifies the chunk, updating the connector
+            const connectorOptions: { key: ContentType; label: string; borderClass: string; bgClass: string }[] = [
+              { key: 'training_materials', label: t('contentAuthoring.contentLabel'), borderClass: 'border-orange-500/35', bgClass: 'bg-orange-500/5' },
+              { key: 'job_description', label: t('contentAuthoring.roleLabel'), borderClass: 'border-primary/35', bgClass: 'bg-primary/5' },
+              { key: 'form', label: t('contentAuthoring.formLabel'), borderClass: 'border-cyan-500/35', bgClass: 'bg-cyan-500/5' },
+            ];
+            // Determine which option is currently active
+            const activeKey = chunk.content_class === 'form' ? 'form'
+              : chunk.content_class === 'job_description' ? 'job_description'
+              : 'training_materials';
+
+            return (
+              <div className={`flex items-center rounded-md border border-dashed ${activeConnector.borderClass} ${activeConnector.bgClass} transition-colors text-left w-full max-w-full`}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    activeConnector.action();
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-foreground/90 hover:text-foreground transition-colors flex-1 min-w-0"
+                >
+                  <Plus className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span className="truncate">{activeConnector.label}</span>
+                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(e) => e.stopPropagation()}
+                      className="px-1 py-1 border-l border-current/15 text-foreground/50 hover:text-foreground/80 transition-colors flex-shrink-0"
+                    >
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-[140px]">
+                    {connectorOptions.map((opt) => (
+                      <DropdownMenuItem
+                        key={opt.key}
+                        disabled={opt.key === activeKey}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onClassificationChange(opt.key);
+                        }}
+                        className="flex items-center justify-between text-xs"
+                      >
+                        <span>{opt.label}</span>
+                        {opt.key === activeKey && <Check className="h-3 w-3 ml-2 text-muted-foreground" />}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
