@@ -526,8 +526,6 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
   const groupInstanceId = getGroupInstanceId(block);
   const isUnbound = hasUnboundParent(block);
 
-  // Hover state for showing green connection dot (CSS group/card not supported in all Tailwind versions)
-  const [isCardHovered, setIsCardHovered] = useState(false);
 
   // ── Divider: render as a visual line, not a full block card ──
   if (block.block_type === 'divider') {
@@ -610,16 +608,12 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
         ) : block.block_type !== 'divider' ? (
           <div className="shrink-0 w-4" />
         ) : null}
-        <div
-          className="flex-1 min-w-0 relative"
-          onMouseEnter={() => setIsCardHovered(true)}
-          onMouseLeave={() => setIsCardHovered(false)}
-        >
+        <div className="flex-1 min-w-0">
         <div
           ref={setNodeRef}
           style={style}
           data-block-id={block.id}
-          className={`group relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
+          className={`group relative overflow-visible rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
             isSelected ? 'border-primary border-l-primary ring-2 ring-primary/20' : isBulkSelected ? 'border-primary/50 border-l-primary/50 ring-1 ring-primary/10' : isUnbound ? 'border-amber-500/50 border-l-amber-500 border-dashed' : `${borderAccent} border-border hover:border-primary/40`
           } ${connectingFromBlockId === block.id ? 'ring-2 ring-green-500/50 border-green-500/50' : ''} ${connectingFromBlockId && connectingFromBlockId !== block.id ? 'cursor-crosshair hover:ring-2 hover:ring-green-400/40' : ''} ${groupInstanceId && !isUnbound ? 'border-l-amber-400' : ''}`}
           onClick={connectingFromBlockId && connectingFromBlockId !== block.id ? (e) => { e.preventDefault(); e.stopPropagation(); onCompleteConnect?.(block.id); } : onSelect}
@@ -761,28 +755,29 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
             </div>
           )}
         </div>{/* padding */}
+
+        {/* Green connection dot — INSIDE the card so group-hover works (same as drag handle / delete btn) */}
+        {showDependencies && !connectingFromBlockId && block.block_type !== 'divider' && (
+          <button
+            type="button"
+            className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 z-20 opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onStartConnect?.(block.id); }}
+            title="Click to connect to another block"
+          >
+            <div className="w-5 h-5 rounded-full border-2 border-dashed border-green-500 bg-card hover:bg-green-500/20 hover:border-solid transition-all flex items-center justify-center">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+            </div>
+          </button>
+        )}
+        {/* Green pulsing dot when this block is the connection source */}
+        {connectingFromBlockId === block.id && (
+          <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 z-20">
+            <div className="w-5 h-5 rounded-full border-2 border-solid border-green-500 bg-green-500/20 flex items-center justify-center animate-pulse">
+              <div className="w-2 h-2 rounded-full bg-green-500" />
+            </div>
+          </div>
+        )}
       </div>{/* card */}
-      {/* Green connection dot — positioned on right edge, visibility driven by React hover state */}
-      {showDependencies && !connectingFromBlockId && block.block_type !== 'divider' && isCardHovered && (
-        <button
-          type="button"
-          className="absolute -right-3 top-1/2 -translate-y-1/2 z-20 transition-opacity"
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onStartConnect?.(block.id); }}
-          title="Click to connect to another block"
-        >
-          <div className="w-5 h-5 rounded-full border-2 border-dashed border-green-500 bg-card hover:bg-green-500/20 hover:border-solid transition-all flex items-center justify-center">
-            <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-          </div>
-        </button>
-      )}
-      {/* Green pulsing dot when this block is the connection source */}
-      {connectingFromBlockId === block.id && (
-        <div className="absolute -right-2.5 top-1/2 -translate-y-1/2 z-20">
-          <div className="w-5 h-5 rounded-full border-2 border-solid border-green-500 bg-green-500/20 flex items-center justify-center animate-pulse">
-            <div className="w-2 h-2 rounded-full bg-green-500" />
-          </div>
-        </div>
-      )}
       </div>{/* flex-1 */}
       </div>{/* flex-row */}
 
