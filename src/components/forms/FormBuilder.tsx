@@ -537,31 +537,35 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
   }
 
   return (
-    <div className="flex items-start gap-0">
-      {/* Bulk selection checkbox — show on hover or when checked, hidden for dividers */}
-      {block.block_type !== 'divider' && onBulkToggle && (
-        <div className={`flex items-center pt-5 pr-1 ${isBulkSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onBulkToggle(); }}
-            className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${
-              isBulkSelected ? 'bg-primary border-primary text-white' : 'border-muted-foreground/40 hover:border-primary'
-            }`}
-          >
-            {isBulkSelected && <Check className="h-2.5 w-2.5" />}
-          </button>
-        </div>
-      )}
-      <div className="flex-1 min-w-0 group">
-      <div
-        ref={setNodeRef}
-        style={style}
-        data-block-id={block.id}
-        className={`group relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
-          isSelected ? 'border-primary border-l-primary ring-2 ring-primary/20' : isBulkSelected ? 'border-primary/50 border-l-primary/50 ring-1 ring-primary/10' : `${borderAccent} border-border hover:border-primary/40`
-        }`}
-        onClick={onSelect}
-      >
+    <div className="group">
+      {/* Card row: checkbox + card side by side, centered vertically */}
+      <div className="flex items-center gap-2">
+        {/* Bulk selection checkbox — outside card, vertically centered */}
+        {block.block_type !== 'divider' && onBulkToggle ? (
+          <div className={`shrink-0 ${isBulkSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onBulkToggle(); }}
+              className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${
+                isBulkSelected ? 'bg-primary border-primary text-white' : 'border-muted-foreground/40 hover:border-primary'
+              }`}
+            >
+              {isBulkSelected && <Check className="h-2.5 w-2.5" />}
+            </button>
+          </div>
+        ) : block.block_type !== 'divider' ? (
+          <div className="shrink-0 w-4" />
+        ) : null}
+        <div className="flex-1 min-w-0">
+        <div
+          ref={setNodeRef}
+          style={style}
+          data-block-id={block.id}
+          className={`group relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
+            isSelected ? 'border-primary border-l-primary ring-2 ring-primary/20' : isBulkSelected ? 'border-primary/50 border-l-primary/50 ring-1 ring-primary/10' : `${borderAccent} border-border hover:border-primary/40`
+          }`}
+          onClick={onSelect}
+        >
         {/* Drag handle */}
         <div
           {...attributes}
@@ -678,8 +682,10 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
               )}
             </div>
           )}
-        </div>
-      </div>
+        </div>{/* padding */}
+      </div>{/* card */}
+      </div>{/* flex-1 */}
+      </div>{/* flex-row */}
 
       {/* Add block button after this card */}
       <AddBlockButton
@@ -688,7 +694,6 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
         onAdd={onAdd}
         formType={formType}
       />
-    </div>
     </div>
   );
 }
