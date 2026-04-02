@@ -607,12 +607,12 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
         ) : block.block_type !== 'divider' ? (
           <div className="shrink-0 w-4" />
         ) : null}
-        <div className="flex-1 min-w-0 relative">
+        <div className="flex-1 min-w-0 relative group/card">
         <div
           ref={setNodeRef}
           style={style}
           data-block-id={block.id}
-          className={`group/card relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
+          className={`relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
             isSelected ? 'border-primary border-l-primary ring-2 ring-primary/20' : isBulkSelected ? 'border-primary/50 border-l-primary/50 ring-1 ring-primary/10' : isUnbound ? 'border-amber-500/50 border-l-amber-500 border-dashed' : `${borderAccent} border-border hover:border-primary/40`
           } ${connectingFromBlockId === block.id ? 'ring-2 ring-green-500/50 border-green-500/50' : ''} ${connectingFromBlockId && connectingFromBlockId !== block.id ? 'cursor-crosshair hover:ring-2 hover:ring-green-400/40' : ''} ${groupInstanceId && !isUnbound ? 'border-l-amber-400' : ''}`}
           onClick={connectingFromBlockId && connectingFromBlockId !== block.id ? (e) => { e.preventDefault(); e.stopPropagation(); onCompleteConnect?.(block.id); } : onSelect}
