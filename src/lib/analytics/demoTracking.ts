@@ -5,6 +5,8 @@ const VISITOR_KEY = "demo_tracking_visitor_id";
 const SESSION_KEY = "demo_tracking_session_id";
 const SESSION_LAST_SEEN_KEY = "demo_tracking_session_last_seen";
 const SUPER_ADMIN_AUTH_KEY = "trike_super_admin_auth";
+/** Set once in DevTools: localStorage.setItem("trike_demo_tracking_opt_out", "1") to skip tracking for this browser profile (any origin). */
+const OPT_OUT_KEY = "trike_demo_tracking_opt_out";
 const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 type TrackRole = "admin" | "district-manager" | "store-manager" | "trike-super-admin" | string | null | undefined;
@@ -50,6 +52,19 @@ export function isDemoTrackingEnabled(): boolean {
   return (import.meta.env.VITE_DEMO_TRACKING_ENABLED ?? "false") === "true";
 }
 
+/**
+ * Per-browser opt-out (localStorage) or build-time opt-out (.env.local: VITE_DEMO_TRACKING_OPT_OUT=true).
+ * There is no stable "this Mac" API in the web platform; use this on machines/profiles you want excluded.
+ */
+export function isDemoTrackingOptedOut(): boolean {
+  if ((import.meta.env.VITE_DEMO_TRACKING_OPT_OUT ?? "false") === "true") {
+    return true;
+  }
+  if (typeof window === "undefined") return false;
+  const v = safeStorageGet(window.localStorage, OPT_OUT_KEY);
+  return v === "1" || v === "true";
+}
+
 export function getOrCreateVisitorId(): string {
   if (typeof window === "undefined") return "server";
   const existing = safeStorageGet(window.localStorage, VISITOR_KEY);
@@ -84,6 +99,7 @@ export function getOrCreateSessionId(): string {
 
 export function shouldTrackDemoActivity(context: DemoTrackingContext): boolean {
   if (!isDemoTrackingEnabled()) return false;
+  if (isDemoTrackingOptedOut()) return false;
 
   const superAdminUnlocked =
     typeof window !== "undefined" &&
