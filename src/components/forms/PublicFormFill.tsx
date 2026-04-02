@@ -194,7 +194,9 @@ export function PublicFormFill() {
 
     try {
       const anonKey = publicAnonKey || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-      const url = `${EDGE_URL}/forms/public/${formId}/submit`;
+      const submitParams = new URLSearchParams(window.location.search);
+      const isPreview = submitParams.get('preview') === 'true';
+      const url = `${EDGE_URL}/forms/public/${formId}/submit${isPreview ? '?preview=true' : ''}`;
 
       const response = await fetch(url, {
         method: 'POST',
