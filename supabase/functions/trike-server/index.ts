@@ -1508,38 +1508,57 @@ Return ONLY valid JSON:
   "description": "..."
 }`;
 
-    const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 32768,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "document",
-                source: {
-                  type: "base64",
-                  media_type: "application/pdf",
-                  data: pdfBase64,
+    // Use AbortController to timeout before Supabase kills the function (150s wall clock).
+    // If the function crashes/times out, Supabase returns 502 without CORS headers,
+    // which browsers report as a CORS error instead of the real timeout.
+    const abortController = new AbortController();
+    const apiTimeout = setTimeout(() => abortController.abort(), 120_000); // 120s
+
+    let claudeResponse: Response;
+    try {
+      claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 32768,
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "document",
+                  source: {
+                    type: "base64",
+                    media_type: "application/pdf",
+                    data: pdfBase64,
+                  },
                 },
-              },
-              {
-                type: "text",
-                text: "Analyze this document and extract all form fields. Return the structured JSON as instructed.",
-              },
-            ],
-          },
-        ],
-        system: systemPrompt,
-      }),
-    });
+                {
+                  type: "text",
+                  text: "Analyze this document and extract all form fields. Return the structured JSON as instructed.",
+                },
+              ],
+            },
+          ],
+          system: systemPrompt,
+        }),
+        signal: abortController.signal,
+      });
+    } catch (fetchErr: unknown) {
+      clearTimeout(apiTimeout);
+      if (fetchErr instanceof DOMException && fetchErr.name === "AbortError") {
+        console.error("Anthropic API call timed out after 120s");
+        return jsonResponse({ error: "AI analysis timed out. Try a smaller or simpler PDF." }, 504);
+      }
+      throw fetchErr;
+    } finally {
+      clearTimeout(apiTimeout);
+    }
 
     if (!claudeResponse.ok) {
       const errText = await claudeResponse.text();
