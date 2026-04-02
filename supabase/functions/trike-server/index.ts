@@ -1508,6 +1508,9 @@ Return ONLY valid JSON:
   "description": "..."
 }`;
 
+    console.log(`[parse-pdf] PDF base64 length: ${pdfBase64.length}, calling Anthropic API...`);
+    const apiStartTime = Date.now();
+
     // Use AbortController to timeout before Supabase kills the function (150s wall clock).
     // If the function crashes/times out, Supabase returns 502 without CORS headers,
     // which browsers report as a CORS error instead of the real timeout.
@@ -1525,7 +1528,7 @@ Return ONLY valid JSON:
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 32768,
+          max_tokens: 16384,
           messages: [
             {
               role: "user",
@@ -1560,6 +1563,9 @@ Return ONLY valid JSON:
       clearTimeout(apiTimeout);
     }
 
+    const apiElapsed = ((Date.now() - apiStartTime) / 1000).toFixed(1);
+    console.log(`[parse-pdf] Anthropic API responded in ${apiElapsed}s, status: ${claudeResponse.status}`);
+
     if (!claudeResponse.ok) {
       const errText = await claudeResponse.text();
       console.error("Anthropic API error:", claudeResponse.status, errText);
@@ -1569,6 +1575,7 @@ Return ONLY valid JSON:
     const claudeData = await claudeResponse.json();
     const rawText = claudeData.content?.[0]?.text || "";
     const stopReason = claudeData.stop_reason;
+    console.log(`[parse-pdf] stop_reason: ${stopReason}, usage: ${JSON.stringify(claudeData.usage)}, text length: ${rawText.length}`);
 
     if (!rawText) {
       console.error("Empty AI response. stop_reason:", stopReason, "usage:", JSON.stringify(claudeData.usage));

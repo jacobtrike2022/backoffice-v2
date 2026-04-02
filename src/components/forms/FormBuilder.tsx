@@ -526,6 +526,9 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
   const groupInstanceId = getGroupInstanceId(block);
   const isUnbound = hasUnboundParent(block);
 
+  // Hover state for showing green connection dot (CSS group/card not supported in all Tailwind versions)
+  const [isCardHovered, setIsCardHovered] = useState(false);
+
   // ── Divider: render as a visual line, not a full block card ──
   if (block.block_type === 'divider') {
     return (
@@ -607,12 +610,16 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
         ) : block.block_type !== 'divider' ? (
           <div className="shrink-0 w-4" />
         ) : null}
-        <div className="flex-1 min-w-0 relative group/card">
+        <div
+          className="flex-1 min-w-0 relative"
+          onMouseEnter={() => setIsCardHovered(true)}
+          onMouseLeave={() => setIsCardHovered(false)}
+        >
         <div
           ref={setNodeRef}
           style={style}
           data-block-id={block.id}
-          className={`relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
+          className={`group relative rounded-xl border bg-card shadow-sm cursor-pointer transition-all hover:shadow-md border-l-4 ${
             isSelected ? 'border-primary border-l-primary ring-2 ring-primary/20' : isBulkSelected ? 'border-primary/50 border-l-primary/50 ring-1 ring-primary/10' : isUnbound ? 'border-amber-500/50 border-l-amber-500 border-dashed' : `${borderAccent} border-border hover:border-primary/40`
           } ${connectingFromBlockId === block.id ? 'ring-2 ring-green-500/50 border-green-500/50' : ''} ${connectingFromBlockId && connectingFromBlockId !== block.id ? 'cursor-crosshair hover:ring-2 hover:ring-green-400/40' : ''} ${groupInstanceId && !isUnbound ? 'border-l-amber-400' : ''}`}
           onClick={connectingFromBlockId && connectingFromBlockId !== block.id ? (e) => { e.preventDefault(); e.stopPropagation(); onCompleteConnect?.(block.id); } : onSelect}
@@ -621,14 +628,14 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
         <div
           {...attributes}
           {...listeners}
-          className="absolute left-2 top-1/2 -translate-y-1/2 cursor-grab text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover/card:opacity-100 transition-opacity"
+          className="absolute left-2 top-1/2 -translate-y-1/2 cursor-grab text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
           onClick={e => e.stopPropagation()}
         >
           <GripVertical className="h-4 w-4" />
         </div>
 
         {/* Quick-add logic button + Delete button */}
-        <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 group-hover/card:opacity-100 transition-opacity">
+        <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           {!hasLogic && (
             <button
               className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-primary transition-colors"
@@ -755,11 +762,11 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
           )}
         </div>{/* padding */}
       </div>{/* card */}
-      {/* Green connection dot — positioned on the right edge of the card wrapper, outside the card to avoid clipping */}
-      {showDependencies && !connectingFromBlockId && block.block_type !== 'divider' && (
+      {/* Green connection dot — positioned on right edge, visibility driven by React hover state */}
+      {showDependencies && !connectingFromBlockId && block.block_type !== 'divider' && isCardHovered && (
         <button
           type="button"
-          className="absolute -right-2.5 top-1/2 -translate-y-1/2 z-20 opacity-0 group-hover/card:opacity-100 transition-opacity"
+          className="absolute -right-3 top-1/2 -translate-y-1/2 z-20 transition-opacity"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); onStartConnect?.(block.id); }}
           title="Click to connect to another block"
         >
