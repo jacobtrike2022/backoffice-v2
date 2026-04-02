@@ -49,13 +49,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from './ui/dialog';
+// Dialog imports available if needed for future modals
+// import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -130,8 +125,7 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
   const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistoryEntry[]>([]);
   const [assignmentHistoryLoading, setAssignmentHistoryLoading] = useState(false);
 
-  // Per-track form attachment
-  const [trackFormAttachTarget, setTrackFormAttachTarget] = useState<string | null>(null);
+  // Per-track form attachment — published forms for dropdown
   const [orgForms, setOrgForms] = useState<{ id: string; title: string }[]>([]);
 
   const { user } = useCurrentUser();
@@ -141,12 +135,12 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
     fetchPlaylists();
   }, [effectiveOrgId, viewFilter]);
 
-  // Load forms for per-track attachment dialog
+  // Load published forms for per-track attachment dropdown
   useEffect(() => {
-    if (!trackFormAttachTarget || !effectiveOrgId) return;
+    if (!effectiveOrgId) return;
     supabase.from('forms').select('id, title').eq('organization_id', effectiveOrgId).eq('status', 'published').order('title')
       .then(({ data }) => setOrgForms((data || []) as { id: string; title: string }[]));
-  }, [trackFormAttachTarget, effectiveOrgId]);
+  }, [effectiveOrgId]);
 
   // Function to fetch and set full playlist details
   const fetchAndSelectPlaylist = async (playlistId: string) => {
@@ -797,17 +791,30 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
                                   {pt.form_gate_mode === 'required' ? ' · Required' : ' · Optional'}
                                 </span>
                               ) : (
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-orange-400 hover:text-orange-500 transition-colors"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setTrackFormAttachTarget(pt.id);
+                                <Select
+                                  value="__pick__"
+                                  onValueChange={async (formId) => {
+                                    if (formId === '__pick__') return;
+                                    try {
+                                      await crud.setTrackFormAttachment(pt.id, formId, 'required');
+                                      if (selectedPlaylist) {
+                                        const refreshed = await crud.getPlaylistById(selectedPlaylist.id);
+                                        if (refreshed) setSelectedPlaylist({ ...selectedPlaylist, ...refreshed });
+                                      }
+                                    } catch (e: any) { console.error('Failed to attach form:', e); }
                                   }}
                                 >
-                                  <FileText className="h-2.5 w-2.5" />
-                                  Attach form
-                                </button>
+                                  <SelectTrigger className="h-5 w-auto gap-1 px-1.5 py-0 rounded-full border-dashed border-muted-foreground/40 text-muted-foreground text-[10px] bg-transparent shadow-none hover:border-orange-400 hover:text-orange-500">
+                                    <FileText className="h-2.5 w-2.5" />
+                                    <span>Attach form</span>
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="__pick__">Choose a form...</SelectItem>
+                                    {orgForms.map(f => (
+                                      <SelectItem key={f.id} value={f.id}>{f.title}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                               )}
                             </div>
                           </div>
@@ -1877,49 +1884,6 @@ export function Playlists({ currentRole = 'admin', onOpenPlaylistWizard, onEditP
         onArchive={handleArchivePlaylist}
       />
 
-      {/* Per-Track Form Attachment Dialog */}
-      <Dialog open={!!trackFormAttachTarget} onOpenChange={(open) => !open && setTrackFormAttachTarget(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Attach Form to Track</DialogTitle>
-            <DialogDescription>
-              Learners will be prompted to complete this form after finishing the track before advancing.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 pt-2">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Select a form</label>
-              <Select
-                value="__pick__"
-                onValueChange={async (formId) => {
-                  if (formId === '__pick__' || !trackFormAttachTarget) return;
-                  try {
-                    await crud.setTrackFormAttachment(trackFormAttachTarget, formId, 'required');
-                    setTrackFormAttachTarget(null);
-                    // Refresh playlist detail
-                    if (selectedPlaylist) {
-                      const refreshed = await crud.getPlaylistById(selectedPlaylist.id);
-                      if (refreshed) setSelectedPlaylist({ ...selectedPlaylist, ...refreshed });
-                    }
-                  } catch (e: any) {
-                    console.error('Failed to attach form:', e);
-                  }
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a published form..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__pick__">Choose a published form...</SelectItem>
-                  {orgForms.map(f => (
-                    <SelectItem key={f.id} value={f.id}>{f.title}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
