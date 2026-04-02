@@ -756,13 +756,14 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
           )}
         </div>{/* padding */}
 
-        {/* Green connection dot — INSIDE the card so group-hover works (same as drag handle / delete btn) */}
+        {/* Green connection dot: keep fully inside card to avoid overflow clipping. */}
         {showDependencies && !connectingFromBlockId && block.block_type !== 'divider' && (
           <button
             type="button"
-            className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 z-20 opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute right-2 top-1/2 -translate-y-1/2 z-20 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); onStartConnect?.(block.id); }}
             title="Click to connect to another block"
+            aria-label="Start connection from this block"
           >
             <div className="w-5 h-5 rounded-full border-2 border-dashed border-green-500 bg-card hover:bg-green-500/20 hover:border-solid transition-all flex items-center justify-center">
               <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
@@ -771,7 +772,7 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
         )}
         {/* Green pulsing dot when this block is the connection source */}
         {connectingFromBlockId === block.id && (
-          <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 z-20">
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 z-20">
             <div className="w-5 h-5 rounded-full border-2 border-solid border-green-500 bg-green-500/20 flex items-center justify-center animate-pulse">
               <div className="w-2 h-2 rounded-full bg-green-500" />
             </div>
