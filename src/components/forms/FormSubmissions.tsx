@@ -649,13 +649,19 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
     .meta { font-size: 13px; color: #64748b; margin-top: 4px; }
     table { width: 100%; border-collapse: collapse; }
     .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #94a3b8; text-align: center; }
+    .save-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 20px; background: #f97316; color: #fff; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .save-btn:hover { background: #ea580c; }
     @media print {
       body { padding: 20px; }
       @page { margin: 15mm; }
+      .save-btn, .no-print { display: none !important; }
     }
   </style>
 </head>
 <body>
+  <div class="no-print" style="text-align:right;margin-bottom:16px;">
+    <button class="save-btn" onclick="window.print()">&#128196; Save as PDF</button>
+  </div>
   <div class="header">
     <div class="brand">TRIKE BACKOFFICE</div>
     <div class="form-title">${escHtml(formTitle)}</div>
