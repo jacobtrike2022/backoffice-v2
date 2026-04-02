@@ -1489,6 +1489,11 @@ IMPORTANT: Use "source_block_ref_id" (NOT "source_block_id") in conditions. The 
 
 Available block_type values: text, textarea, number, date, time, radio, checkboxes, dropdown, yes_no, rating, signature, photo, instruction, divider
 
+CHOOSING BETWEEN RADIO, DROPDOWN, AND CHECKBOXES:
+- radio: 2-5 options, single selection, all options visible at once (e.g. Yes/No/N/A, Pass/Fail, Shift 1/2/3)
+- dropdown: 6+ options, single selection from a long list (e.g. state, location, department)
+- checkboxes: multiple selections allowed — "check all that apply"
+
 For each block return:
 - ref_id: a unique reference like "block_0", "block_1", etc. (REQUIRED for every block)
 - block_type: string
