@@ -1391,71 +1391,6 @@ function extractJSON(raw: string): any {
   throw new Error("Could not extract valid JSON from AI response");
 }
 
-/**
- * Reorder blocks so conditional-logic children appear immediately after their
- * parent question.  Produces: Parent → child → child → next Parent → child …
- *
- * Works on flat block arrays regardless of whether the AI used row_patterns.
- * Handles multi-level nesting (child of child) by recursing.
- */
-function reorderBlocksParentFirst(blocks: any[]): any[] {
-  // Build ref_id → block index and parent → children map
-  const refIdToIdx = new Map<string, number>();
-  for (let i = 0; i < blocks.length; i++) {
-    const rid = blocks[i]?.ref_id;
-    if (rid) refIdToIdx.set(rid, i);
-  }
-
-  // Map: parent ref_id → list of child block indices (in original order)
-  const parentToChildren = new Map<string, number[]>();
-  const isChild = new Set<number>(); // indices of blocks that are children
-
-  for (let i = 0; i < blocks.length; i++) {
-    const cl = blocks[i]?.conditional_logic;
-    if (!cl || !Array.isArray(cl.conditions)) continue;
-    for (const cond of cl.conditions) {
-      const sourceRef = cond.source_block_ref_id || cond.source_block_id;
-      if (!sourceRef || !refIdToIdx.has(sourceRef)) continue;
-      // This block is a child of sourceRef
-      if (!parentToChildren.has(sourceRef)) parentToChildren.set(sourceRef, []);
-      parentToChildren.get(sourceRef)!.push(i);
-      isChild.add(i);
-      break; // only use first condition to determine parent
-    }
-  }
-
-  // Walk blocks in original order; emit each non-child, then recursively emit its children
-  const result: any[] = [];
-  const emitted = new Set<number>();
-
-  function emitWithChildren(idx: number) {
-    if (emitted.has(idx)) return;
-    emitted.add(idx);
-    result.push(blocks[idx]);
-
-    const childIndices = parentToChildren.get(blocks[idx]?.ref_id);
-    if (childIndices) {
-      for (const ci of childIndices) {
-        emitWithChildren(ci);
-      }
-    }
-  }
-
-  for (let i = 0; i < blocks.length; i++) {
-    if (isChild.has(i)) continue; // skip children — they'll be pulled in by their parent
-    emitWithChildren(i);
-  }
-
-  // Safety: emit any blocks that were somehow missed (orphaned children with bad refs)
-  for (let i = 0; i < blocks.length; i++) {
-    if (!emitted.has(i)) {
-      result.push(blocks[i]);
-    }
-  }
-
-  return result;
-}
-
 // =============================================================================
 // FORMS AI - Parse PDF to form blocks
 // =============================================================================
@@ -1548,98 +1483,15 @@ CRITICAL RULES:
 
 7. DESCRIPTIVE PARAGRAPHS (welcome text, phase introductions) should be "instruction" blocks with the full text as the label.
 
-8. REPEATING TABLE PATTERNS — USE "row_patterns" TO AVOID REPETITION:
-Many inspection/audit forms use a table layout where EVERY row gets the same treatment. Instead of generating separate blocks for each row (which wastes tokens), detect the repeating column structure and use the compact "row_patterns" format.
-
-When you see a table with columns like:
-  - Column A: Item label (e.g. "Lighting in working order")
-  - Column B: Compliance check (yes/no, checkboxes per shift, pass/fail, etc.)
-  - Column C: Conditional follow-up (e.g. "If out of compliance, explanation & corrective action")
-  - Column D: Optional flag (e.g. "Limble Reported")
-
-Return a "row_patterns" array. Each pattern describes ONE table structure, the template of blocks each row produces, and the list of row items. The system will expand these into full blocks automatically.
-
-Each row_pattern:
-{
-  "section_title": "RESTROOMS",
-  "template": [
-    {
-      "suffix": "check",
-      "block_type": "yes_no",
-      "label_template": "{item}",
-      "is_required": true,
-      "options": null,
-      "description": null
-    },
-    {
-      "suffix": "comments",
-      "block_type": "text",
-      "label_template": "Comments: {item}",
-      "is_required": false,
-      "options": null,
-      "description": null,
-      "conditional_on": "check",
-      "conditional_operator": "equals",
-      "conditional_value": "No"
-    },
-    {
-      "suffix": "photo",
-      "block_type": "photo",
-      "label_template": "Photo: {item}",
-      "is_required": false,
-      "options": null,
-      "description": null,
-      "conditional_on": "check",
-      "conditional_operator": "equals",
-      "conditional_value": "No"
-    },
-    {
-      "suffix": "reported",
-      "block_type": "yes_no",
-      "label_template": "Limble Reported: {item}",
-      "is_required": true,
-      "options": null,
-      "description": null,
-      "conditional_on": "check",
-      "conditional_operator": "equals",
-      "conditional_value": "No"
-    }
-  ],
-  "items": [
-    "Lighting in working order",
-    "Soaps, paper towels in stock",
-    "Correct wet floor sign usage"
-  ]
-}
-
-Template rules:
-- "suffix" is appended to make ref_ids unique per item (e.g. "row_0_check", "row_0_comments")
-- "{item}" in label_template is replaced with each item name
-- "conditional_on" references the suffix of another template block IN THE SAME ROW — the system will resolve this to the correct ref_id
-- "conditional_operator" / "conditional_value" define when the block is shown (action is always "show")
-- Only the FIRST template block (the primary question) should omit conditional_on — all follow-up blocks should be conditional on the primary
-- For checkboxes-based compliance, use "is_empty" operator (nothing checked = non-compliant)
-
-IMPORTANT: Use row_patterns for ANY table with 3+ rows sharing the same column structure. Only use standalone "blocks" for non-repeating fields (header fields like Location, Date, signatures, standalone questions, instruction text, etc.).
-
-9. TEMPERATURE / NUMERIC ENTRY ROWS: Rows asking for temperature readings, counts, or measurements should be "number" blocks (these are usually standalone, not patterned).
-
 Available block_type values: text, textarea, number, date, time, radio, checkboxes, dropdown, yes_no, rating, signature, photo, instruction, divider
 
-CHOOSING BETWEEN RADIO, DROPDOWN, AND CHECKBOXES:
-- radio: 2-5 options, single selection, all options visible at once (e.g. Yes/No/N/A, Pass/Fail, Shift 1/2/3)
-- dropdown: 6+ options, single selection from a long list (e.g. state, location, department)
-- checkboxes: multiple selections allowed — "check all that apply"
-
-For standalone blocks (non-patterned), return:
-- ref_id: a unique reference like "block_0", "block_1", etc.
+For each block return:
 - block_type: string
 - label: the field label or question
 - description: optional helper text (string or null)
-- is_required: boolean
+- is_required: boolean (true for items that must be completed)
 - options: array of strings (for radio, checkboxes, dropdown only)
-- section_title: string or null
-- conditional_logic: object or null. When present: { "action": "show"|"hide", "operator": "AND"|"OR", "conditions": [{ "source_block_ref_id": "<ref_id>", "operator": "equals"|"not_equals"|"contains"|"is_empty"|"is_not_empty", "value": "<string>" }] }
+- section_title: string or null (which section this block belongs to)
 
 Also determine:
 - detected_form_type: one of "inspection", "audit", "sign-off", "ojt-checklist", "survey"
@@ -1649,8 +1501,7 @@ Also determine:
 
 Return ONLY valid JSON:
 {
-  "blocks": [...standalone blocks only...],
-  "row_patterns": [...repeating table patterns...],
+  "blocks": [...],
   "sections": [{"title": "...", "description": "..."}],
   "detected_form_type": "...",
   "title": "...",
@@ -1666,7 +1517,7 @@ Return ONLY valid JSON:
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 32768,
+        max_tokens: 16384,
         messages: [
           {
             role: "user",
@@ -1681,13 +1532,7 @@ Return ONLY valid JSON:
               },
               {
                 type: "text",
-                text: `Analyze this document and extract all form fields. Return the structured JSON as instructed.
-
-IMPORTANT: If you see repeating table rows (inspection items, checklist items, etc.) that all share the same column structure, you MUST use "row_patterns" instead of generating hundreds of individual blocks. This is critical — generating flat blocks for 40+ identical-structure rows wastes tokens and may truncate. Describe the pattern ONCE in "row_patterns" and list the items. The server expands them automatically.
-
-For non-repeating fields (header info, dates, signatures, standalone questions), use "blocks" as normal.
-
-If the ENTIRE document is repeating rows with no variation, "blocks" can be empty [] and everything goes in "row_patterns".`,
+                text: "Analyze this document and extract all form fields. Return the structured JSON as instructed.",
               },
             ],
           },
@@ -1704,149 +1549,29 @@ If the ENTIRE document is repeating rows with no variation, "blocks" can be empt
 
     const claudeData = await claudeResponse.json();
     const rawText = claudeData.content?.[0]?.text || "";
-    const stopReason = claudeData.stop_reason;
-
-    // If the model hit max_tokens, the JSON is likely truncated
-    if (stopReason === "max_tokens") {
-      console.error("Claude response truncated (max_tokens). Response length:", rawText.length);
-      return jsonResponse({ error: "Document too complex — AI response was truncated. Try a simpler PDF or split into sections." }, 502);
-    }
 
     // Parse JSON from Claude's response (handle code fences, preamble text, etc.)
     let parsed: any;
     try {
       parsed = extractJSON(rawText);
     } catch {
-      console.error("Failed to parse Claude response:", rawText.substring(0, 1000));
+      console.error("Failed to parse Claude response:", rawText.substring(0, 500));
       return jsonResponse({ error: "AI returned invalid JSON. Please try again." }, 502);
     }
 
-    // ── Expand row_patterns into flat blocks ────────────────────────────────
-    const rowPatterns: any[] = Array.isArray(parsed.row_patterns) ? parsed.row_patterns : [];
-    const expandedFromPatterns: any[] = [];
-
-    for (const pattern of rowPatterns) {
-      if (!pattern || !Array.isArray(pattern.template) || !Array.isArray(pattern.items)) continue;
-      const sectionTitle = typeof pattern.section_title === "string" ? pattern.section_title : null;
-
-      for (let rowIdx = 0; rowIdx < pattern.items.length; rowIdx++) {
-        const itemName = String(pattern.items[rowIdx] || "").trim();
-        if (!itemName) continue;
-
-        // Build a suffix → ref_id map for this row so conditional_on can resolve
-        const suffixToRefId = new Map<string, string>();
-        const rowBlocks: any[] = [];
-
-        for (let tIdx = 0; tIdx < pattern.template.length; tIdx++) {
-          const tmpl = pattern.template[tIdx];
-          if (!tmpl || !tmpl.suffix) continue;
-          const refId = `row_${rowIdx}_${tmpl.suffix}`;
-          suffixToRefId.set(tmpl.suffix, refId);
-        }
-
-        for (let tIdx = 0; tIdx < pattern.template.length; tIdx++) {
-          const tmpl = pattern.template[tIdx];
-          if (!tmpl || !tmpl.suffix) continue;
-
-          const refId = `row_${rowIdx}_${tmpl.suffix}`;
-          const label = typeof tmpl.label_template === "string"
-            ? tmpl.label_template.replace(/\{item\}/g, itemName)
-            : itemName;
-
-          // Build conditional_logic from conditional_on reference
-          let conditionalLogic: any = null;
-          if (tmpl.conditional_on && suffixToRefId.has(tmpl.conditional_on)) {
-            const sourceRefId = suffixToRefId.get(tmpl.conditional_on)!;
-            const condOp = tmpl.conditional_operator || "equals";
-            const condVal = typeof tmpl.conditional_value === "string" ? tmpl.conditional_value : "";
-            conditionalLogic = {
-              action: "show",
-              operator: "AND",
-              conditions: [{
-                source_block_ref_id: sourceRefId,
-                operator: condOp,
-                value: condVal,
-              }],
-            };
-          }
-
-          rowBlocks.push({
-            ref_id: refId,
-            block_type: VALID_BLOCK_TYPES.has(tmpl.block_type) ? tmpl.block_type : "text",
-            label: label.trim(),
-            description: typeof tmpl.description === "string" ? tmpl.description : undefined,
-            is_required: typeof tmpl.is_required === "boolean" ? tmpl.is_required : false,
-            options: Array.isArray(tmpl.options) ? tmpl.options.filter((o: any) => typeof o === "string") : undefined,
-            section_title: sectionTitle,
-            conditional_logic: conditionalLogic,
-          });
-        }
-
-        expandedFromPatterns.push(...rowBlocks);
-      }
-    }
-
-    // ── Validate standalone blocks ───────────────────────────────────────────
-    const standaloneBlocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
-
-    const validCondOps = ["equals", "not_equals", "contains", "not_contains", "greater_than", "less_than", "is_empty", "is_not_empty"];
-
-    const validatedStandalone = standaloneBlocks
+    // Validate and sanitize blocks
+    const blocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
+    const validatedBlocks = blocks
       .filter((b: any) => b && typeof b.label === "string" && b.label.trim())
-      .map((b: any, idx: number) => {
-        // Parse and validate conditional_logic if present
-        let conditionalLogic: any = null;
-        if (b.conditional_logic && typeof b.conditional_logic === "object") {
-          const cl = b.conditional_logic;
-          const validActions = ["show", "hide"];
-          const validOperators = ["AND", "OR"];
-
-          if (validActions.includes(cl.action) && Array.isArray(cl.conditions) && cl.conditions.length > 0) {
-            const validConditions = cl.conditions
-              .filter((c: any) =>
-                c && typeof c === "object" &&
-                (typeof c.source_block_ref_id === "string" || typeof c.source_block_id === "string") &&
-                validCondOps.includes(c.operator)
-              )
-              .map((c: any) => ({
-                source_block_ref_id: c.source_block_ref_id || c.source_block_id,
-                operator: c.operator,
-                value: typeof c.value === "string" ? c.value : "",
-              }));
-
-            if (validConditions.length > 0) {
-              conditionalLogic = {
-                action: cl.action,
-                operator: validOperators.includes(cl.operator) ? cl.operator : "AND",
-                conditions: validConditions,
-              };
-            }
-          }
-        }
-
-        return {
-          ref_id: typeof b.ref_id === "string" ? b.ref_id : `block_${idx}`,
-          block_type: VALID_BLOCK_TYPES.has(b.block_type) ? b.block_type : "text",
-          label: b.label.trim(),
-          description: typeof b.description === "string" ? b.description : undefined,
-          is_required: typeof b.is_required === "boolean" ? b.is_required : false,
-          options: Array.isArray(b.options) ? b.options.filter((o: any) => typeof o === "string") : undefined,
-          section_title: typeof b.section_title === "string" ? b.section_title : null,
-          conditional_logic: conditionalLogic,
-        };
-      });
-
-    // ── Merge: standalone blocks first, then expanded pattern blocks ─────────
-    const mergedBlocks = [...validatedStandalone, ...expandedFromPatterns];
-
-    // ── Post-process: reorder so conditional children follow their parent ────
-    // The AI often returns blocks in flat order where children (conditional
-    // follow-up questions) are scattered far from their parent. This reorders
-    // so it goes: Parent → child → child → child → next Parent.
-    const reorderedBlocks = reorderBlocksParentFirst(mergedBlocks);
-
-    const allBlocks = reorderedBlocks
-      .map((b, idx) => ({ ...b, display_order: idx }));
+      .map((b: any, idx: number) => ({
+        block_type: VALID_BLOCK_TYPES.has(b.block_type) ? b.block_type : "text",
+        label: b.label.trim(),
+        description: typeof b.description === "string" ? b.description : undefined,
+        is_required: typeof b.is_required === "boolean" ? b.is_required : false,
+        options: Array.isArray(b.options) ? b.options.filter((o: any) => typeof o === "string") : undefined,
+        section_title: typeof b.section_title === "string" ? b.section_title : null,
+        display_order: idx,
+      }));
 
     // Extract sections
     const sections = Array.isArray(parsed.sections)
@@ -1861,10 +1586,8 @@ If the ENTIRE document is repeating rows with no variation, "blocks" can be empt
       ? parsed.detected_form_type
       : "inspection";
 
-    console.log(`PDF parse: ${validatedStandalone.length} standalone + ${expandedFromPatterns.length} expanded from ${rowPatterns.length} patterns → ${mergedBlocks.length} merged → ${allBlocks.length} after reorder`);
-
     return jsonResponse({
-      blocks: allBlocks,
+      blocks: validatedBlocks,
       sections,
       detected_form_type: detectedType,
       title: typeof parsed.title === "string" ? parsed.title : "Imported Form",
