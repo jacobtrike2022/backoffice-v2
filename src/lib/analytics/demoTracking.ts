@@ -101,11 +101,10 @@ export function shouldTrackDemoActivity(context: DemoTrackingContext): boolean {
   if (!isDemoTrackingEnabled()) return false;
   if (isDemoTrackingOptedOut()) return false;
 
-  const superAdminUnlocked =
-    typeof window !== "undefined" &&
-    safeStorageGet(window.localStorage, SUPER_ADMIN_AUTH_KEY) === "true";
-  if (superAdminUnlocked) return false;
-
+  // Only skip tracking when the active role is trike-super-admin.
+  // Do NOT check the localStorage super-admin auth flag here — it persists
+  // across role switches and would block tracking even when previewing
+  // as a non-admin role or testing prospect demo links.
   if (context.currentRole === "trike-super-admin") return false;
 
   if (context.organizationId && context.organizationId === APP_CONFIG.TRIKE_CO_ORG_ID) {
