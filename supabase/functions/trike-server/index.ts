@@ -1365,6 +1365,32 @@ function jsonResponse(data: unknown, status = 200): Response {
   });
 }
 
+/**
+ * Robustly extract JSON from an AI response that may contain markdown fences,
+ * preamble text, or trailing commentary around the actual JSON object.
+ */
+function extractJSON(raw: string): any {
+  // 1. Try direct parse first
+  const trimmed = raw.trim();
+  try { return JSON.parse(trimmed); } catch { /* continue */ }
+
+  // 2. Strip markdown code fences (```json ... ```)
+  const fenceMatch = raw.match(/```json?\s*\n?([\s\S]*?)```/i);
+  if (fenceMatch) {
+    try { return JSON.parse(fenceMatch[1].trim()); } catch { /* continue */ }
+  }
+
+  // 3. Find the first '{' and last '}' and try to parse that substring
+  const firstBrace = raw.indexOf('{');
+  const lastBrace = raw.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = raw.slice(firstBrace, lastBrace + 1);
+    try { return JSON.parse(candidate); } catch { /* continue */ }
+  }
+
+  throw new Error("Could not extract valid JSON from AI response");
+}
+
 // =============================================================================
 // FORMS AI - Parse PDF to form blocks
 // =============================================================================
@@ -1457,35 +1483,81 @@ CRITICAL RULES:
 
 7. DESCRIPTIVE PARAGRAPHS (welcome text, phase introductions) should be "instruction" blocks with the full text as the label.
 
-8. INSPECTION TABLE PATTERN — PER-ROW FIELDS WITH CONDITIONAL LOGIC:
-Many inspection/audit forms use a table layout where each row has multiple columns like:
+8. REPEATING TABLE PATTERNS — USE "row_patterns" TO AVOID REPETITION:
+Many inspection/audit forms use a table layout where EVERY row gets the same treatment. Instead of generating separate blocks for each row (which wastes tokens), detect the repeating column structure and use the compact "row_patterns" format.
+
+When you see a table with columns like:
   - Column A: Item label (e.g. "Lighting in working order")
-  - Column B: Compliance check (checkboxes per shift, or a single pass/fail)
-  - Column C: "If out of compliance, provide explanation / corrective action" (conditional text area)
-  - Column D: Optional flag checkbox (e.g. "Reported", "Limble Reported")
+  - Column B: Compliance check (yes/no, checkboxes per shift, pass/fail, etc.)
+  - Column C: Conditional follow-up (e.g. "If out of compliance, explanation & corrective action")
+  - Column D: Optional flag (e.g. "Limble Reported")
 
-When you detect this pattern, you MUST generate SEPARATE blocks for EACH row's columns — do NOT collapse Column C or Column D into a single global block. For each row, produce:
-  a) A compliance check block (yes_no, checkboxes, or radio depending on the form). Use ref_id like "block_0", "block_1", etc.
-  b) A conditional textarea block for the explanation/corrective action, with a ref_id AND conditional_logic that shows it only when the compliance check indicates non-compliance.
-  c) If Column D exists (e.g. a "Reported" flag), a yes_no block for that flag, also per-row.
+Return a "row_patterns" array. Each pattern describes ONE table structure, the template of blocks each row produces, and the list of row items. The system will expand these into full blocks automatically.
 
-For the conditional textarea, set:
-  "conditional_logic": {
-    "action": "show",
-    "operator": "AND",
-    "conditions": [{ "source_block_ref_id": "<ref_id of the compliance check block>", "operator": "not_equals", "value": "<the compliant value>" }]
-  }
+Each row_pattern:
+{
+  "section_title": "RESTROOMS",
+  "template": [
+    {
+      "suffix": "check",
+      "block_type": "yes_no",
+      "label_template": "{item}",
+      "is_required": true,
+      "options": null,
+      "description": null
+    },
+    {
+      "suffix": "comments",
+      "block_type": "text",
+      "label_template": "Comments: {item}",
+      "is_required": false,
+      "options": null,
+      "description": null,
+      "conditional_on": "check",
+      "conditional_operator": "equals",
+      "conditional_value": "No"
+    },
+    {
+      "suffix": "photo",
+      "block_type": "photo",
+      "label_template": "Photo: {item}",
+      "is_required": false,
+      "options": null,
+      "description": null,
+      "conditional_on": "check",
+      "conditional_operator": "equals",
+      "conditional_value": "No"
+    },
+    {
+      "suffix": "reported",
+      "block_type": "yes_no",
+      "label_template": "Limble Reported: {item}",
+      "is_required": true,
+      "options": null,
+      "description": null,
+      "conditional_on": "check",
+      "conditional_operator": "equals",
+      "conditional_value": "No"
+    }
+  ],
+  "items": [
+    "Lighting in working order",
+    "Soaps, paper towels in stock",
+    "Correct wet floor sign usage"
+  ]
+}
 
-For checkboxes-based compliance (e.g. "check all shifts in compliance"), the conditional textarea should show when the compliance checkbox is_empty (nothing checked means non-compliance):
-  "conditional_logic": {
-    "action": "show",
-    "operator": "AND",
-    "conditions": [{ "source_block_ref_id": "<ref_id>", "operator": "is_not_empty", "value": "" }]
-  }
+Template rules:
+- "suffix" is appended to make ref_ids unique per item (e.g. "row_0_check", "row_0_comments")
+- "{item}" in label_template is replaced with each item name
+- "conditional_on" references the suffix of another template block IN THE SAME ROW — the system will resolve this to the correct ref_id
+- "conditional_operator" / "conditional_value" define when the block is shown (action is always "show")
+- Only the FIRST template block (the primary question) should omit conditional_on — all follow-up blocks should be conditional on the primary
+- For checkboxes-based compliance, use "is_empty" operator (nothing checked = non-compliant)
 
-IMPORTANT: Use "source_block_ref_id" (NOT "source_block_id") in conditions. The system will remap these to real IDs.
+IMPORTANT: Use row_patterns for ANY table with 3+ rows sharing the same column structure. Only use standalone "blocks" for non-repeating fields (header fields like Location, Date, signatures, standalone questions, instruction text, etc.).
 
-9. TEMPERATURE / NUMERIC ENTRY ROWS: Rows asking for temperature readings, counts, or measurements should be "number" blocks, not text.
+9. TEMPERATURE / NUMERIC ENTRY ROWS: Rows asking for temperature readings, counts, or measurements should be "number" blocks (these are usually standalone, not patterned).
 
 Available block_type values: text, textarea, number, date, time, radio, checkboxes, dropdown, yes_no, rating, signature, photo, instruction, divider
 
@@ -1494,14 +1566,14 @@ CHOOSING BETWEEN RADIO, DROPDOWN, AND CHECKBOXES:
 - dropdown: 6+ options, single selection from a long list (e.g. state, location, department)
 - checkboxes: multiple selections allowed — "check all that apply"
 
-For each block return:
-- ref_id: a unique reference like "block_0", "block_1", etc. (REQUIRED for every block)
+For standalone blocks (non-patterned), return:
+- ref_id: a unique reference like "block_0", "block_1", etc.
 - block_type: string
 - label: the field label or question
 - description: optional helper text (string or null)
-- is_required: boolean (true for items that must be completed)
+- is_required: boolean
 - options: array of strings (for radio, checkboxes, dropdown only)
-- section_title: string or null (which section this block belongs to)
+- section_title: string or null
 - conditional_logic: object or null. When present: { "action": "show"|"hide", "operator": "AND"|"OR", "conditions": [{ "source_block_ref_id": "<ref_id>", "operator": "equals"|"not_equals"|"contains"|"is_empty"|"is_not_empty", "value": "<string>" }] }
 
 Also determine:
@@ -1512,7 +1584,8 @@ Also determine:
 
 Return ONLY valid JSON:
 {
-  "blocks": [...],
+  "blocks": [...standalone blocks only...],
+  "row_patterns": [...repeating table patterns...],
   "sections": [{"title": "...", "description": "..."}],
   "detected_form_type": "...",
   "title": "...",
@@ -1528,7 +1601,7 @@ Return ONLY valid JSON:
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 16384,
+        max_tokens: 32768,
         messages: [
           {
             role: "user",
@@ -1560,29 +1633,94 @@ Return ONLY valid JSON:
 
     const claudeData = await claudeResponse.json();
     const rawText = claudeData.content?.[0]?.text || "";
+    const stopReason = claudeData.stop_reason;
 
-    // Parse JSON from Claude's response (strip markdown code fences if present)
+    // If the model hit max_tokens, the JSON is likely truncated
+    if (stopReason === "max_tokens") {
+      console.error("Claude response truncated (max_tokens). Response length:", rawText.length);
+      return jsonResponse({ error: "Document too complex — AI response was truncated. Try a simpler PDF or split into sections." }, 502);
+    }
+
+    // Parse JSON from Claude's response (handle code fences, preamble text, etc.)
     let parsed: any;
     try {
-      const cleaned = rawText.replace(/^```json?\s*/i, "").replace(/```\s*$/, "").trim();
-      parsed = JSON.parse(cleaned);
+      parsed = extractJSON(rawText);
     } catch {
-      console.error("Failed to parse Claude response:", rawText.substring(0, 500));
+      console.error("Failed to parse Claude response:", rawText.substring(0, 1000));
       return jsonResponse({ error: "AI returned invalid JSON. Please try again." }, 502);
     }
 
-    // Validate and sanitize blocks
-    const blocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
+    // ── Expand row_patterns into flat blocks ────────────────────────────────
+    const rowPatterns: any[] = Array.isArray(parsed.row_patterns) ? parsed.row_patterns : [];
+    const expandedFromPatterns: any[] = [];
 
-    // Build a ref_id → index map so we can remap conditional_logic references
-    const refIdToIndex = new Map<string, number>();
-    blocks.forEach((b: any, idx: number) => {
-      if (b && typeof b.ref_id === "string") {
-        refIdToIndex.set(b.ref_id, idx);
+    for (const pattern of rowPatterns) {
+      if (!pattern || !Array.isArray(pattern.template) || !Array.isArray(pattern.items)) continue;
+      const sectionTitle = typeof pattern.section_title === "string" ? pattern.section_title : null;
+
+      for (let rowIdx = 0; rowIdx < pattern.items.length; rowIdx++) {
+        const itemName = String(pattern.items[rowIdx] || "").trim();
+        if (!itemName) continue;
+
+        // Build a suffix → ref_id map for this row so conditional_on can resolve
+        const suffixToRefId = new Map<string, string>();
+        const rowBlocks: any[] = [];
+
+        for (let tIdx = 0; tIdx < pattern.template.length; tIdx++) {
+          const tmpl = pattern.template[tIdx];
+          if (!tmpl || !tmpl.suffix) continue;
+          const refId = `row_${rowIdx}_${tmpl.suffix}`;
+          suffixToRefId.set(tmpl.suffix, refId);
+        }
+
+        for (let tIdx = 0; tIdx < pattern.template.length; tIdx++) {
+          const tmpl = pattern.template[tIdx];
+          if (!tmpl || !tmpl.suffix) continue;
+
+          const refId = `row_${rowIdx}_${tmpl.suffix}`;
+          const label = typeof tmpl.label_template === "string"
+            ? tmpl.label_template.replace(/\{item\}/g, itemName)
+            : itemName;
+
+          // Build conditional_logic from conditional_on reference
+          let conditionalLogic: any = null;
+          if (tmpl.conditional_on && suffixToRefId.has(tmpl.conditional_on)) {
+            const sourceRefId = suffixToRefId.get(tmpl.conditional_on)!;
+            const condOp = tmpl.conditional_operator || "equals";
+            const condVal = typeof tmpl.conditional_value === "string" ? tmpl.conditional_value : "";
+            conditionalLogic = {
+              action: "show",
+              operator: "AND",
+              conditions: [{
+                source_block_ref_id: sourceRefId,
+                operator: condOp,
+                value: condVal,
+              }],
+            };
+          }
+
+          rowBlocks.push({
+            ref_id: refId,
+            block_type: VALID_BLOCK_TYPES.has(tmpl.block_type) ? tmpl.block_type : "text",
+            label: label.trim(),
+            description: typeof tmpl.description === "string" ? tmpl.description : undefined,
+            is_required: typeof tmpl.is_required === "boolean" ? tmpl.is_required : false,
+            options: Array.isArray(tmpl.options) ? tmpl.options.filter((o: any) => typeof o === "string") : undefined,
+            section_title: sectionTitle,
+            conditional_logic: conditionalLogic,
+          });
+        }
+
+        expandedFromPatterns.push(...rowBlocks);
       }
-    });
+    }
 
-    const validatedBlocks = blocks
+    // ── Validate standalone blocks ───────────────────────────────────────────
+    const standaloneBlocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
+
+    const validCondOps = ["equals", "not_equals", "contains", "not_contains", "greater_than", "less_than", "is_empty", "is_not_empty"];
+
+    const validatedStandalone = standaloneBlocks
       .filter((b: any) => b && typeof b.label === "string" && b.label.trim())
       .map((b: any, idx: number) => {
         // Parse and validate conditional_logic if present
@@ -1591,7 +1729,6 @@ Return ONLY valid JSON:
           const cl = b.conditional_logic;
           const validActions = ["show", "hide"];
           const validOperators = ["AND", "OR"];
-          const validCondOps = ["equals", "not_equals", "contains", "not_contains", "greater_than", "less_than", "is_empty", "is_not_empty"];
 
           if (validActions.includes(cl.action) && Array.isArray(cl.conditions) && cl.conditions.length > 0) {
             const validConditions = cl.conditions
@@ -1601,7 +1738,6 @@ Return ONLY valid JSON:
                 validCondOps.includes(c.operator)
               )
               .map((c: any) => ({
-                // Store ref_id for now — useFormBuilder will remap to real IDs
                 source_block_ref_id: c.source_block_ref_id || c.source_block_id,
                 operator: c.operator,
                 value: typeof c.value === "string" ? c.value : "",
@@ -1626,9 +1762,14 @@ Return ONLY valid JSON:
           options: Array.isArray(b.options) ? b.options.filter((o: any) => typeof o === "string") : undefined,
           section_title: typeof b.section_title === "string" ? b.section_title : null,
           conditional_logic: conditionalLogic,
-          display_order: idx,
         };
       });
+
+    // ── Merge: standalone blocks first, then expanded pattern blocks ─────────
+    // Interleave: for each section, place standalone blocks that belong to it,
+    // then the expanded pattern blocks for that section, maintaining order.
+    const allBlocks = [...validatedStandalone, ...expandedFromPatterns]
+      .map((b, idx) => ({ ...b, display_order: idx }));
 
     // Extract sections
     const sections = Array.isArray(parsed.sections)
@@ -1643,8 +1784,10 @@ Return ONLY valid JSON:
       ? parsed.detected_form_type
       : "inspection";
 
+    console.log(`PDF parse: ${validatedStandalone.length} standalone blocks + ${expandedFromPatterns.length} expanded from ${rowPatterns.length} patterns = ${allBlocks.length} total`);
+
     return jsonResponse({
-      blocks: validatedBlocks,
+      blocks: allBlocks,
       sections,
       detected_form_type: detectedType,
       title: typeof parsed.title === "string" ? parsed.title : "Imported Form",
@@ -1735,10 +1878,9 @@ Return ONLY valid JSON in this exact format, no other text:
 
     let parsed: any;
     try {
-      const cleaned = rawText.replace(/^```json?\s*/i, "").replace(/```\s*$/, "").trim();
-      parsed = JSON.parse(cleaned);
+      parsed = extractJSON(rawText);
     } catch {
-      console.error("Failed to parse Claude response:", rawText.substring(0, 500));
+      console.error("Failed to parse Claude response:", rawText.substring(0, 1000));
       return jsonResponse({ error: "AI returned invalid JSON. Please try again." }, 502);
     }
 
