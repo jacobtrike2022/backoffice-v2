@@ -3643,6 +3643,40 @@ export function FormBuilder({
               onChange={hook.setStartConfig}
             />
 
+            {/* Auto-injected identity block preview (locked, not editable) */}
+            {(() => {
+              const identityMode = hook.form?.start_config?.identity_mode || 'individual';
+              if (identityMode === 'anonymous') return null;
+              const isPersonMode = identityMode === 'individual';
+              return (
+                <>
+                  <ConnectorLine />
+                  <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4 opacity-80 cursor-not-allowed select-none">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      {isPersonMode ? (
+                        <UserCircle className="h-3 w-3 text-primary" />
+                      ) : (
+                        <Building2 className="h-3 w-3 text-primary" />
+                      )}
+                      <span className="text-xs text-primary font-medium">
+                        {isPersonMode ? t('forms.personLookup') : t('forms.storeLookup')}
+                      </span>
+                      <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 ml-1 border-primary/30 text-primary">
+                        Auto
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-primary/30 text-primary">
+                        Required
+                      </Badge>
+                    </div>
+                    <p className="text-sm font-medium">Submitted by <span className="text-destructive">*</span></p>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Auto-injected based on submission mode. Cannot be edited or removed.
+                    </p>
+                  </div>
+                </>
+              );
+            })()}
+
             <ConnectorLine />
 
             {/* Top-level + only when canvas is empty (cards render their own + after themselves) */}
