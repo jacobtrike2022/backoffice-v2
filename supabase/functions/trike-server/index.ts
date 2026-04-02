@@ -16351,7 +16351,7 @@ function generateSubmissionPdfHtml(params: {
     .meta { font-size: 12px; color: #64748b; margin-top: 4px; }
     table { width: 100%; border-collapse: collapse; }
     .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #94a3b8; text-align: center; }
-    .save-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 20px; background: #f97316; color: #fff; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 24px; }
+    .save-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: #f97316; color: #fff; border: none; border-radius: 8px; cursor: pointer; transition: background 0.15s; }
     .save-btn:hover { background: #ea580c; }
     @media print {
       body { padding: 15px; font-size: 12px; }
@@ -16366,7 +16366,7 @@ function generateSubmissionPdfHtml(params: {
 <body>
   <!-- Save as PDF button (hidden when printing) -->
   <div class="no-print" style="text-align:right;margin-bottom:16px;">
-    <button class="save-btn" onclick="window.print()">&#128196; Save as PDF</button>
+    <button class="save-btn" onclick="window.print()" title="Save as PDF"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
   </div>
 
   <div class="header">
@@ -17283,10 +17283,9 @@ async function handleDemoActivityList(req: Request): Promise<Response> {
 
     if (orgId) {
       query = query.eq("organization_id", orgId);
-    } else {
-      // Demo analytics should show attributable activity only.
-      query = query.not("organization_id", "is", null);
     }
+    // No default filter — show ALL events (including null-org) so the dashboard
+    // can display unattributed traffic and let the user filter client-side.
 
     const { data, error } = await query;
     if (error) {
@@ -17373,7 +17372,7 @@ async function handleDemoActivity(req: Request): Promise<Response> {
       organizationNameSnapshot = sanitizeText(org?.name, 256);
     }
 
-    await supabase.from("demo_activity_events").insert({
+    const { error: insertErr } = await supabase.from("demo_activity_events").insert({
       organization_id: organizationId,
       organization_name_snapshot: organizationNameSnapshot,
       visitor_id: visitorId,
@@ -17387,6 +17386,11 @@ async function handleDemoActivity(req: Request): Promise<Response> {
       metadata,
       occurred_at: new Date().toISOString(),
     });
+
+    if (insertErr) {
+      console.error("Demo activity insert failed:", insertErr.message);
+      return jsonResponse({ success: true, accepted: false, reason: "insert_failed" });
+    }
 
     return jsonResponse({ success: true, accepted: true });
   } catch (error) {
