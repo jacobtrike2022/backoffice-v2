@@ -4,7 +4,7 @@ import {
   Search,
   ExternalLink,
   Zap,
-  Map,
+  Map as MapIcon,
   MoreHorizontal,
   Globe,
   AlertCircle,
@@ -157,7 +157,6 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
           last_activity_at,
           next_action,
           next_action_date,
-          demo_tracking_enabled,
           scraped_data,
           stores(count)
         `)
@@ -168,14 +167,29 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
         query = query.eq('status', statusFilter);
       }
 
-      const { data, error } = await query;
+      const [mainResult, trackingResult] = await Promise.all([
+        query,
+        supabase.from('organizations').select('id, demo_tracking_enabled'),
+      ]);
 
-      if (error) {
-        console.error('Error loading organizations:', error);
+      if (mainResult.error) {
+        console.error('Error loading organizations:', mainResult.error);
         return;
       }
 
-      setOrganizations((data as unknown as Organization[]) || []);
+      // Merge tracking flags (column may not exist yet before migration)
+      const trackingMap = new Map<string, boolean>();
+      if (!trackingResult.error && trackingResult.data) {
+        for (const row of trackingResult.data) {
+          trackingMap.set(row.id, (row as any).demo_tracking_enabled ?? true);
+        }
+      }
+
+      const orgs = ((mainResult.data as unknown as Organization[]) || []).map((org) => ({
+        ...org,
+        demo_tracking_enabled: trackingMap.get(org.id) ?? true,
+      }));
+      setOrganizations(orgs);
     } catch (err) {
       console.error('Error loading organizations:', err);
     } finally {
@@ -714,7 +728,7 @@ export function OrganizationsList({ onViewJourney, onProvisionDemo, onPreviewOrg
                                     onViewJourney(org.id, org.name, org.status)
                                   }
                                 >
-                                  <Map className="h-4 w-4 mr-2" />
+                                  <MapIcon className="h-4 w-4 mr-2" />
                                   View journey
                                 </DropdownMenuItem>
                               )}
