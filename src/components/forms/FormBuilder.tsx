@@ -287,9 +287,10 @@ interface BlockPickerProps {
   formType?: string;
   savedGroups?: BlockGroup[];
   onInsertGroup?: (group: BlockGroup) => void;
+  onDeleteGroup?: (groupId: string) => void;
 }
 
-function BlockPicker({ onSelect, onClose, anchorRef, formType, savedGroups, onInsertGroup }: BlockPickerProps) {
+function BlockPicker({ onSelect, onClose, anchorRef, formType, savedGroups, onInsertGroup, onDeleteGroup }: BlockPickerProps) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'questions' | 'content' | 'actions'>('questions');
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -381,21 +382,33 @@ function BlockPicker({ onSelect, onClose, anchorRef, formType, savedGroups, onIn
           <p className="text-[11px] text-muted-foreground mb-1">Saved Groups</p>
           <div className="grid grid-cols-1 gap-1">
             {savedGroups.map(group => (
-              <button
-                key={group.id}
-                type="button"
-                onClick={() => {
-                  onInsertGroup?.(group);
-                  onClose();
-                }}
-                className="flex items-center gap-2 rounded-md px-2 py-2 text-sm bg-amber-500/5 border border-amber-500/20 hover:bg-amber-500/10 transition-colors text-left"
-              >
-                <Layers className="h-3.5 w-3.5 shrink-0 text-amber-600" />
-                <span className="truncate">{group.name}</span>
-                <Badge variant="outline" className="ml-auto text-[10px] px-1 py-0 h-4 border-amber-500/30 text-amber-600 shrink-0">
-                  {group.block_templates.length} blocks
-                </Badge>
-              </button>
+              <div key={group.id} className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onInsertGroup?.(group);
+                    onClose();
+                  }}
+                  className="flex-1 flex items-center gap-2 rounded-md px-2 py-2 text-sm bg-amber-500/5 border border-amber-500/20 hover:bg-amber-500/10 transition-colors text-left min-w-0"
+                >
+                  <Layers className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                  <span className="truncate">{group.name}</span>
+                  <Badge variant="outline" className="ml-auto text-[10px] px-1 py-0 h-4 border-amber-500/30 text-amber-600 shrink-0">
+                    {group.block_templates.length} blocks
+                  </Badge>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteGroup?.(group.id);
+                  }}
+                  className="h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
+                  title="Remove saved group"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
             ))}
           </div>
           <Separator className="mt-2" />
@@ -436,9 +449,10 @@ interface AddBlockButtonProps {
   formType?: string;
   savedGroups?: BlockGroup[];
   onInsertGroup?: (group: BlockGroup, sectionId?: string | null, afterBlockId?: string) => void;
+  onDeleteGroup?: (groupId: string) => void;
 }
 
-function AddBlockButton({ afterBlockId, sectionId, onAdd, formType, savedGroups, onInsertGroup }: AddBlockButtonProps) {
+function AddBlockButton({ afterBlockId, sectionId, onAdd, formType, savedGroups, onInsertGroup, onDeleteGroup }: AddBlockButtonProps) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
 
@@ -460,6 +474,7 @@ function AddBlockButton({ afterBlockId, sectionId, onAdd, formType, savedGroups,
           formType={formType}
           savedGroups={savedGroups}
           onInsertGroup={(group) => onInsertGroup?.(group, sectionId, afterBlockId)}
+          onDeleteGroup={onDeleteGroup}
         />
       )}
     </div>
@@ -488,9 +503,10 @@ interface BlockCardProps {
   onCompleteConnect?: (blockId: string) => void;
   savedGroups?: BlockGroup[];
   onInsertGroup?: (group: BlockGroup, sectionId?: string | null, afterBlockId?: string) => void;
+  onDeleteGroup?: (groupId: string) => void;
 }
 
-function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, onSelect, onDelete, onAdd, onOpenLogic, formType, isBulkSelected, onBulkToggle, showDependencies, connectingFromBlockId, onStartConnect, onCompleteConnect, savedGroups, onInsertGroup }: BlockCardProps) {
+function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, onSelect, onDelete, onAdd, onOpenLogic, formType, isBulkSelected, onBulkToggle, showDependencies, connectingFromBlockId, onStartConnect, onCompleteConnect, savedGroups, onInsertGroup, onDeleteGroup }: BlockCardProps) {
   const { t } = useTranslation();
   const {
     attributes,
@@ -583,6 +599,7 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
           formType={formType}
           savedGroups={savedGroups}
           onInsertGroup={onInsertGroup}
+          onDeleteGroup={onDeleteGroup}
         />
       </div>
     );
@@ -790,6 +807,7 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
         formType={formType}
         savedGroups={savedGroups}
         onInsertGroup={onInsertGroup}
+        onDeleteGroup={onDeleteGroup}
       />
     </div>
   );
@@ -3626,6 +3644,19 @@ export function FormBuilder({
     toast.success(`Inserted "${group.name}" — connect to a parent block to activate conditions`);
   }, [hook]);
 
+  const handleDeleteGroup = useCallback(async (groupId: string) => {
+    const group = savedGroups.find(g => g.id === groupId);
+    if (!group) return;
+    try {
+      await deleteBlockGroup(groupId);
+      setSavedGroups(prev => prev.filter(g => g.id !== groupId));
+      toast.success(`Removed saved group "${group.name}"`);
+    } catch (err) {
+      console.error('Failed to delete block group:', err);
+      toast.error('Failed to remove group');
+    }
+  }, [savedGroups]);
+
   // Content topic tags from tags table
   const [contentTopics, setContentTopics] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => {
@@ -4332,6 +4363,7 @@ export function FormBuilder({
                 formType={hook.form?.type}
                 savedGroups={savedGroups}
                 onInsertGroup={handleInsertGroup}
+                onDeleteGroup={handleDeleteGroup}
               />
             )}
 
@@ -4390,6 +4422,7 @@ export function FormBuilder({
                     onCompleteConnect={handleCompleteConnect}
                     savedGroups={savedGroups}
                     onInsertGroup={handleInsertGroup}
+                    onDeleteGroup={handleDeleteGroup}
                   />
                 ))}
               </SortableContext>
@@ -4448,6 +4481,7 @@ export function FormBuilder({
                         onCompleteConnect={handleCompleteConnect}
                         savedGroups={savedGroups}
                         onInsertGroup={handleInsertGroup}
+                        onDeleteGroup={handleDeleteGroup}
                       />
                     ))}
                   </SortableContext>
@@ -4455,7 +4489,7 @@ export function FormBuilder({
 
                 {/* Only show section-level + when section is empty (cards render their own + after themselves) */}
                 {(blocksBySection[section.id] ?? []).length === 0 && (
-                  <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} formType={hook.form?.type} savedGroups={savedGroups} onInsertGroup={handleInsertGroup} />
+                  <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} formType={hook.form?.type} savedGroups={savedGroups} onInsertGroup={handleInsertGroup} onDeleteGroup={handleDeleteGroup} />
                 )}
               </div>
             ))}

@@ -195,7 +195,7 @@ export function Forms({ currentRole = 'admin', orgId = '' }: FormsProps) {
       </Tabs>
       <Footer />
 
-      {/* Import from PDF modal */}
+      {/* Import from document modal (PDF, DOCX, XLSX, CSV) */}
       {showImportPDF && (
         <ImportFromPDF
           orgId={effectiveOrgId}
