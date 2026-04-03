@@ -2488,6 +2488,7 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
         trackTitle={track.title}
         organizationId={track.organization_id}
         allowAllOrgs={isSuperAdminAuthenticated}
+        adminOnly={!isSuperAdminAuthenticated}
         onSaved={onUpdate}
       />
 

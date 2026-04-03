@@ -9,6 +9,7 @@ import {
 } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Label } from '../ui/label';
+import { Badge } from '../ui/badge';
 import {
   Select,
   SelectContent,
@@ -37,8 +38,10 @@ interface TrackScopeModalProps {
   trackId: string;
   trackTitle: string;
   organizationId: string;
+  organizationName?: string; // For admin-only mode display
   allowAllOrgs?: boolean; // Trike Super Admin: pick any org for COMPANY scope
-  onSaved: () => void;
+  adminOnly?: boolean; // Org admin: only COMPANY/PROGRAM/UNIT, auto-set their org
+  onSaved: () => void | Promise<void>;
 }
 
 const SCOPE_LABELS: Record<TrackScopeLevel, string> = {
@@ -51,19 +54,24 @@ const SCOPE_LABELS: Record<TrackScopeLevel, string> = {
   UNIT: 'Unit (location)',
 };
 
+// Admin-only levels: only these are available when adminOnly=true
+const ADMIN_SCOPE_LEVELS: TrackScopeLevel[] = ['COMPANY', 'PROGRAM', 'UNIT'];
+
 export function TrackScopeModal({
   isOpen,
   onClose,
   trackId,
   trackTitle,
   organizationId,
+  organizationName,
   allowAllOrgs = false,
+  adminOnly = false,
   onSaved,
 }: TrackScopeModalProps) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [scopeLevel, setScopeLevel] = useState<TrackScopeLevel>('UNIVERSAL');
+  const [scopeLevel, setScopeLevel] = useState<TrackScopeLevel>('COMPANY');
   const [sector, setSector] = useState<SectorType | ''>('');
   const [industryId, setIndustryId] = useState<string>('');
   const [stateId, setStateId] = useState<string>('');
@@ -77,13 +85,16 @@ export function TrackScopeModal({
   const [organizations, setOrganizations] = useState<{ id: string; name: string }[]>([]);
   const [stores, setStores] = useState<{ id: string; name: string; code: string | null }[]>([]);
 
+  // Resolved org name for admin display
+  const [resolvedOrgName, setResolvedOrgName] = useState<string>(organizationName || '');
+
   useEffect(() => {
     if (!isOpen || !trackId) return;
     setLoading(true);
     Promise.all([
       getTrackScope(trackId),
-      getUsStates(),
-      getIndustriesForScope(null),
+      adminOnly ? Promise.resolve([]) : getUsStates(),
+      adminOnly ? Promise.resolve([]) : getIndustriesForScope(null),
       getProgramsForScope(),
       getOrganizationsForScope(allowAllOrgs),
     ])
@@ -92,20 +103,34 @@ export function TrackScopeModal({
         setIndustries(ind as { id: string; name: string; code: string | null }[]);
         setPrograms(prog);
         setOrganizations(orgs);
+
+        // Resolve org name for admin display
+        if (adminOnly && !organizationName) {
+          const myOrg = (orgs as { id: string; name: string }[]).find(o => o.id === organizationId);
+          if (myOrg) setResolvedOrgName(myOrg.name);
+        }
+
         if (scope) {
-          setScopeLevel(scope.scope_level);
+          const level = scope.scope_level;
+          // In admin mode, clamp to allowed levels
+          if (adminOnly && !ADMIN_SCOPE_LEVELS.includes(level)) {
+            setScopeLevel('COMPANY');
+          } else {
+            setScopeLevel(level);
+          }
           setSector((scope.sector as SectorType) || '');
           setIndustryId(scope.industry_id || '');
           setStateId(scope.state_id || '');
-          setCompanyId(scope.company_id || '');
+          setCompanyId(adminOnly ? organizationId : (scope.company_id || ''));
           setProgramId(scope.program_id || '');
           setUnitId(scope.unit_id || '');
         } else {
-          setScopeLevel('UNIVERSAL');
+          // Default for admin: COMPANY with their org selected
+          setScopeLevel(adminOnly ? 'COMPANY' : 'UNIVERSAL');
           setSector('');
           setIndustryId('');
           setStateId('');
-          setCompanyId('');
+          setCompanyId(adminOnly ? organizationId : '');
           setProgramId('');
           setUnitId('');
         }
@@ -114,7 +139,7 @@ export function TrackScopeModal({
         toast.error(e?.message || t('contentAuthoring.failedLoadScope'));
       })
       .finally(() => setLoading(false));
-  }, [isOpen, trackId, allowAllOrgs]);
+  }, [isOpen, trackId, allowAllOrgs, adminOnly, organizationId]);
 
   useEffect(() => {
     if (scopeLevel !== 'INDUSTRY') return;
@@ -123,20 +148,37 @@ export function TrackScopeModal({
   }, [scopeLevel, sector]);
 
   useEffect(() => {
-    if (scopeLevel !== 'UNIT' || !companyId) {
+    if (scopeLevel !== 'UNIT') {
+      setStores([]);
+      return;
+    }
+    // In admin mode, always use their org
+    const orgForStores = adminOnly ? organizationId : companyId;
+    if (!orgForStores) {
       setStores([]);
       setUnitId('');
       return;
     }
-    getStoresForScope(companyId).then((s) => {
+    getStoresForScope(orgForStores).then((s) => {
       setStores(s as { id: string; name: string; code: string | null }[]);
-      setUnitId('');
+      // Only reset unitId if we're changing companies
+      if (!adminOnly) setUnitId('');
     });
-  }, [scopeLevel, companyId]);
+  }, [scopeLevel, companyId, adminOnly, organizationId]);
+
+  // In admin mode, ensure companyId stays set to their org
+  useEffect(() => {
+    if (adminOnly && (scopeLevel === 'COMPANY' || scopeLevel === 'UNIT')) {
+      setCompanyId(organizationId);
+    }
+  }, [adminOnly, scopeLevel, organizationId]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
+      // In admin mode, always force companyId to their org for COMPANY/UNIT levels
+      const effectiveCompanyId = adminOnly ? organizationId : companyId;
+
       await upsertTrackScope({
         track_id: trackId,
         organization_id: organizationId,
@@ -144,13 +186,14 @@ export function TrackScopeModal({
         sector: scopeLevel === 'SECTOR' && sector ? (sector as SectorType) : null,
         industry_id: scopeLevel === 'INDUSTRY' && industryId ? industryId : null,
         state_id: scopeLevel === 'STATE' && stateId ? stateId : null,
-        company_id: scopeLevel === 'COMPANY' && companyId ? companyId : null,
+        company_id: (scopeLevel === 'COMPANY' || scopeLevel === 'UNIT') && effectiveCompanyId ? effectiveCompanyId : null,
         program_id: scopeLevel === 'PROGRAM' && programId ? programId : null,
         unit_id: scopeLevel === 'UNIT' && unitId ? unitId : null,
         syncToTags: true,
       });
       toast.success(t('contentAuthoring.scopeUpdated'));
-      onSaved();
+      // Await onSaved to ensure parent refetches track data (including scope) before closing
+      await onSaved();
       onClose();
     } catch (e: any) {
       toast.error(e?.message || t('contentAuthoring.failedSaveScope'));
@@ -158,6 +201,8 @@ export function TrackScopeModal({
       setSaving(false);
     }
   };
+
+  const availableLevels = adminOnly ? ADMIN_SCOPE_LEVELS : getScopeLevels();
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -172,6 +217,7 @@ export function TrackScopeModal({
           <div className="py-6 text-center text-muted-foreground">{t('common.loading')}</div>
         ) : (
           <div className="space-y-4 py-2">
+            {/* Scope Level selector */}
             <div className="space-y-2">
               <Label>{t('contentAuthoring.scopeLevel')}</Label>
               <Select
@@ -182,7 +228,7 @@ export function TrackScopeModal({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {getScopeLevels().map((level) => (
+                  {availableLevels.map((level) => (
                     <SelectItem key={level} value={level}>
                       {SCOPE_LABELS[level]}
                     </SelectItem>
@@ -191,7 +237,8 @@ export function TrackScopeModal({
               </Select>
             </div>
 
-            {scopeLevel === 'SECTOR' && (
+            {/* --- Super admin only levels --- */}
+            {!adminOnly && scopeLevel === 'SECTOR' && (
               <div className="space-y-2">
                 <Label>{t('contentAuthoring.sector')}</Label>
                 <Select value={sector || 'none'} onValueChange={(v) => setSector(v === 'none' ? '' : (v as SectorType))}>
@@ -210,7 +257,7 @@ export function TrackScopeModal({
               </div>
             )}
 
-            {scopeLevel === 'INDUSTRY' && (
+            {!adminOnly && scopeLevel === 'INDUSTRY' && (
               <>
                 <div className="space-y-2">
                   <Label>{t('contentAuthoring.sectorOptionalFilter')}</Label>
@@ -245,7 +292,7 @@ export function TrackScopeModal({
               </>
             )}
 
-            {scopeLevel === 'STATE' && (
+            {!adminOnly && scopeLevel === 'STATE' && (
               <div className="space-y-2">
                 <Label>{t('contentAuthoring.state')}</Label>
                 <Select value={stateId || 'none'} onValueChange={(v) => setStateId(v === 'none' ? '' : v)}>
@@ -264,25 +311,34 @@ export function TrackScopeModal({
               </div>
             )}
 
+            {/* --- COMPANY level --- */}
             {scopeLevel === 'COMPANY' && (
               <div className="space-y-2">
                 <Label>{t('contentAuthoring.company')}</Label>
-                <Select value={companyId || 'none'} onValueChange={(v) => setCompanyId(v === 'none' ? '' : v)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('contentAuthoring.selectCompany')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">{t('contentAuthoring.selectCompany')}</SelectItem>
-                    {organizations.map((o) => (
-                      <SelectItem key={o.id} value={o.id}>
-                        {o.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {adminOnly ? (
+                  // Admin mode: show their org as a read-only badge
+                  <div className="flex items-center gap-2 p-2 rounded-md border bg-muted/50">
+                    <Badge variant="secondary">{resolvedOrgName || organizationId}</Badge>
+                  </div>
+                ) : (
+                  <Select value={companyId || 'none'} onValueChange={(v) => setCompanyId(v === 'none' ? '' : v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={t('contentAuthoring.selectCompany')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">{t('contentAuthoring.selectCompany')}</SelectItem>
+                      {organizations.map((o) => (
+                        <SelectItem key={o.id} value={o.id}>
+                          {o.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
             )}
 
+            {/* --- PROGRAM level --- */}
             {scopeLevel === 'PROGRAM' && (
               <div className="space-y-2">
                 <Label>{t('contentAuthoring.program')}</Label>
@@ -302,24 +358,35 @@ export function TrackScopeModal({
               </div>
             )}
 
+            {/* --- UNIT level --- */}
             {scopeLevel === 'UNIT' && (
               <>
-                <div className="space-y-2">
-                  <Label>{t('contentAuthoring.company')}</Label>
-                  <Select value={companyId || 'none'} onValueChange={(v) => setCompanyId(v === 'none' ? '' : v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder={t('contentAuthoring.selectCompanyFirst')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">{t('contentAuthoring.selectCompanyFirst')}</SelectItem>
-                      {organizations.map((o) => (
-                        <SelectItem key={o.id} value={o.id}>
-                          {o.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {!adminOnly && (
+                  <div className="space-y-2">
+                    <Label>{t('contentAuthoring.company')}</Label>
+                    <Select value={companyId || 'none'} onValueChange={(v) => setCompanyId(v === 'none' ? '' : v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('contentAuthoring.selectCompanyFirst')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">{t('contentAuthoring.selectCompanyFirst')}</SelectItem>
+                        {organizations.map((o) => (
+                          <SelectItem key={o.id} value={o.id}>
+                            {o.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {adminOnly && (
+                  <div className="space-y-2">
+                    <Label>{t('contentAuthoring.company')}</Label>
+                    <div className="flex items-center gap-2 p-2 rounded-md border bg-muted/50">
+                      <Badge variant="secondary">{resolvedOrgName || organizationId}</Badge>
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>{t('contentAuthoring.unit')}</Label>
                   <Select value={unitId || 'none'} onValueChange={(v) => setUnitId(v === 'none' ? '' : v)}>

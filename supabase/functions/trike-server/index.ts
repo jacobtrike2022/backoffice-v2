@@ -20636,7 +20636,7 @@ DO NOT:
 
 Return JSON with:
 - title: Extract the main title from the content (or use original if clear). Max 80 chars.
-- description: Write a concise 1-2 sentence summary of what this content covers and why it matters. This is shown in search results and cards, so make it informative — do NOT just copy the first sentence. Max 200 chars.
+- description: Write a 1–1.5 sentence description — not a summary. A description tells the reader what the content covers, not what it says. Think of it like a catalog entry or course listing: orient the reader to the topic and scope without paraphrasing the actual content. Begin with "Article:" then the description. Max 200 chars.
 - content: The FULL original content, cleaned up and formatted as HTML. Use <h2>/<h3> for headers, <p> for paragraphs, <ul>/<ol>/<li> for lists, <strong> for emphasis.
 - key_points: Array of 3-5 actual key points/rules mentioned IN the document (quote them, don't paraphrase)
 
@@ -20743,7 +20743,7 @@ ${customTitle ? `Requested title: ${customTitle}` : ''}
 
 Return JSON with:
 - title: Clear, professional module title (max 60 chars). Do NOT use generic phrases like "Welcome to..." or "Module on..."
-- description: What learners will gain from this module (max 200 chars)
+- description: Write a 1–1.5 sentence description — not a summary. A description tells the reader what the content covers, not what it says. Think of it like a catalog entry or course listing: orient the reader to the topic and scope without paraphrasing the actual content. Begin with "Article:" then the description. Max 200 chars.
 
 Return only valid JSON.`;
 
