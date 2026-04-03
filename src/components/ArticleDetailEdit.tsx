@@ -1637,13 +1637,35 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
           {isEditMode ? (
             // Only render editor after form data is initialized
             isFormDataLoaded ? (
-              <RichTextEditor
-                key={`${track.id}-edit`} // Include mode in key to force remount when entering edit mode
-                content={editFormData.article_body}
-                onChange={(content) =>
-                  setEditFormData({ ...editFormData, article_body: content })
-                }
-              />
+              <>
+                <RichTextEditor
+                  key={`${track.id}-edit`} // Include mode in key to force remount when entering edit mode
+                  content={editFormData.article_body}
+                  onChange={(content) =>
+                    setEditFormData({ ...editFormData, article_body: content })
+                  }
+                />
+
+                {/* Description / Summary (Edit Mode) */}
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-6">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Description</CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-6 pb-4 pt-0">
+                    <Textarea
+                      placeholder="Brief summary of this article shown in cards, search results, and the Knowledge Base header..."
+                      value={editFormData.description || ''}
+                      onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
+                      rows={2}
+                      className="resize-none text-sm"
+                      maxLength={500}
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {(editFormData.description || '').length}/500 characters
+                    </p>
+                  </CardContent>
+                </Card>
+              </>
             ) : (
               <Card>
                 <CardContent className="p-8 text-center">
