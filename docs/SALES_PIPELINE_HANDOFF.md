@@ -151,10 +151,10 @@ npx supabase functions deploy trike-server
 
 ```bash
 # 1. Health check
-curl https://gscfykjtojbcxxuserhu.supabase.co/functions/v1/trike-server/health
+curl https://kgzhlvxzdlexsrozbbxs.supabase.co/functions/v1/trike-server/health
 
 # 2. Test provisioning (replace ORG_ID with a real prospect org UUID)
-curl -X POST https://gscfykjtojbcxxuserhu.supabase.co/functions/v1/trike-server/demo/provision \
+curl -X POST https://kgzhlvxzdlexsrozbbxs.supabase.co/functions/v1/trike-server/demo/provision \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_ANON_KEY" \
   -d '{"organization_id": "ORG_ID", "demo_days": 14}'

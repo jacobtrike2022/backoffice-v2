@@ -50,7 +50,7 @@ BEGIN
   -- Get edge function URL from vault or use default
   v_edge_function_url := current_setting('app.settings.edge_function_url', true);
   IF v_edge_function_url IS NULL OR v_edge_function_url = '' THEN
-    v_edge_function_url := 'https://gscfykjtojbcxxuserhu.supabase.co/functions/v1/trike-server';
+    v_edge_function_url := 'https://kgzhlvxzdlexsrozbbxs.supabase.co/functions/v1/trike-server';
   END IF;
 
   v_anon_key := current_setting('app.settings.anon_key', true);
