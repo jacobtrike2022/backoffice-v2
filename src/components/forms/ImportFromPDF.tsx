@@ -47,6 +47,44 @@ type UploadState = 'idle' | 'analyzing' | 'creating' | 'error';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
+const ACCEPTED_EXTENSIONS = ['pdf', 'docx', 'doc', 'xlsx', 'xls', 'csv'];
+const ACCEPT_STRING = '.pdf,.docx,.doc,.xlsx,.xls,.csv';
+
+// ─── Text extractors for non-PDF files ──────────────────────────────────────
+
+async function extractTextFromDocx(file: File): Promise<string> {
+  const mammoth = await import('mammoth');
+  const arrayBuffer = await file.arrayBuffer();
+  const result = await mammoth.default.extractRawText({ arrayBuffer });
+  return result.value;
+}
+
+async function extractTextFromXlsx(file: File): Promise<string> {
+  const XLSX = await import('xlsx');
+  const arrayBuffer = await file.arrayBuffer();
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+  const lines: string[] = [];
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    if (workbook.SheetNames.length > 1) {
+      lines.push(`\n=== Sheet: ${sheetName} ===\n`);
+    }
+    // Convert to CSV-like text preserving structure
+    const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
+    lines.push(csv);
+  }
+  return lines.join('\n');
+}
+
+async function extractTextFromCsv(file: File): Promise<string> {
+  return await file.text();
+}
+
+function getFileExtension(filename: string): string {
+  return filename.split('.').pop()?.toLowerCase() || '';
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function ImportFromPDF({ orgId, onImported, onCancel }: ImportFromPDFProps) {
@@ -58,16 +96,76 @@ export function ImportFromPDF({ orgId, onImported, onCancel }: ImportFromPDFProp
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Upload → Parse → Create form → Open builder (no review step)
+  // Parse PDF via vision endpoint
+  const parsePdf = useCallback(async (selectedFile: File, authToken: string): Promise<ParseResult> => {
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    const response = await fetch(`${getServerUrl()}/forms/parse-pdf`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'apikey': supabaseAnonKey,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(errData.error || `Server error: ${response.status}`);
+    }
+    return await response.json();
+  }, []);
+
+  // Parse text-based documents (docx, xlsx, csv) via text extraction + parse-text endpoint
+  const parseTextDocument = useCallback(async (selectedFile: File, authToken: string): Promise<ParseResult> => {
+    const ext = getFileExtension(selectedFile.name);
+    let extractedText: string;
+
+    if (ext === 'docx' || ext === 'doc') {
+      extractedText = await extractTextFromDocx(selectedFile);
+    } else if (ext === 'xlsx' || ext === 'xls') {
+      extractedText = await extractTextFromXlsx(selectedFile);
+    } else if (ext === 'csv') {
+      extractedText = await extractTextFromCsv(selectedFile);
+    } else {
+      throw new Error(`Unsupported file type: .${ext}`);
+    }
+
+    if (!extractedText || extractedText.trim().length < 20) {
+      throw new Error('Could not extract enough text from the document. The file may be empty or image-only.');
+    }
+
+    const response = await fetch(`${getServerUrl()}/forms/parse-text`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'apikey': supabaseAnonKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text: extractedText,
+        title: selectedFile.name.replace(/\.[^.]+$/, ''),
+      }),
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(errData.error || `Server error: ${response.status}`);
+    }
+    return await response.json();
+  }, []);
+
+  // Upload → Parse → Create form → Open builder
   const handleFile = useCallback(async (selectedFile: File) => {
     if (selectedFile.size > MAX_FILE_SIZE) {
       setError('File too large. Maximum size is 10MB.');
       return;
     }
 
-    const ext = selectedFile.name.split('.').pop()?.toLowerCase();
-    if (ext !== 'pdf') {
-      setError('Only PDF files are supported.');
+    const ext = getFileExtension(selectedFile.name);
+    if (!ACCEPTED_EXTENSIONS.includes(ext)) {
+      setError(`Unsupported file type. Accepted: ${ACCEPTED_EXTENSIONS.map(e => `.${e}`).join(', ')}`);
       return;
     }
 
@@ -76,28 +174,16 @@ export function ImportFromPDF({ orgId, onImported, onCancel }: ImportFromPDFProp
     setState('analyzing');
 
     try {
-      // Call edge function with the PDF
       const { data: { session } } = await supabase.auth.getSession();
       const authToken = session?.access_token || supabaseAnonKey;
 
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-
-      const response = await fetch(`${getServerUrl()}/forms/parse-pdf`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'apikey': supabaseAnonKey,
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errData.error || `Server error: ${response.status}`);
+      // Route to the right parser based on file type
+      let data: ParseResult;
+      if (ext === 'pdf') {
+        data = await parsePdf(selectedFile, authToken);
+      } else {
+        data = await parseTextDocument(selectedFile, authToken);
       }
-
-      const data: ParseResult = await response.json();
 
       if (!data.blocks || data.blocks.length === 0) {
         throw new Error('No form fields were detected in this document.');
@@ -110,9 +196,10 @@ export function ImportFromPDF({ orgId, onImported, onCancel }: ImportFromPDFProp
         ? data.detected_form_type
         : 'inspection';
 
+      const cleanTitle = selectedFile.name.replace(/\.[^.]+$/, '');
       const newForm = await createForm(
         {
-          title: data.title || selectedFile.name.replace('.pdf', ''),
+          title: data.title || cleanTitle,
           description: data.description || undefined,
           type: formType as any,
         },
@@ -130,11 +217,11 @@ export function ImportFromPDF({ orgId, onImported, onCancel }: ImportFromPDFProp
 
       onImported(newForm.id);
     } catch (err) {
-      console.error('PDF import error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to import PDF');
+      console.error('Document import error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to import document');
       setState('error');
     }
-  }, [orgId, onImported]);
+  }, [orgId, onImported, parsePdf, parseTextDocument]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -151,10 +238,10 @@ export function ImportFromPDF({ orgId, onImported, onCancel }: ImportFromPDFProp
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Zap className="h-5 w-5 text-primary" />
-            Import from PDF
+            Import from Document
           </DialogTitle>
           <DialogDescription>
-            Upload a PDF and we'll create a form with all detected fields.
+            Upload a PDF, Word document, or spreadsheet and we'll create a form with all detected fields.
           </DialogDescription>
         </DialogHeader>
 
@@ -171,12 +258,12 @@ export function ImportFromPDF({ orgId, onImported, onCancel }: ImportFromPDFProp
               onClick={() => fileInputRef.current?.click()}
             >
               <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-              <p className="text-sm font-medium">Drop a PDF here, or click to browse</p>
-              <p className="text-xs text-muted-foreground mt-1">Up to 10MB</p>
+              <p className="text-sm font-medium">Drop a file here, or click to browse</p>
+              <p className="text-xs text-muted-foreground mt-1">PDF, Word (.docx), Excel (.xlsx), or CSV — up to 10MB</p>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf"
+                accept={ACCEPT_STRING}
                 className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
               />
