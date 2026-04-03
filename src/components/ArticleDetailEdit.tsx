@@ -226,44 +226,55 @@ export function ArticleDetailEdit({ track, onBack, onUpdate, onVersionClick, isS
   useEffect(() => {
     const loadSourceDocumentInfo = async () => {
       try {
-        // Query track_source_chunks to find the source chunk
-        const { data: trackChunks, error: chunkError } = await supabase
+        // First, check if this track has any source chunk links at all
+        const { data: linkRows, error: linkError } = await supabase
           .from('track_source_chunks')
-          .select(`
-            source_chunk_id,
-            source_chunks!inner (
-              id,
-              title,
-              source_file_id,
-              source_files!inner (
-                id,
-                file_name
-              )
-            )
-          `)
+          .select('source_chunk_id')
           .eq('track_id', track.id)
           .limit(1);
 
-        if (chunkError) {
-          // Table might not exist yet - that's fine
-          console.log('Could not load source document info:', chunkError.message);
+        if (linkError) {
+          console.log('Could not query track_source_chunks:', linkError.message);
           return;
         }
 
-        if (trackChunks && trackChunks.length > 0) {
-          const chunk = trackChunks[0];
-          const sourceChunk = chunk.source_chunks as any;
-          const sourceFile = sourceChunk?.source_files as any;
-
-          if (sourceFile) {
-            setSourceDocumentInfo({
-              sourceFileId: sourceFile.id,
-              sourceFileName: sourceFile.file_name,
-              sourceChunkId: sourceChunk.id,
-              chunkTitle: sourceChunk.title || 'Untitled chunk',
-            });
-          }
+        if (!linkRows || linkRows.length === 0) {
+          // No source chunk link — not generated from a chunk
+          return;
         }
+
+        const sourceChunkId = linkRows[0].source_chunk_id;
+
+        // Fetch the source chunk details
+        const { data: chunkRow, error: chunkError } = await supabase
+          .from('source_chunks')
+          .select('id, title, source_file_id')
+          .eq('id', sourceChunkId)
+          .single();
+
+        if (chunkError || !chunkRow) {
+          console.log('Could not load source chunk:', chunkError?.message);
+          return;
+        }
+
+        // Fetch the source file details
+        const { data: fileRow, error: fileError } = await supabase
+          .from('source_files')
+          .select('id, file_name')
+          .eq('id', chunkRow.source_file_id)
+          .single();
+
+        if (fileError || !fileRow) {
+          console.log('Could not load source file:', fileError?.message);
+          return;
+        }
+
+        setSourceDocumentInfo({
+          sourceFileId: fileRow.id,
+          sourceFileName: fileRow.file_name,
+          sourceChunkId: chunkRow.id,
+          chunkTitle: chunkRow.title || 'Untitled chunk',
+        });
       } catch (error) {
         // Silently fail - source document info is optional
         console.log('Source document lookup failed:', error);
