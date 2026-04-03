@@ -149,13 +149,13 @@ export function useTrackDetailTranslation(track: TranslatableTrack | null, langu
     })();
 
     return () => { cancelled = true; };
-  }, [track?.id, track?.transcript, track?.key_facts, language]);
+  }, [track, language]);
 
-  // When track prop changes (different track), reset immediately
+  // When track prop changes (different track or updated fields like scope), reset immediately
   useEffect(() => {
     if (!track) { setTranslated(null); return; }
     if (!language || language === 'en') { setTranslated(track); }
-  }, [track?.id]);
+  }, [track]);
 
   return { translated: translated ?? track, isTranslating };
 }
