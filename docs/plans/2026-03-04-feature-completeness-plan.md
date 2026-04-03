@@ -224,7 +224,7 @@ if (method === "GET" && (path === "/health" || path === "")) {
 
 Run:
 ```bash
-curl https://gscfykjtojbcxxuserhu.supabase.co/functions/v1/trike-server/health
+curl https://kgzhlvxzdlexsrozbbxs.supabase.co/functions/v1/trike-server/health
 ```
 
 Expected: JSON with `status`, `checks` object, and `timestamp`
@@ -384,7 +384,7 @@ BEGIN
   -- Get edge function URL from vault or use default
   v_edge_function_url := current_setting('app.settings.edge_function_url', true);
   IF v_edge_function_url IS NULL OR v_edge_function_url = '' THEN
-    v_edge_function_url := 'https://gscfykjtojbcxxuserhu.supabase.co/functions/v1/trike-server';
+    v_edge_function_url := 'https://kgzhlvxzdlexsrozbbxs.supabase.co/functions/v1/trike-server';
   END IF;
 
   v_anon_key := current_setting('app.settings.anon_key', true);
@@ -1634,7 +1634,7 @@ npx supabase functions deploy trike-server
 **Step 2: Verify**
 
 ```bash
-curl https://gscfykjtojbcxxuserhu.supabase.co/functions/v1/trike-server/health
+curl https://kgzhlvxzdlexsrozbbxs.supabase.co/functions/v1/trike-server/health
 ```
 
 Expected: JSON with `"status": "healthy"` and all checks showing their statuses.

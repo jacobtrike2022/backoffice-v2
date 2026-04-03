@@ -284,7 +284,7 @@ npx supabase functions deploy trike-server
 
 Verify deployment:
 ```bash
-curl https://gscfykjtojbcxxuserhu.supabase.co/functions/v1/trike-server/health
+curl https://kgzhlvxzdlexsrozbbxs.supabase.co/functions/v1/trike-server/health
 ```
 
 ### Frontend Deployment
