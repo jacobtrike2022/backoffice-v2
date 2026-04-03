@@ -20204,9 +20204,9 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
           // Continue without tags - not a critical failure
         }
 
-        // Create track-chunk relationship (optional - table may not exist yet)
+        // Create track-chunk relationship
         try {
-          await supabase
+          const { error: chunkLinkError } = await supabase
             .from("track_source_chunks")
             .insert({
               track_id: track.id,
@@ -20215,8 +20215,33 @@ async function handleGenerateTracksFromChunks(req: Request): Promise<Response> {
               sequence_order: 0,
               usage_type: 'content'
             });
+          if (chunkLinkError) {
+            console.error('[generate-tracks] track_source_chunks insert failed:', chunkLinkError.message);
+          } else {
+            console.log('[generate-tracks] Created track_source_chunks link:', track.id, '→', chunk.id);
+          }
         } catch (e) {
-          console.log('[generate-tracks] track_source_chunks table not available yet');
+          console.error('[generate-tracks] track_source_chunks insert threw:', e);
+        }
+
+        // Auto-set scope to COMPANY for the generating org
+        try {
+          const { error: scopeErr } = await supabase
+            .from("track_scopes")
+            .upsert({
+              track_id: track.id,
+              organization_id: organizationId,
+              scope_level: 'COMPANY',
+              company_id: organizationId,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'track_id' });
+          if (scopeErr) {
+            console.error('[generate-tracks] Auto-scope failed:', scopeErr.message);
+          } else {
+            console.log('[generate-tracks] Auto-set scope COMPANY for track:', track.id);
+          }
+        } catch (e) {
+          console.error('[generate-tracks] Auto-scope threw:', e);
         }
 
         // Mark chunk as converted (optional - columns may not exist yet)
@@ -20435,6 +20460,26 @@ async function handleGenerateCombinedTrack(req: Request): Promise<Response> {
         .insert(relationships);
     } catch (e) {
       console.log('[generate-combined] track_source_chunks table not available yet');
+    }
+
+    // Auto-set scope to COMPANY for the generating org
+    try {
+      const { error: scopeErr } = await supabase
+        .from("track_scopes")
+        .upsert({
+          track_id: track.id,
+          organization_id: organizationId,
+          scope_level: 'COMPANY',
+          company_id: organizationId,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'track_id' });
+      if (scopeErr) {
+        console.error('[generate-combined] Auto-scope failed:', scopeErr.message);
+      } else {
+        console.log('[generate-combined] Auto-set scope COMPANY for track:', track.id);
+      }
+    } catch (e) {
+      console.error('[generate-combined] Auto-scope threw:', e);
     }
 
     // Mark chunks as converted (optional - columns may not exist yet)
@@ -21685,6 +21730,22 @@ async function handlePlaybookPublish(req: Request): Promise<Response> {
             console.error('[playbook/publish] Failed to create track-chunk relationships (non-blocking):', relError);
             // Continue - this is not critical to the publish operation
           }
+        }
+
+        // Auto-set scope to COMPANY for the generating org
+        try {
+          await supabase
+            .from("track_scopes")
+            .upsert({
+              track_id: track.id,
+              organization_id: playbook.organization_id,
+              scope_level: 'COMPANY',
+              company_id: playbook.organization_id,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'track_id' });
+          console.log('[playbook/publish] Auto-set scope COMPANY for track:', track.id);
+        } catch (e) {
+          console.error('[playbook/publish] Auto-scope failed:', e);
         }
 
         // Index to brain (non-blocking)
