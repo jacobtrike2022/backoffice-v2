@@ -10,6 +10,7 @@ import { indexTrackToBrain, removeTrackFromBrain, handleTrackStatusChange, getTr
 import { generateKeyFacts } from './facts';
 import { calculateTrackDuration } from '../utils/trackDuration';
 import { assignTrackTagsByName } from './tags';
+import { upsertTrackScope } from './trackScopes';
 
 export interface CreateTrackInput {
   title: string;
@@ -837,6 +838,22 @@ export async function createTrack(input: CreateTrackInput) {
   // Automate article workflow: generate key facts from article content
   if (track.type === 'article' && track.transcript) {
     automateArticleWorkflow(track).catch(() => {});
+  }
+
+  // Auto-set scope to COMPANY for non-system-content tracks.
+  // Non-super-admin org users always get COMPANY scope pointing to their org.
+  if (!input.is_system_content) {
+    try {
+      await upsertTrackScope({
+        track_id: track.id,
+        organization_id: orgId,
+        scope_level: 'COMPANY',
+        company_id: orgId,
+        syncToTags: true,
+      });
+    } catch (scopeErr) {
+      console.error('Failed to auto-set scope on track creation (non-blocking):', scopeErr);
+    }
   }
 
   // Index to Brain if published (fire-and-forget)

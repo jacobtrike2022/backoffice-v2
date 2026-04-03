@@ -2687,6 +2687,7 @@ export function TrackDetailEdit({ track, onBack, onUpdate, onVersionClick, isSup
         trackTitle={track.title}
         organizationId={track.organization_id}
         allowAllOrgs={isSuperAdminAuthenticated}
+        adminOnly={!isSuperAdminAuthenticated}
         onSaved={onUpdate}
       />
 

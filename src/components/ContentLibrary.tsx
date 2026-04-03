@@ -838,6 +838,9 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
 
   // Detail view for selected track
   if (selectedTrack) {
+    // Only pass super admin powers when actively viewing as trike-super-admin role
+    const isViewingAsSuperAdmin = isSuperAdminAuthenticated && currentRole === 'trike-super-admin';
+
     const handleUpdate = async (newTrackId?: string) => {
       console.log('ContentLibrary - handleUpdate called, fetching updated track...');
       console.log('ContentLibrary - newTrackId:', newTrackId);
@@ -880,7 +883,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             onBack={handleBackToLibrary}
             onUpdate={handleUpdate}
             onVersionClick={handleVersionClick}
-            isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+            isSuperAdminAuthenticated={isViewingAsSuperAdmin}
             onNavigateToPlaylist={onNavigateToPlaylist}
             registerUnsavedChangesCheck={registerUnsavedChangesCheckLocal}
             onArchive={async (track) => {
@@ -899,7 +902,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             onBack={handleBackToLibrary}
             onUpdate={handleUpdate}
             onVersionClick={handleVersionClick}
-            isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+            isSuperAdminAuthenticated={isViewingAsSuperAdmin}
             onNavigateToPlaylist={onNavigateToPlaylist}
             registerUnsavedChangesCheck={registerUnsavedChangesCheckLocal}
             onArchive={async (track) => {
@@ -918,7 +921,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             onBack={handleBackToLibrary}
             onUpdate={handleUpdate}
             onVersionClick={handleVersionClick}
-            isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+            isSuperAdminAuthenticated={isViewingAsSuperAdmin}
             onNavigateToPlaylist={onNavigateToPlaylist}
             registerUnsavedChangesCheck={registerUnsavedChangesCheckLocal}
             onArchive={async (track) => {
@@ -937,7 +940,7 @@ export function ContentLibrary({ currentRole = 'admin', isSuperAdminAuthenticate
             onBack={handleBackToLibrary}
             onUpdate={handleUpdate}
             onVersionClick={handleVersionClick}
-            isSuperAdminAuthenticated={isSuperAdminAuthenticated}
+            isSuperAdminAuthenticated={isViewingAsSuperAdmin}
             onNavigateToPlaylist={onNavigateToPlaylist}
             registerUnsavedChangesCheck={registerUnsavedChangesCheckLocal}
             onArchive={async (track) => {
