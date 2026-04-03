@@ -20636,7 +20636,7 @@ DO NOT:
 
 Return JSON with:
 - title: Extract the main title from the content (or use original if clear). Max 80 chars.
-- description: First 1-2 sentences of the actual content (not a summary you write). Max 200 chars.
+- description: Write a concise 1-2 sentence summary of what this content covers and why it matters. This is shown in search results and cards, so make it informative — do NOT just copy the first sentence. Max 200 chars.
 - content: The FULL original content, cleaned up and formatted as HTML. Use <h2>/<h3> for headers, <p> for paragraphs, <ul>/<ol>/<li> for lists, <strong> for emphasis.
 - key_points: Array of 3-5 actual key points/rules mentioned IN the document (quote them, don't paraphrase)
 
