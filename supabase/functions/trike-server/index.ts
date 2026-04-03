@@ -16081,6 +16081,8 @@ async function handleFormsPublicSubmit(req: Request, path: string): Promise<Resp
     const scorePercentage = typeof body.score_percentage === 'number' ? body.score_percentage : null;
     const totalScore = typeof body.total_score === 'number' ? body.total_score : null;
     const maxPossibleScore = typeof body.max_possible_score === 'number' ? body.max_possible_score : null;
+    const scoringMode = typeof body.scoring_mode === 'string' ? body.scoring_mode : null;
+    const sectionScores = body.section_scores ?? null;
 
     const { data: submission, error: insertError } = await supabase
       .from('form_submissions')
@@ -16095,6 +16097,8 @@ async function handleFormsPublicSubmit(req: Request, path: string): Promise<Resp
         ...(scorePercentage != null ? { score_percentage: scorePercentage } : {}),
         ...(totalScore != null ? { total_score: totalScore } : {}),
         ...(maxPossibleScore != null ? { max_possible_score: maxPossibleScore } : {}),
+        ...(scoringMode ? { scoring_mode: scoringMode } : {}),
+        ...(sectionScores ? { section_scores: sectionScores } : {}),
       })
       .select('id, status, submitted_at')
       .single();

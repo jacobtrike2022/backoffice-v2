@@ -1234,6 +1234,7 @@ interface PropertiesDrawerProps {
   allBlocks: LocalBlock[];
   sections?: Array<{ id: string; title: string }>;
   scoringEnabled?: boolean;
+  scoringMode?: 'pass_fail' | 'weighted' | 'section';
   onUpdate: (updates: Partial<LocalBlock>) => void;
   onDelete: () => void;
   onClose: () => void;
@@ -1247,7 +1248,7 @@ interface PropertiesDrawerProps {
   orderIssueMessage?: string;
 }
 
-function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onUpdate, onDelete, onClose, wide = false, initialTab, dependencyMap = {}, orderIssueMessage }: PropertiesDrawerProps) {
+function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, scoringMode, onUpdate, onDelete, onClose, wide = false, initialTab, dependencyMap = {}, orderIssueMessage }: PropertiesDrawerProps) {
   const { t } = useTranslation();
   const typeDef = getBlockTypeDef(block.block_type);
   const Icon = typeDef?.icon ?? Type;
@@ -1533,30 +1534,43 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
           </div>
         )}
 
-        {/* Yes/No labels */}
+        {/* Yes/No labels + N/A toggle */}
         {block.block_type === 'yes_no' && (
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">{t('forms.propYesLabel')}</Label>
-              <Input
-                value={(block.settings?.yes_label as string) ?? 'Yes'}
-                onChange={e =>
-                  onUpdate({ settings: { ...block.settings, yes_label: e.target.value } })
-                }
-                className="text-sm"
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">{t('forms.propYesLabel')}</Label>
+                <Input
+                  value={(block.settings?.yes_label as string) ?? 'Yes'}
+                  onChange={e =>
+                    onUpdate({ settings: { ...block.settings, yes_label: e.target.value } })
+                  }
+                  className="text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">{t('forms.propNoLabel')}</Label>
+                <Input
+                  value={(block.settings?.no_label as string) ?? 'No'}
+                  onChange={e =>
+                    onUpdate({ settings: { ...block.settings, no_label: e.target.value } })
+                  }
+                  className="text-sm"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="block-allow-na" className="text-xs font-medium cursor-pointer">Allow N/A</Label>
+                <p className="text-[10px] text-muted-foreground">Show an N/A option alongside Yes / No</p>
+              </div>
+              <Switch
+                id="block-allow-na"
+                checked={!!((block.validation_rules ?? {}) as Record<string, unknown>)._allow_na}
+                onCheckedChange={checked => onUpdate({ validation_rules: { ...block.validation_rules, _allow_na: checked } })}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">{t('forms.propNoLabel')}</Label>
-              <Input
-                value={(block.settings?.no_label as string) ?? 'No'}
-                onChange={e =>
-                  onUpdate({ settings: { ...block.settings, no_label: e.target.value } })
-                }
-                className="text-sm"
-              />
-            </div>
-          </div>
+          </>
         )}
 
         {/* Slider */}
@@ -1602,7 +1616,6 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
         {showScoringTab && (() => {
           const vr = (block.validation_rules ?? {}) as Record<string, unknown>;
           const isCritical = !!(vr._critical);
-          const allowNa = !!(vr._allow_na);
           const correctAnswer = ((vr._correct_answer as string) ?? '');
           const opts = block.options ?? [];
 
@@ -1633,21 +1646,6 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
                   onCheckedChange={checked => updateValidationRule('_critical', checked)}
                 />
               </div>
-
-              {/* Allow N/A toggle — only for yes_no blocks */}
-              {block.block_type === 'yes_no' && (
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="block-allow-na" className="text-xs font-medium cursor-pointer">{t('forms.propAllowNA')}</Label>
-                    <p className="text-[10px] text-muted-foreground">{t('forms.propAllowNADesc')}</p>
-                  </div>
-                  <Switch
-                    id="block-allow-na"
-                    checked={allowNa}
-                    onCheckedChange={checked => updateValidationRule('_allow_na', checked)}
-                  />
-                </div>
-              )}
 
               {/* Correct answer */}
               <div className="space-y-1.5">
@@ -1717,6 +1715,53 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, onU
                   />
                 )}
               </div>
+
+              {/* Weighted mode: custom point value */}
+              {scoringMode === 'weighted' && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Points</Label>
+                  <p className="text-[10px] text-muted-foreground">How many points this question is worth</p>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={(vr._points as number) ?? 1}
+                    onChange={e => updateValidationRule('_points', e.target.value ? Math.max(0, parseFloat(e.target.value)) : 1)}
+                    className="text-sm w-20"
+                  />
+                </div>
+              )}
+
+              {/* Weighted mode: per-answer point values (radio/dropdown/yes_no) */}
+              {scoringMode === 'weighted' && ['radio', 'dropdown', 'yes_no'].includes(block.block_type) && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Point Values per Answer</Label>
+                  <p className="text-[10px] text-muted-foreground">Assign different point values to each answer option (optional)</p>
+                  {(block.block_type === 'yes_no' ? ['yes', 'no'] : opts).map((opt, i) => {
+                    const pvMap = (vr._point_values as Record<string, number>) || {};
+                    return (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground min-w-[80px] truncate">{opt}</span>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={pvMap[opt] ?? ''}
+                          onChange={e => {
+                            const updated = { ...pvMap };
+                            if (e.target.value === '') {
+                              delete updated[opt];
+                            } else {
+                              updated[opt] = Math.max(0, parseFloat(e.target.value) || 0);
+                            }
+                            updateValidationRule('_point_values', Object.keys(updated).length > 0 ? updated : undefined);
+                          }}
+                          placeholder="--"
+                          className="text-sm h-7 w-16"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </>
           );
         })()}
@@ -1915,13 +1960,16 @@ interface SectionPropertiesDrawerProps {
   section: import('../../lib/crud/forms').FormSection;
   allBlocks: LocalBlock[];
   otherSections?: Array<{ id: string; title: string }>;
+  scoringEnabled?: boolean;
+  scoringMode?: 'pass_fail' | 'weighted' | 'section';
+  formPassThreshold?: number;
   onUpdate: (updates: Partial<import('../../lib/crud/forms').FormSection>) => void;
   onDelete: () => void;
   onClose: () => void;
   wide?: boolean;
 }
 
-function SectionPropertiesDrawer({ section, allBlocks, onUpdate, onDelete, onClose, wide = false }: SectionPropertiesDrawerProps) {
+function SectionPropertiesDrawer({ section, allBlocks, scoringEnabled, scoringMode, formPassThreshold = 70, onUpdate, onDelete, onClose, wide = false }: SectionPropertiesDrawerProps) {
   const { t } = useTranslation();
 
   const sectionSettings = (section.settings ?? {}) as Record<string, unknown>;
@@ -2017,6 +2065,55 @@ function SectionPropertiesDrawer({ section, allBlocks, onUpdate, onDelete, onClo
                 rows={3}
               />
             </div>
+            {/* Section scoring settings — only in section scoring mode */}
+            {scoringEnabled && scoringMode === 'section' && (
+              <>
+                <Separator />
+                <div>
+                  <p className="text-sm font-medium">Section Scoring</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Configure how this section contributes to the overall score</p>
+                </div>
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium">Weight (%)</Label>
+                    <p className="text-[10px] text-muted-foreground">How much this section counts toward the total score. Leave empty for equal weight.</p>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={(sectionSettings.scoring_weight as number) ?? ''}
+                      onChange={e => {
+                        const val = e.target.value ? Math.min(100, Math.max(0, parseFloat(e.target.value))) : undefined;
+                        onUpdate({
+                          settings: { ...sectionSettings, scoring_weight: val },
+                        });
+                      }}
+                      placeholder="Equal"
+                      className="text-sm w-24"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium">Pass Threshold (%)</Label>
+                    <p className="text-[10px] text-muted-foreground">Minimum score to pass this section. Leave empty to use the form default ({formPassThreshold}%).</p>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={(sectionSettings.scoring_pass_threshold as number) ?? ''}
+                      onChange={e => {
+                        const val = e.target.value ? Math.min(100, Math.max(0, parseFloat(e.target.value))) : undefined;
+                        onUpdate({
+                          settings: { ...sectionSettings, scoring_pass_threshold: val },
+                        });
+                      }}
+                      placeholder={`Form default (${formPassThreshold}%)`}
+                      className="text-sm w-48"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
             <Separator />
             <Button
               variant="ghost"
@@ -3985,24 +4082,44 @@ export function FormBuilder({
             />
           </div>
           {hook.form?.scoring_enabled && (
-            <div className="flex items-center gap-2">
-              <Label htmlFor="pass-threshold" className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                {t('forms.builderPassThreshold')}
-              </Label>
-              <Input
-                id="pass-threshold"
-                type="number"
-                min={0}
-                max={100}
-                value={hook.form?.pass_threshold ?? 70}
-                onChange={e => {
-                  const v = e.target.value ? Math.min(100, Math.max(0, parseInt(e.target.value))) : 70;
-                  hook.setFormSettings({ pass_threshold: v });
-                }}
-                className="h-7 w-16 text-xs"
-              />
-              <span className="text-xs text-muted-foreground">%</span>
-            </div>
+            <>
+              {/* Scoring mode selector */}
+              <div className="flex items-center gap-2">
+                <Label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Mode</Label>
+                <Select
+                  value={hook.form?.scoring_mode || 'pass_fail'}
+                  onValueChange={(v) => hook.setFormSettings({ scoring_mode: v as 'pass_fail' | 'weighted' | 'section' })}
+                >
+                  <SelectTrigger className="h-7 text-xs w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pass_fail">Pass / Fail</SelectItem>
+                    <SelectItem value="weighted">Weighted Points</SelectItem>
+                    <SelectItem value="section">Score by Section</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {/* Pass threshold */}
+              <div className="flex items-center gap-2">
+                <Label htmlFor="pass-threshold" className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                  {hook.form?.scoring_mode === 'section' ? 'Default Threshold' : t('forms.builderPassThreshold')}
+                </Label>
+                <Input
+                  id="pass-threshold"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={hook.form?.pass_threshold ?? 70}
+                  onChange={e => {
+                    const v = e.target.value ? Math.min(100, Math.max(0, parseInt(e.target.value))) : 70;
+                    hook.setFormSettings({ pass_threshold: v });
+                  }}
+                  className="h-7 w-16 text-xs"
+                />
+                <span className="text-xs text-muted-foreground">%</span>
+              </div>
+            </>
           )}
 
           <Separator orientation="vertical" className="h-4" />
@@ -4430,6 +4547,7 @@ export function FormBuilder({
             allBlocks={hook.blocks.filter(b => b.id !== selectedBlock.id)}
             sections={hook.sections}
             scoringEnabled={hook.form?.scoring_enabled ?? false}
+            scoringMode={hook.form?.scoring_mode || 'pass_fail'}
             onUpdate={updates => hook.updateBlock(selectedBlock.id, updates)}
             onDelete={() => hook.deleteBlock(selectedBlock.id)}
             onClose={() => {
@@ -4446,6 +4564,9 @@ export function FormBuilder({
           <SectionPropertiesDrawer
             section={selectedSection}
             allBlocks={hook.blocks}
+            scoringEnabled={hook.form?.scoring_enabled ?? false}
+            scoringMode={hook.form?.scoring_mode || 'pass_fail'}
+            formPassThreshold={hook.form?.pass_threshold ?? 70}
             onUpdate={updates => hook.updateSection(selectedSection.id, updates)}
             onDelete={() => { hook.deleteSection(selectedSection.id); setSelectedSectionId(null); }}
             onClose={() => setSelectedSectionId(null)}

@@ -60,7 +60,7 @@ export function PlaylistFormStep({
     title: string;
     description?: string;
     blocks: FormBlockData[];
-    settings?: { scoring_enabled?: boolean; pass_threshold?: number };
+    settings?: { scoring_enabled?: boolean; scoring_mode?: 'pass_fail' | 'weighted' | 'section'; pass_threshold?: number };
     organization_id?: string;
   } | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -117,6 +117,8 @@ export function PlaylistFormStep({
           passed: scoring.passed,
           total_score: scoring.earned_weight,
           max_possible_score: scoring.total_weight,
+          scoring_mode: scoring.scoring_mode,
+          section_scores: scoring.section_scores,
         } : undefined
       );
 
@@ -247,6 +249,7 @@ export function PlaylistFormStep({
             formId={formId}
             onSubmit={handleFormSubmit}
             scoringEnabled={formData.settings?.scoring_enabled}
+            scoringMode={formData.settings?.scoring_mode}
             passThreshold={formData.settings?.pass_threshold}
             organizationId={formData.organization_id}
           />

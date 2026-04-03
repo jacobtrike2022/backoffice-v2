@@ -38,6 +38,17 @@ interface FormRecord {
   organization_id: string;
 }
 
+interface SectionScoreRecord {
+  section_id: string;
+  section_title: string;
+  earned: number;
+  possible: number;
+  percentage: number;
+  passed: boolean;
+  threshold: number;
+  criticalFail?: boolean;
+}
+
 interface SubmissionRecord {
   id: string;
   form_id: string;
@@ -50,6 +61,8 @@ interface SubmissionRecord {
   total_score: number | null;
   max_possible_score: number | null;
   score_percentage: number | null;
+  scoring_mode: string | null;
+  section_scores: SectionScoreRecord[] | null;
   completion_time_seconds: number | null;
   submitted_by: { first_name?: string; last_name?: string; email?: string } | null;
   reviewed_by: { first_name?: string; last_name?: string; email?: string } | null;
@@ -1000,6 +1013,34 @@ export function FormSubmissions({ orgId, currentRole = 'admin' }: FormSubmission
                           {selectedSubmission.total_score} / {selectedSubmission.max_possible_score} pts
                         </p>
                       )}
+
+                    {/* Section score breakdown */}
+                    {selectedSubmission.section_scores && selectedSubmission.section_scores.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground">Section Breakdown</p>
+                        {selectedSubmission.section_scores.map((ss) => (
+                          <div key={ss.section_id} className="space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-medium truncate mr-2">{ss.section_title}</span>
+                              <span className={`shrink-0 font-semibold ${
+                                ss.criticalFail ? 'text-red-500' : ss.passed ? 'text-primary' : 'text-red-500'
+                              }`}>
+                                {Math.round(ss.percentage)}%
+                                {ss.passed ? '' : ' - Failed'}
+                              </span>
+                            </div>
+                            <div className="w-full bg-muted rounded-full h-1.5">
+                              <div
+                                className={`h-1.5 rounded-full transition-all ${
+                                  ss.criticalFail ? 'bg-red-500' : ss.passed ? 'bg-primary' : 'bg-red-500'
+                                }`}
+                                style={{ width: `${Math.min(100, ss.percentage)}%` }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })()}

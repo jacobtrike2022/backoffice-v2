@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import SignatureCanvas from 'react-signature-canvas';
 import { isBlockVisible, ConditionalLogic, getSkippedSectionIds, isSectionVisible } from '../../../lib/forms/conditionalLogic';
+import { calculateFormScore, type ScoringResult as ScoringResultFromEngine, type ScoringMode } from '../../../lib/forms/scoring';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -38,16 +39,9 @@ export interface FormSectionData {
   settings?: Record<string, unknown> | null;
 }
 
-export interface ScoringResult {
-  score_percentage: number;
-  passed: boolean;
-  total_weight: number;
-  earned_weight: number;
-  /** True when any critical item received a failing answer */
-  criticalFail?: boolean;
-  /** Block IDs of critical items that failed */
-  criticalItems?: string[];
-}
+// Re-export ScoringResult from the unified scoring engine for backward compat
+export type ScoringResult = ScoringResultFromEngine;
+export type { SectionScore } from '../../../lib/forms/scoring';
 
 export interface OnFailConfig {
   reassign?: { enabled: boolean; delay_hours: number };
@@ -104,6 +98,7 @@ export interface FormRendererProps {
   answers?: Record<string, unknown>;
   readOnly?: boolean;
   scoringEnabled?: boolean;
+  scoringMode?: ScoringMode;
   passThreshold?: number;
   onSubmit?: (data: Record<string, unknown>, scoring?: ScoringResult) => void | Promise<void>;
   /** Required for file/photo upload blocks — used as the storage path prefix */
@@ -305,7 +300,7 @@ function PersonLookupBlock({ block, value, onChange, readOnly, t, organizationId
   );
 }
 
-export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, answers = EMPTY_ANSWERS, readOnly = false, scoringEnabled, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle, linkedContent, ojtMetadata, onOjtMetadataChange, startConfig, stores = EMPTY_STORES, organizationId }: FormRendererProps) {
+export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, answers = EMPTY_ANSWERS, readOnly = false, scoringEnabled, scoringMode, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle, linkedContent, ojtMetadata, onOjtMetadataChange, startConfig, stores = EMPTY_STORES, organizationId }: FormRendererProps) {
   const { t } = useTranslation();
 
   // Auto-inject identity block based on submission mode (individual → person, location → store)
@@ -537,67 +532,32 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     setValidationErrors({});
     setIsSubmitting(true);
     try {
-      // Compute scoring if enabled — equal-weight model with critical items
+      // Compute scoring if enabled — delegates to the unified scoring engine
       let scoring: ScoringResult | undefined;
       if (scoringEnabled) {
-        let totalQuestions = 0;
-        let correctCount = 0;
-        const failedCriticalItems: string[] = [];
-
+        const hiddenBlockIds = new Set<string>();
         for (const block of blocks) {
-          // Skip hidden blocks — they should not affect scoring
-          if (!isBlockVisible(block.conditional_logic, formData)) continue;
-          // Skip blocks in hidden sections
-          if (block.section_id && allHiddenSectionIds.has(block.section_id)) continue;
-
-          const vr = (block.validation_rules ?? {}) as Record<string, unknown>;
-          // Support both new (_correct_answer in validation_rules) and legacy (_settings.correct_answer in validation_rules)
-          const legacySettings = (vr._settings as Record<string, unknown>) || {};
-          const correctAnswer = (vr._correct_answer as string) || (legacySettings.correct_answer as string) || '';
-          const isCritical = !!(vr._critical);
-          const allowNa = !!(vr._allow_na);
-
-          if (!correctAnswer) continue;
-
-          const response = formData[block.id];
-
-          // If N/A is allowed and the user answered N/A, exclude from scoring
-          if (allowNa && String(response || '').toLowerCase() === 'n/a') continue;
-
-          totalQuestions += 1;
-
-          // Compare response to correct answer
-          let isCorrect = false;
-          if (block.type === 'checkboxes') {
-            const correctSet = correctAnswer.split(',').map(s => s.trim().toLowerCase()).sort();
-            const responseArr = Array.isArray(response)
-              ? (response as string[]).map(s => String(s).trim().toLowerCase()).sort()
-              : [];
-            isCorrect = correctSet.length === responseArr.length &&
-              correctSet.every((v, i) => v === responseArr[i]);
-          } else if (block.type === 'number' || block.type === 'rating') {
-            isCorrect = String(response) === String(correctAnswer);
-          } else {
-            isCorrect = String(response || '').toLowerCase().trim() === correctAnswer.toLowerCase().trim();
-          }
-
-          if (isCorrect) {
-            correctCount += 1;
-          } else if (isCritical) {
-            failedCriticalItems.push(block.id);
-          }
+          if (!isBlockVisible(block.conditional_logic, formData)) hiddenBlockIds.add(block.id);
+          if (block.section_id && allHiddenSectionIds.has(block.section_id)) hiddenBlockIds.add(block.id);
         }
 
-        const scorePercentage = totalQuestions > 0 ? (correctCount / totalQuestions) * 100 : 0;
-        const criticalFail = failedCriticalItems.length > 0;
-        scoring = {
-          score_percentage: Math.round(scorePercentage * 100) / 100,
-          passed: !criticalFail && scorePercentage >= passThreshold,
-          total_weight: totalQuestions,
-          earned_weight: correctCount,
-          criticalFail,
-          criticalItems: failedCriticalItems,
-        };
+        scoring = calculateFormScore(
+          blocks.map(b => ({
+            id: b.id,
+            section_id: b.section_id,
+            type: b.type,
+            label: b.label,
+            options: getOptions(b),
+            validation_rules: b.validation_rules as Record<string, unknown> | null,
+          })),
+          formData,
+          {
+            scoring_mode: scoringMode || 'pass_fail',
+            pass_threshold: passThreshold,
+            sections: sections.map(s => ({ id: s.id, title: s.title, settings: s.settings })),
+          },
+          hiddenBlockIds,
+        );
       }
 
       await onSubmit?.(formData, scoring);
@@ -1067,7 +1027,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
                 'text-muted-foreground'
               }`}>{value === 'yes' ? yesLabel : value === 'no' ? noLabel : value === 'n/a' ? 'N/A' : '—'}</div>
             ) : (
-              <div className="flex gap-3">
+              <div className="flex gap-3 items-center">
                 <button type="button" onClick={() => handleChange(block.id, 'yes')}
                   className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors ${
                     value === 'yes' ? 'border-green-500 bg-green-500/20 text-green-400' : 'border-border hover:border-green-500/50'
@@ -1078,8 +1038,8 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
                   }`}>{noLabel}</button>
                 {allowNa && (
                   <button type="button" onClick={() => handleChange(block.id, 'n/a')}
-                    className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors ${
-                      value === 'n/a' ? 'border-gray-500 bg-gray-500/20 text-gray-400' : 'border-border hover:border-gray-500/50'
+                    className={`px-4 py-3 rounded-lg border font-medium text-xs transition-colors shrink-0 ${
+                      value === 'n/a' ? 'border-gray-400 bg-gray-500/20 text-gray-300' : 'border-border/50 text-muted-foreground/60 hover:border-gray-400/50 hover:text-muted-foreground'
                     }`}>N/A</button>
                 )}
               </div>
