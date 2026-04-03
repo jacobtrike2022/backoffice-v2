@@ -32,6 +32,7 @@ interface PublicForm {
   requires_approval?: boolean;
   settings?: {
     scoring_enabled?: boolean;
+    scoring_mode?: 'pass_fail' | 'weighted' | 'section';
     pass_threshold?: number;
     start_config?: {
       identity_mode?: 'individual' | 'location' | 'anonymous';
@@ -219,6 +220,8 @@ export function PublicFormFill() {
             passed: scoring.passed,
             total_score: scoring.earned_weight,
             max_possible_score: scoring.total_weight,
+            scoring_mode: scoring.scoring_mode,
+            ...(scoring.section_scores ? { section_scores: scoring.section_scores } : {}),
           } : {}),
         }),
       });
@@ -434,6 +437,7 @@ export function PublicFormFill() {
             readOnly={false}
             formId={formData.form.id}
             scoringEnabled={formData.form.settings?.scoring_enabled}
+            scoringMode={formData.form.settings?.scoring_mode}
             passThreshold={formData.form.settings?.pass_threshold}
             formType={formData.form.type}
             formTitle={formData.form.title}

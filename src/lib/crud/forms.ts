@@ -305,6 +305,8 @@ export async function submitFormResponse(
     passed?: boolean;
     total_score?: number;
     max_possible_score?: number;
+    scoring_mode?: string;
+    section_scores?: unknown;
   }
 ) {
   const userProfile = submittedById
@@ -324,6 +326,8 @@ export async function submitFormResponse(
         total_score: scoringData.total_score,
         max_possible_score: scoringData.max_possible_score,
       } : {}),
+      ...(scoringData?.scoring_mode ? { scoring_mode: scoringData.scoring_mode } : {}),
+      ...(scoringData?.section_scores ? { section_scores: scoringData.section_scores } : {}),
     })
     .select()
     .single();

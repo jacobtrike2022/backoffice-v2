@@ -70,6 +70,7 @@ export interface FormMetadata {
   allow_anonymous?: boolean;
   is_template?: boolean;
   scoring_enabled?: boolean;
+  scoring_mode?: 'pass_fail' | 'weighted' | 'section';
   pass_threshold?: number;
   submission_config?: SubmissionConfig;
   start_config?: StartConfig;
@@ -79,6 +80,7 @@ export interface FormSettings {
   requires_approval: boolean;
   allow_anonymous: boolean;
   scoring_enabled?: boolean;
+  scoring_mode?: 'pass_fail' | 'weighted' | 'section';
   pass_threshold?: number;
 }
 
@@ -206,6 +208,7 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
         is_template: form.is_template,
         settings: {
           scoring_enabled: form.scoring_enabled ?? false,
+          scoring_mode: form.scoring_mode ?? 'pass_fail',
           pass_threshold: form.pass_threshold ?? 70,
           ...(form.start_config ? { start_config: form.start_config } : {}),
         },
@@ -578,6 +581,7 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
         requires_approval: settings.requires_approval ?? prev.requires_approval,
         allow_anonymous: settings.allow_anonymous ?? prev.allow_anonymous,
         scoring_enabled: settings.scoring_enabled ?? prev.scoring_enabled,
+        scoring_mode: settings.scoring_mode ?? prev.scoring_mode,
         pass_threshold: settings.pass_threshold ?? prev.pass_threshold,
       };
     });
@@ -835,6 +839,7 @@ function formDataToMetadata(data: FormWithSections): FormMetadata {
     allow_anonymous: data.allow_anonymous,
     is_template: data.is_template ?? false,
     scoring_enabled: (settings?.scoring_enabled as boolean) ?? false,
+    scoring_mode: (settings?.scoring_mode as 'pass_fail' | 'weighted' | 'section') ?? 'pass_fail',
     pass_threshold: (settings?.pass_threshold as number) ?? 70,
     submission_config: ((data as any).submission_config as SubmissionConfig | null) ?? {},
     start_config: (settings?.start_config as StartConfig | undefined) ?? undefined,
