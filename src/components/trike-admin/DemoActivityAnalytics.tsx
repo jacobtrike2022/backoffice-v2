@@ -21,6 +21,7 @@ import {
   RefreshCw,
   MapPin,
   FileText,
+  Building2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
@@ -410,26 +411,30 @@ export function DemoActivityAnalytics() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Top Tracks Opened</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {topTracks.length > 0 ? (
-              topTracks.map((row) => (
-                <div key={row.track} className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <span className="truncate">{row.track}</span>
+        <div className="flex flex-col gap-6">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Top Tracks Opened</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {topTracks.length > 0 ? (
+                topTracks.slice(0, 5).map((row) => (
+                  <div key={row.track} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className="truncate">{row.track}</span>
+                    </div>
+                    <Badge variant="outline">{row.opens}</Badge>
                   </div>
-                  <Badge variant="outline">{row.opens}</Badge>
-                </div>
-              ))
-            ) : (
-              <EmptyBlock text="No track opens yet" />
-            )}
-          </CardContent>
-        </Card>
+                ))
+              ) : (
+                <EmptyBlock text="No track opens yet" />
+              )}
+            </CardContent>
+          </Card>
+
+          <ActivityByOrgCard events={events} />
+        </div>
 
         <Card>
           <CardHeader className="pb-2">
@@ -464,6 +469,71 @@ export function DemoActivityAnalytics() {
         </Card>
       </div>
     </div>
+  );
+}
+
+const ORG_ACTIVITY_RANGES = [
+  { value: "1", label: "Last day" },
+  { value: "7", label: "Last week" },
+  { value: "14", label: "Last 2 weeks" },
+  { value: "30", label: "Last month" },
+];
+
+function ActivityByOrgCard({ events }: { events: DemoEvent[] }) {
+  const [range, setRange] = useState("7");
+
+  const topOrgs = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - Number(range));
+    const cutoffTime = cutoff.getTime();
+
+    const counts = new Map<string, number>();
+    for (const e of events) {
+      if (new Date(e.occurred_at).getTime() < cutoffTime) continue;
+      const name = e.organization_name_snapshot || "Unknown Org";
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+  }, [events, range]);
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium">Activity by Org</CardTitle>
+          <Select value={range} onValueChange={setRange}>
+            <SelectTrigger className="w-[140px] h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ORG_ACTIVITY_RANGES.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {topOrgs.length > 0 ? (
+          topOrgs.map((row) => (
+            <div key={row.name} className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2 min-w-0">
+                <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span className="truncate">{row.name}</span>
+              </div>
+              <Badge variant="outline">{row.count}</Badge>
+            </div>
+          ))
+        ) : (
+          <EmptyBlock text="No org activity in this range" />
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
