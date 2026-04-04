@@ -1787,6 +1787,26 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, sco
         {/* ── PER-ITEM ON-FAIL → ASSIGN TRAINING ──── */}
         {showScoringTab && <PerItemOnFailTraining block={block} onUpdate={onUpdate} />}
 
+        {/* ── GUIDELINES ──── */}
+        {!['instruction', 'divider', 'section', 'html'].includes(block.block_type) && (
+          <div className="space-y-2 pt-2 border-t">
+            <div className="flex items-center gap-2">
+              <BookOpen className="h-4 w-4 text-muted-foreground" />
+              <Label className="text-xs font-medium">{t('forms.guidelines', 'Guidelines')}</Label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t('forms.guidelinesDesc', 'Grading criteria or reference instructions shown to the person filling out the form via an info icon.')}
+            </p>
+            <Textarea
+              value={block.guideline_text || ''}
+              onChange={(e) => onUpdate({ guideline_text: e.target.value })}
+              placeholder={t('forms.guidelinesPlaceholder', 'e.g., Check to ensure all pumps are operational and any maintenance issues have been reported...')}
+              rows={3}
+              className="text-sm resize-y"
+            />
+          </div>
+        )}
+
         </TabsContent>
 
         {/* ── LOGIC TAB ────────────────────────────────────── */}

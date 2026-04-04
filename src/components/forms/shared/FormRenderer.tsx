@@ -8,7 +8,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
-import { Star, Upload, X, FileText, Loader2, AlertCircle, ClipboardCheck, Shield, FileSignature, GraduationCap, MessageSquare } from 'lucide-react';
+import { Star, Upload, X, FileText, Loader2, AlertCircle, ClipboardCheck, Shield, FileSignature, GraduationCap, MessageSquare, Info } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {
   Select,
   SelectContent,
@@ -29,6 +34,8 @@ export interface FormBlockData {
   validation_rules?: Record<string, unknown>;
   conditional_logic?: ConditionalLogic | null;
   section_id?: string | null;
+  guideline_text?: string;
+  guideline_attachments?: Array<{ url: string; type: string; name: string }>;
 }
 
 export interface FormSectionData {
@@ -568,6 +575,49 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     }
   };
 
+  // Reusable label with optional guideline info popover
+  const BlockLabel = ({ block }: { block: FormBlockData }) => (
+    <Label className="flex items-center gap-1.5">
+      <span>
+        {block.label}
+        {block.is_required && <span className="text-destructive ml-1">*</span>}
+      </span>
+      {block.guideline_text && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex items-center justify-center h-5 w-5 rounded-full hover:bg-muted transition-colors shrink-0"
+              aria-label="View guidelines"
+            >
+              <Info className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="top" align="start" className="max-w-sm text-sm space-y-2">
+            <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide">Guideline</p>
+            <p className="text-sm whitespace-pre-wrap">{block.guideline_text}</p>
+            {block.guideline_attachments && block.guideline_attachments.length > 0 && (
+              <div className="space-y-1 pt-1 border-t">
+                {block.guideline_attachments.map((att, i) => (
+                  <a
+                    key={i}
+                    href={att.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                  >
+                    <FileText className="h-3 w-3" />
+                    {att.name || 'Attachment'}
+                  </a>
+                ))}
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
+      )}
+    </Label>
+  );
+
   const renderBlock = (block: FormBlockData) => {
     // Evaluate conditional logic — skip blocks that should be hidden
     if (!isBlockVisible(block.conditional_logic, formData)) {
@@ -614,10 +664,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
       case 'text':
         return (
           <div key={block.id} className="space-y-2">
-            <Label>
-              {block.label}
-              {block.is_required && <span className="text-destructive ml-1">*</span>}
-            </Label>
+            <BlockLabel block={block} />
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
             )}
@@ -633,10 +680,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
       case 'textarea':
         return (
           <div key={block.id} className="space-y-2">
-            <Label>
-              {block.label}
-              {block.is_required && <span className="text-destructive ml-1">*</span>}
-            </Label>
+            <BlockLabel block={block} />
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
             )}
@@ -653,10 +697,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
       case 'number':
         return (
           <div key={block.id} className="space-y-2">
-            <Label>
-              {block.label}
-              {block.is_required && <span className="text-destructive ml-1">*</span>}
-            </Label>
+            <BlockLabel block={block} />
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
             )}
@@ -682,10 +723,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         }
         return (
           <div key={block.id} className="space-y-2">
-            <Label>
-              {block.label}
-              {block.is_required && <span className="text-destructive ml-1">*</span>}
-            </Label>
+            <BlockLabel block={block} />
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
             )}
@@ -722,10 +760,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         }
         return (
           <div key={block.id} className="space-y-2">
-            <Label>
-              {block.label}
-              {block.is_required && <span className="text-destructive ml-1">*</span>}
-            </Label>
+            <BlockLabel block={block} />
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
             )}
@@ -757,10 +792,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
       case 'radio':
         return (
           <div key={block.id} className="space-y-2">
-            <Label>
-              {block.label}
-              {block.is_required && <span className="text-destructive ml-1">*</span>}
-            </Label>
+            <BlockLabel block={block} />
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
             )}
@@ -790,10 +822,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
       case 'checkboxes':
         return (
           <div key={block.id} className="space-y-2">
-            <Label>
-              {block.label}
-              {block.is_required && <span className="text-destructive ml-1">*</span>}
-            </Label>
+            <BlockLabel block={block} />
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
             )}
@@ -827,10 +856,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
       case 'dropdown':
         return (
           <div key={block.id} className="space-y-2">
-            <Label>
-              {block.label}
-              {block.is_required && <span className="text-destructive ml-1">*</span>}
-            </Label>
+            <BlockLabel block={block} />
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
             )}
@@ -857,10 +883,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
       case 'multiselect':
         return (
           <div key={block.id} className="space-y-2">
-            <Label>
-              {block.label}
-              {block.is_required && <span className="text-destructive ml-1">*</span>}
-            </Label>
+            <BlockLabel block={block} />
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
             )}
@@ -894,10 +917,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         const maxRating = (block.validation_rules?.max as number) || 5;
         return (
           <div key={block.id} className="space-y-2">
-            <Label>
-              {block.label}
-              {block.is_required && <span className="text-destructive ml-1">*</span>}
-            </Label>
+            <BlockLabel block={block} />
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
             )}
@@ -927,10 +947,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         const fileUpState = uploadStates[block.id];
         return (
           <div key={block.id} className="space-y-2">
-            <Label>
-              {block.label}
-              {block.is_required && <span className="text-destructive ml-1">*</span>}
-            </Label>
+            <BlockLabel block={block} />
             {block.description && (
               <p className="text-xs text-muted-foreground">{block.description}</p>
             )}
@@ -1014,10 +1031,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         const allowNa = !!(block.validation_rules as Record<string, unknown> | undefined)?._allow_na;
         return (
           <div key={block.id} className="space-y-2">
-            <Label>
-              {block.label}
-              {block.is_required && <span className="text-destructive ml-1">*</span>}
-            </Label>
+            <BlockLabel block={block} />
             {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
             {readOnly ? (
               <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
@@ -1332,27 +1346,28 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     const failMessage = didFail ? submissionConfig?.on_fail?.fail_message : undefined;
     const confirmMsg = submissionConfig?.confirmation_message || t('forms.publicSubmissionReceived');
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-center space-y-3">
+      <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
         {failMessage ? (
           <>
-            <div className="rounded-full bg-red-100 p-3">
-              <svg className="h-8 w-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M12 3l9.66 16.59A1 1 0 0120.66 21H3.34a1 1 0 01-.86-1.41L12 3z" />
-              </svg>
+            <div className="rounded-full bg-red-100 dark:bg-red-950/50 p-4">
+              <AlertCircle className="h-8 w-8 text-red-600 dark:text-red-400" />
             </div>
-            <div className="w-full max-w-md rounded-lg border border-red-300 bg-red-50 p-4">
-              <p className="text-sm font-semibold text-red-800">{t('forms.onFailBannerTitle')}</p>
-              <p className="mt-1 text-sm text-red-700">{failMessage}</p>
+            <div className="w-full max-w-md rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-4">
+              <p className="text-sm font-semibold text-red-800 dark:text-red-300">{t('forms.onFailBannerTitle')}</p>
+              <p className="mt-1 text-sm text-red-700 dark:text-red-400">{failMessage}</p>
             </div>
           </>
         ) : (
           <>
-            <div className="rounded-full bg-green-100 p-3">
-              <svg className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
+            <div className="rounded-full bg-green-100 dark:bg-green-950/50 p-4">
+              <ClipboardCheck className="h-8 w-8 text-green-600 dark:text-green-400" />
             </div>
-            <p className="text-base font-semibold">{confirmMsg}</p>
+            <p className="text-lg font-semibold">{confirmMsg}</p>
+            {lastScoringResult && (
+              <p className="text-sm text-muted-foreground">
+                {t('forms.fillFinalScore', { score: Math.round(lastScoringResult.percentage) })}
+              </p>
+            )}
           </>
         )}
       </div>
@@ -1455,23 +1470,42 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         </div>
       )}
 
-      {/* Inspection/Audit completion counter */}
-      {(formType === 'inspection' || formType === 'audit') && !readOnly && totalCount > 0 && (
-        <div className="flex items-center justify-between text-sm px-1">
-          <span className="text-muted-foreground">{t('forms.fillItemsCompleted', { done: completedCount, total: totalCount })}</span>
-          {scoringEnabled && completionPct > 0 && (
-            <span className="font-medium">{completionPct}%</span>
-          )}
+      {/* Progress bar — shown for all form types when not read-only */}
+      {!readOnly && totalCount > 0 && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-sm px-0.5">
+            <span className="text-muted-foreground text-xs">
+              {t('forms.fillItemsCompleted', { done: completedCount, total: totalCount })}
+            </span>
+            <span className="text-xs font-medium tabular-nums">{completionPct}%</span>
+          </div>
+          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${
+                completionPct === 100 ? 'bg-green-500' : 'bg-primary'
+              }`}
+              style={{ width: `${completionPct}%` }}
+            />
+          </div>
         </div>
       )}
 
-      {/* Survey progress bar */}
-      {formType === 'survey' && !readOnly && totalCount > 0 && (
-        <div className="space-y-1">
-          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-teal-500 rounded-full transition-all duration-300" style={{ width: `${completionPct}%` }} />
-          </div>
-          <p className="text-xs text-muted-foreground text-right">{completionPct}%</p>
+      {/* Section quick-nav for forms with multiple sections */}
+      {!readOnly && sections.length > 2 && (
+        <div className="flex flex-wrap gap-1.5">
+          {sections
+            .filter(s => !allHiddenSectionIds.has(s.id))
+            .map(s => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => document.getElementById(`form-section-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                className="text-xs px-2.5 py-1 rounded-full border border-border bg-background hover:bg-muted transition-colors truncate max-w-[200px]"
+                title={s.title || ''}
+              >
+                {s.title}
+              </button>
+            ))}
         </div>
       )}
 
@@ -1522,14 +1556,20 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         </div>
       )}
       {!readOnly && onSubmit && (
-        <div className="pt-4">
+        <div className="pt-6 border-t mt-2">
           <button
             type="button"
             onClick={handleSubmit}
             disabled={isSubmitting}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            className="w-full sm:w-auto px-8 py-2.5 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-medium text-sm flex items-center justify-center gap-2"
           >
-            {isSubmitting ? 'Submitting…' : 'Submit'}
+            {isSubmitting && (
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            )}
+            {isSubmitting ? t('forms.fillSubmitting', 'Submitting...') : t('forms.fillSubmit', 'Submit')}
           </button>
         </div>
       )}

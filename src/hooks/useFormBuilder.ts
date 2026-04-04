@@ -100,6 +100,8 @@ export interface LocalBlock {
   settings?: Record<string, unknown>;
   is_required: boolean;
   display_order: number;
+  guideline_text?: string;
+  guideline_attachments?: Array<{ url: string; type: string; name: string }>;
 }
 
 export interface UseFormBuilderProps {
@@ -234,6 +236,8 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
         settings: b.settings,
         is_required: b.is_required,
         display_order: idx,
+        guideline_text: b.guideline_text,
+        guideline_attachments: b.guideline_attachments,
       }));
 
       await bulkUpsertFormBlocks(form.id, blocksToUpsert);
@@ -457,6 +461,8 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
                     options: b.options,
                     conditional_logic: mappedLogic,
                     display_order: i,
+                    guideline_text: (b as any).guideline_text,
+                    guideline_attachments: (b as any).guideline_attachments,
                   };
                 });
                 setBlocks(localBlocks);
@@ -861,6 +867,8 @@ function buildLocalBlocks(data: FormWithSections): LocalBlock[] {
     settings: b.settings as Record<string, unknown> | undefined,
     is_required: (b.is_required as boolean) || false,
     display_order: (b.display_order as number) || 0,
+    guideline_text: b.guideline_text as string | undefined,
+    guideline_attachments: Array.isArray(b.guideline_attachments) ? b.guideline_attachments as Array<{ url: string; type: string; name: string }> : undefined,
     _isNew: false,
     _isDirty: false,
   }));
