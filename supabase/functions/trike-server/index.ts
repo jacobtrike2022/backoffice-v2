@@ -1488,11 +1488,11 @@ Available block_type values: text, textarea, number, date, time, radio, checkbox
 For each block return:
 - block_type: string
 - label: the field label or question
-- description: optional helper text (string or null)
+- description: SHORT helper text only (1 sentence max, or null). Use this for brief clarifications like "Select all that apply" or "Enter in MM/DD/YYYY format". Do NOT put grading rubrics, evaluation criteria, or detailed instructions here — those go in guideline_text.
 - is_required: boolean (true for items that must be completed)
 - options: array of strings (for radio, checkboxes, dropdown only)
 - section_title: string or null (which section this block belongs to)
-- guideline_text: string or null. If a row includes "[GUIDELINE: ...]" text, extract the guideline content (without the bracket markers) and put it here. This is grading criteria shown to the form filler via an info icon. If no guideline is present, omit or set null.
+- guideline_text: string or null. LONG evaluation criteria, grading rubrics, or detailed reference instructions for the person filling out the form. This is shown behind an info icon — not inline. Put text from "[GUIDELINE: ...]" annotations here. Also use this for any detailed "how to evaluate" or "what to look for" text that accompanies a checklist item. If no guideline content exists, omit or set null.
 
 Also determine:
 - detected_form_type: one of "inspection", "audit", "sign-off", "ojt-checklist", "survey"
@@ -1683,16 +1683,24 @@ CRITICAL RULES:
 
 8. SPREADSHEET DATA: When data comes from a spreadsheet (CSV-like rows with commas), each row that represents a checklist item, inspection point, or scoreable item should be its own block. Column headers often indicate sections or scoring categories. Rows with numeric scores/available points should be mapped to "number", "rating", or "yes_no" blocks depending on context.
 
+9. MULTIPLE FIELDS ON ONE ROW: Spreadsheet forms often pack multiple fields on one CSV row (e.g., "DOB:,,Est. Height:,,Est. Weight:"). Split these into SEPARATE blocks — one per field. Look for patterns like "Label:,,Label:,,Label:" as multiple short-answer fields.
+
+10. INLINE YES/NO OPTIONS: When "Yes" and "No" appear in later columns on the same row as a question (e.g., "Was medical assistance provided?,,,,,,Yes,,No"), create a "yes_no" or "radio" block — not separate text blocks. The question text is the label, Yes/No are the options.
+
+11. SECTION HEADERS vs FIELD LABELS: In form-layout spreadsheets, section headers like "Store Information", "Customer Information", "Incident Description" are standalone text in a cell with no colon or blank to fill. Recognize these as section boundaries — create them as sections, not fields.
+
+12. AM/PM and MALE/FEMALE PATTERNS: When you see "AM/PM" or "Male/Female" in cells next to a field, these indicate the field should be a "radio" block with those as options.
+
 Available block_type values: text, textarea, number, date, time, radio, checkboxes, dropdown, yes_no, rating, signature, photo, instruction, divider
 
 For each block return:
 - block_type: string
 - label: the field label or question
-- description: optional helper text (string or null)
+- description: SHORT helper text only (1 sentence max, or null). Use this for brief clarifications like "Select all that apply" or "Enter in MM/DD/YYYY format". Do NOT put grading rubrics, evaluation criteria, or detailed instructions here — those go in guideline_text.
 - is_required: boolean (true for items that must be completed)
 - options: array of strings (for radio, checkboxes, dropdown only)
 - section_title: string or null (which section this block belongs to)
-- guideline_text: string or null. If a row includes "[GUIDELINE: ...]" text, extract the guideline content (without the bracket markers) and put it here. This is grading criteria shown to the form filler via an info icon. If no guideline is present, omit or set null.
+- guideline_text: string or null. LONG evaluation criteria, grading rubrics, or detailed reference instructions for the person filling out the form. This is shown behind an info icon — not inline. Put text from "[GUIDELINE: ...]" annotations here. Also use this for any detailed "how to evaluate" or "what to look for" text that accompanies a checklist item. If no guideline content exists, omit or set null.
 
 Also determine:
 - detected_form_type: one of "inspection", "audit", "sign-off", "ojt-checklist", "survey"
