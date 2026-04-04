@@ -68,9 +68,29 @@ async function extractTextFromXlsx(file: File): Promise<string> {
   // Classify sheets: questionnaire (Y/N/NA items), guidelines (grading criteria), recap (score summaries)
   // Skip legacy/duplicate sheets, skip recap/score sheets, match guidelines to questions.
 
+  // Fill merged cells so all cells in a merge range contain the top-left value.
+  // Without this, sheet_to_json returns undefined for non-origin cells in merges.
+  const fillMergedCells = (sheet: any) => {
+    const merges: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }> = sheet['!merges'] || [];
+    for (const merge of merges) {
+      const originAddr = XLSX.utils.encode_cell({ r: merge.s.r, c: merge.s.c });
+      const originCell = sheet[originAddr];
+      if (!originCell) continue;
+      // Only fill across columns on the same row (don't duplicate content into every row of tall merges)
+      for (let c = merge.s.c; c <= merge.e.c; c++) {
+        if (c === merge.s.c) continue; // skip origin
+        const addr = XLSX.utils.encode_cell({ r: merge.s.r, c });
+        if (!sheet[addr]) {
+          sheet[addr] = { ...originCell };
+        }
+      }
+    }
+  };
+
   const sheetData: Array<{ name: string; rows: string[][] }> = [];
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
+    fillMergedCells(sheet);
     const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false }) as string[][];
     sheetData.push({ name: sheetName, rows });
   }
