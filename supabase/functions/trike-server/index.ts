@@ -1469,19 +1469,21 @@ async function handleFormsParsePdf(req: Request, path: string): Promise<Response
 
 CRITICAL RULES:
 
-1. INDIVIDUAL ITEMS, NOT GROUPED OPTIONS: When you see a list of items each with blank/initial lines (like "______ Item name"), each item should be its OWN separate block — do NOT group them as options within a single checkboxes block. Each line item = one block.
+1. DOCUMENT ORDER: Blocks MUST be returned in the exact order they appear in the document, top to bottom, page by page. Every block must have a section_title so it is placed under the correct section. Do NOT reorder or group blocks after the fact.
 
-2. INITIAL/SIGN-OFF LINES: When you see "______ ______ Item name" (two blanks = two people initialing), use block_type "checkboxes" with TWO options: ["Trainee", "Trainer"]. The label should be the item name. Each line is a separate block.
+2. INDIVIDUAL ITEMS, NOT GROUPED OPTIONS: When you see a list of items each with blank/initial lines (like "______ Item name"), each item should be its OWN separate block — do NOT group them as options within a single checkboxes block. Each line item = one block.
 
-3. SECTIONS: When the document has clear sections (Phase I, Phase II, Part A, Section 1, etc.), return a "sections" array. Blocks that belong to a section should have a "section_title" field matching the section name. Section headings with descriptions should be "instruction" blocks at the start of that section.
+3. INITIAL/SIGN-OFF LINES: When you see "______ ______ Item name" (two blanks = two people initialing), use block_type "checkboxes" with TWO options: ["Trainee", "Trainer"]. The label should be the item name. Each line is a separate block.
 
-4. FREEFORM TEXT AREAS: Lines like "_______________" (long blanks for writing) should be "textarea" blocks, not text blocks. Multiple consecutive blank lines = one textarea.
+4. SECTIONS: When the document has clear sections (Phase I, Phase II, Part A, Section 1, numbered headers, etc.), return a "sections" array. Blocks that belong to a section should have a "section_title" field matching the section name. Process the document sequentially — emit each block under its section as you encounter it.
 
-5. SIGNATURE LINES: "________________ Signature" or "________________ Date" patterns should be "signature" and "date" blocks respectively.
+5. FREEFORM TEXT AREAS: Lines like "_______________" (long blanks for writing) should be "textarea" blocks, not text blocks. Multiple consecutive blank lines = one textarea.
 
-6. CONGRATULATIONS/COMPLETION messages should be "instruction" blocks.
+6. SIGNATURE LINES: "________________ Signature" or "________________ Date" patterns should be "signature" and "date" blocks respectively.
 
 7. DESCRIPTIVE PARAGRAPHS (welcome text, phase introductions) should be "instruction" blocks with the full text as the label.
+
+8. COMPLETENESS: Extract ALL items from the document. For large checklists with 100+ items, do not stop early or summarize — every single checklist item must become its own block.
 
 Available block_type values: text, textarea, number, date, time, radio, checkboxes, dropdown, yes_no, rating, signature, photo, instruction, divider
 
@@ -1493,6 +1495,7 @@ For each block return:
 - options: array of strings (for radio, checkboxes, dropdown only)
 - section_title: string or null (which section this block belongs to)
 - guideline_text: string or null. LONG evaluation criteria, grading rubrics, or detailed reference instructions for the person filling out the form. This is shown behind an info icon — not inline. Put text from "[GUIDELINE: ...]" annotations here. Also use this for any detailed "how to evaluate" or "what to look for" text that accompanies a checklist item. If no guideline content exists, omit or set null.
+- allow_na: boolean (default false). Set to true when the answer format includes N/A alongside Yes/No (e.g., "Y / N / NA" column headers, or "Yes / No / N/A" options). This adds an N/A option to yes_no blocks.
 
 Also determine:
 - detected_form_type: one of "inspection", "audit", "sign-off", "ojt-checklist", "survey"
@@ -1529,7 +1532,7 @@ Return ONLY valid JSON:
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 16384,
+          max_tokens: 32768,
           messages: [
             {
               role: "user",
@@ -1584,8 +1587,8 @@ Return ONLY valid JSON:
     }
 
     if (stopReason === "max_tokens") {
-      console.error("AI response truncated (hit max_tokens). Output length:", rawText.length);
-      return jsonResponse({ error: "The document is too complex for a single pass. Try a shorter PDF or one with fewer fields." }, 502);
+      console.error("[parse-pdf] AI response truncated (hit max_tokens). Output length:", rawText.length);
+      return jsonResponse({ error: "This document has too many fields to process as a PDF. Try importing the original spreadsheet (.xlsx) instead — it handles large forms better." }, 502);
     }
 
     // Parse JSON from Claude's response (handle code fences, preamble text, etc.)
@@ -1609,6 +1612,7 @@ Return ONLY valid JSON:
         options: Array.isArray(b.options) ? b.options.filter((o: any) => typeof o === "string") : undefined,
         section_title: typeof b.section_title === "string" ? b.section_title : null,
         guideline_text: typeof b.guideline_text === "string" && b.guideline_text.trim() ? b.guideline_text.trim() : undefined,
+        allow_na: b.allow_na === true,
         display_order: idx,
       }));
 
@@ -1701,6 +1705,7 @@ For each block return:
 - options: array of strings (for radio, checkboxes, dropdown only)
 - section_title: string or null (which section this block belongs to)
 - guideline_text: string or null. LONG evaluation criteria, grading rubrics, or detailed reference instructions for the person filling out the form. This is shown behind an info icon — not inline. Put text from "[GUIDELINE: ...]" annotations here. Also use this for any detailed "how to evaluate" or "what to look for" text that accompanies a checklist item. If no guideline content exists, omit or set null.
+- allow_na: boolean (default false). Set to true when the answer format includes N/A alongside Yes/No (e.g., "Y / N / NA" column headers, or "Yes / No / N/A" options). This adds an N/A option to yes_no blocks.
 
 Also determine:
 - detected_form_type: one of "inspection", "audit", "sign-off", "ojt-checklist", "survey"
@@ -1731,7 +1736,7 @@ Return ONLY valid JSON:
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 8192,
+          max_tokens: 16384,
           messages: [
             {
               role: "user",
@@ -1797,6 +1802,7 @@ Return ONLY valid JSON:
         options: Array.isArray(b.options) ? b.options.filter((o: any) => typeof o === "string") : undefined,
         section_title: typeof b.section_title === "string" ? b.section_title : null,
         guideline_text: typeof b.guideline_text === "string" && b.guideline_text.trim() ? b.guideline_text.trim() : undefined,
+        allow_na: b.allow_na === true,
         display_order: idx,
       }));
 

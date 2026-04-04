@@ -52,6 +52,41 @@ const ACCEPT_STRING = '.pdf,.docx,.doc,.xlsx,.xls,.csv';
 
 // ─── Text extractors for non-PDF files ──────────────────────────────────────
 
+async function extractTextFromPdf(file: File): Promise<string | null> {
+  try {
+    const pdfjsLib = await import('pdfjs-dist');
+    // Use the bundled worker — Vite resolves this at build time
+    const workerModule = await import('pdfjs-dist/build/pdf.worker.mjs?url');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = workerModule.default;
+
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+    const pages: string[] = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const text = content.items
+        .map((item: any) => item.str)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (text) pages.push(text);
+    }
+
+    const fullText = pages.join('\n\n');
+    // If we got meaningful text (not just a few chars from headers/footers), use it
+    if (fullText.length > 100) {
+      return fullText;
+    }
+    // Too little text — likely a scanned/image PDF, fall back to vision
+    return null;
+  } catch {
+    // PDF.js failed — fall back to vision
+    return null;
+  }
+}
+
 async function extractTextFromDocx(file: File): Promise<string> {
   const mammoth = await import('mammoth');
   const arrayBuffer = await file.arrayBuffer();
@@ -309,7 +344,31 @@ export function ImportFromPDF({ orgId, onImported, onCancel }: ImportFromPDFProp
       // Route to the right parser based on file type
       let data: ParseResult;
       if (ext === 'pdf') {
-        data = await parsePdf(selectedFile, authToken);
+        // Try text extraction first (faster, cheaper, handles large forms better)
+        const pdfText = await extractTextFromPdf(selectedFile);
+        if (pdfText) {
+          // Text-based PDF — use the text parser
+          const response = await fetch(`${getServerUrl()}/forms/parse-text`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${authToken}`,
+              'apikey': supabaseAnonKey,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              text: pdfText,
+              title: selectedFile.name.replace(/\.[^.]+$/, ''),
+            }),
+          });
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({ error: 'Unknown error' }));
+            throw new Error(errData.error || `Server error: ${response.status}`);
+          }
+          data = await response.json();
+        } else {
+          // Scanned/image PDF — fall back to vision API
+          data = await parsePdf(selectedFile, authToken);
+        }
       } else {
         data = await parseTextDocument(selectedFile, authToken);
       }

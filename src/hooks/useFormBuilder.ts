@@ -448,6 +448,12 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
                     }
                   }
 
+                  // Build validation_rules from AI output flags
+                  const importedRules: Record<string, unknown> = { ...((b as any).validation_rules || {}) };
+                  if ((b as any).allow_na) {
+                    importedRules._allow_na = true;
+                  }
+
                   return {
                     id: blockIds[i],
                     _isNew: true,
@@ -460,6 +466,7 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
                     is_required: b.is_required,
                     options: b.options,
                     conditional_logic: mappedLogic,
+                    validation_rules: Object.keys(importedRules).length > 0 ? importedRules : undefined,
                     display_order: i,
                     guideline_text: (b as any).guideline_text,
                     guideline_attachments: (b as any).guideline_attachments,
