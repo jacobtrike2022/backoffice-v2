@@ -60,29 +60,44 @@ async function extractTextFromPdf(file: File): Promise<string | null> {
     pdfjsLib.GlobalWorkerOptions.workerSrc = workerModule.default;
 
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const pdf = await pdfjsLib.getDocument({
+      data: arrayBuffer,
+      useSystemFonts: true,
+      standardFontDataUrl: undefined, // Suppress font warning — we only need text, not rendering
+    }).promise;
 
     const pages: string[] = [];
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
-      const text = content.items
-        .map((item: any) => item.str)
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (text) pages.push(text);
+
+      // Group text items by Y position to reconstruct lines
+      const lines: Map<number, string[]> = new Map();
+      for (const item of content.items as any[]) {
+        if (!item.str || !item.str.trim()) continue;
+        // Round Y to nearest int to group items on the same line
+        const y = Math.round(item.transform?.[5] ?? 0);
+        if (!lines.has(y)) lines.set(y, []);
+        lines.get(y)!.push(item.str);
+      }
+
+      // Sort by Y descending (PDF coordinates: Y=0 is bottom)
+      const sortedLines = Array.from(lines.entries())
+        .sort((a, b) => b[0] - a[0])
+        .map(([, texts]) => texts.join(' ').trim())
+        .filter(Boolean);
+
+      if (sortedLines.length > 0) {
+        pages.push(sortedLines.join('\n'));
+      }
     }
 
     const fullText = pages.join('\n\n');
-    // If we got meaningful text (not just a few chars from headers/footers), use it
     if (fullText.length > 100) {
       return fullText;
     }
-    // Too little text — likely a scanned/image PDF, fall back to vision
     return null;
   } catch {
-    // PDF.js failed — fall back to vision
     return null;
   }
 }
@@ -281,6 +296,139 @@ export function ImportFromPDF({ orgId, onImported, onCancel }: ImportFromPDFProp
     return await response.json();
   }, []);
 
+  // ── Single API call to parse-text ──
+  const callParseTextAPI = useCallback(async (
+    text: string,
+    title: string,
+    authToken: string,
+  ): Promise<ParseResult> => {
+    const response = await fetch(`${getServerUrl()}/forms/parse-text`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'apikey': supabaseAnonKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text, title }),
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(errData.error || `Server error: ${response.status}`);
+    }
+    return await response.json();
+  }, []);
+
+  // ── Split text into section-based chunks for batched processing ──
+  const splitTextIntoChunks = (text: string, maxChunkSize: number): string[] => {
+    if (text.length <= maxChunkSize) return [text];
+
+    const lines = text.split('\n');
+    // Detect section boundaries: numbered headers, "=== Sheet:" markers, all-caps headers
+    const isSectionBoundary = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      // "1. Pumps / Parking Lot", "7. Food - Grab-n-Go", "=== Sheet: ..."
+      if (/^\d{1,3}\.\s+[A-Z]/.test(trimmed)) return true;
+      if (/^===\s+Sheet:/.test(trimmed)) return true;
+      // ALL-CAPS section headers (2+ words, no punctuation at end)
+      if (/^[A-Z][A-Z\s\/&-]{4,}$/.test(trimmed) && !trimmed.endsWith(':')) return true;
+      return false;
+    };
+
+    const chunks: string[] = [];
+    let currentChunk: string[] = [];
+    let currentSize = 0;
+
+    for (const line of lines) {
+      const lineSize = line.length + 1;
+
+      // If adding this line would exceed the limit AND we're at a section boundary, split
+      if (currentSize + lineSize > maxChunkSize && currentChunk.length > 0 && isSectionBoundary(line)) {
+        chunks.push(currentChunk.join('\n'));
+        currentChunk = [];
+        currentSize = 0;
+      }
+
+      // If a single chunk is still too big and we hit any section boundary, force split
+      if (currentSize > maxChunkSize * 0.8 && isSectionBoundary(line) && currentChunk.length > 0) {
+        chunks.push(currentChunk.join('\n'));
+        currentChunk = [];
+        currentSize = 0;
+      }
+
+      currentChunk.push(line);
+      currentSize += lineSize;
+    }
+
+    if (currentChunk.length > 0) {
+      chunks.push(currentChunk.join('\n'));
+    }
+
+    return chunks;
+  };
+
+  // ── Batched parse: split large text into chunks, call API in parallel, merge results ──
+  const parseTextBatched = useCallback(async (
+    text: string,
+    title: string,
+    authToken: string,
+  ): Promise<ParseResult> => {
+    const BATCH_THRESHOLD = 12000; // chars — below this, single call is fine
+
+    if (text.length <= BATCH_THRESHOLD) {
+      return callParseTextAPI(text, title, authToken);
+    }
+
+    // Split into section-based chunks
+    const chunks = splitTextIntoChunks(text, BATCH_THRESHOLD);
+
+    if (chunks.length === 1) {
+      return callParseTextAPI(text, title, authToken);
+    }
+
+    // Fire all chunks in parallel
+    const results = await Promise.all(
+      chunks.map((chunk, i) =>
+        callParseTextAPI(
+          chunk,
+          i === 0 ? title : `${title} (part ${i + 1})`,
+          authToken,
+        )
+      )
+    );
+
+    // Merge results: concatenate blocks (maintaining order), dedupe sections, take title/type from first result
+    const mergedBlocks: ParseResult['blocks'] = [];
+    const mergedSections: ParseResult['sections'] = [];
+    const seenSectionTitles = new Set<string>();
+
+    let blockOrder = 0;
+    for (const result of results) {
+      if (result.blocks) {
+        for (const block of result.blocks) {
+          mergedBlocks.push({ ...block, display_order: blockOrder++ });
+        }
+      }
+      if (result.sections) {
+        for (const section of result.sections) {
+          if (!seenSectionTitles.has(section.title)) {
+            seenSectionTitles.add(section.title);
+            mergedSections.push(section);
+          }
+        }
+      }
+    }
+
+    return {
+      blocks: mergedBlocks,
+      sections: mergedSections,
+      detected_form_type: results[0]?.detected_form_type || 'inspection',
+      title: results[0]?.title || title,
+      description: results[0]?.description || '',
+    };
+  }, [callParseTextAPI]);
+
   // Parse text-based documents (docx, xlsx, csv) via text extraction + parse-text endpoint
   const parseTextDocument = useCallback(async (selectedFile: File, authToken: string): Promise<ParseResult> => {
     const ext = getFileExtension(selectedFile.name);
@@ -300,25 +448,8 @@ export function ImportFromPDF({ orgId, onImported, onCancel }: ImportFromPDFProp
       throw new Error('Could not extract enough text from the document. The file may be empty or image-only.');
     }
 
-    const response = await fetch(`${getServerUrl()}/forms/parse-text`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${authToken}`,
-        'apikey': supabaseAnonKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        text: extractedText,
-        title: selectedFile.name.replace(/\.[^.]+$/, ''),
-      }),
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(errData.error || `Server error: ${response.status}`);
-    }
-    return await response.json();
-  }, []);
+    return parseTextBatched(extractedText, selectedFile.name.replace(/\.[^.]+$/, ''), authToken);
+  }, [parseTextBatched]);
 
   // Upload → Parse → Create form → Open builder
   const handleFile = useCallback(async (selectedFile: File) => {
@@ -347,24 +478,36 @@ export function ImportFromPDF({ orgId, onImported, onCancel }: ImportFromPDFProp
         // Try text extraction first (faster, cheaper, handles large forms better)
         const pdfText = await extractTextFromPdf(selectedFile);
         if (pdfText) {
-          // Text-based PDF — use the text parser
-          const response = await fetch(`${getServerUrl()}/forms/parse-text`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${authToken}`,
-              'apikey': supabaseAnonKey,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              text: pdfText,
-              title: selectedFile.name.replace(/\.[^.]+$/, ''),
-            }),
-          });
-          if (!response.ok) {
-            const errData = await response.json().catch(() => ({ error: 'Unknown error' }));
-            throw new Error(errData.error || `Server error: ${response.status}`);
+          // Compact large PDFs: merge short label lines with following long guideline lines
+          let processedText = pdfText;
+          if (pdfText.length > 15000) {
+            const lines = pdfText.split('\n');
+            const compacted: string[] = [];
+            let i = 0;
+            while (i < lines.length) {
+              const line = lines[i].trim();
+              if (line.length > 10 && line.length < 150 && i + 1 < lines.length) {
+                const guideLines: string[] = [];
+                let j = i + 1;
+                while (j < lines.length && lines[j].trim().length > 120) {
+                  guideLines.push(lines[j].trim());
+                  j++;
+                }
+                if (guideLines.length > 0) {
+                  compacted.push(`${line} [GUIDELINE: ${guideLines.join(' ')}]`);
+                  i = j;
+                  continue;
+                }
+              }
+              compacted.push(line);
+              i++;
+            }
+            processedText = compacted.join('\n');
           }
-          data = await response.json();
+
+          // Text-based PDF — use batched parse-text (auto-splits large forms)
+          const cleanTitle = selectedFile.name.replace(/\.[^.]+$/, '');
+          data = await parseTextBatched(processedText, cleanTitle, authToken);
         } else {
           // Scanned/image PDF — fall back to vision API
           data = await parsePdf(selectedFile, authToken);

@@ -1723,7 +1723,7 @@ Return ONLY valid JSON:
 }`;
 
     const abortController = new AbortController();
-    const apiTimeout = setTimeout(() => abortController.abort(), 120_000);
+    const apiTimeout = setTimeout(() => abortController.abort(), 140_000); // 140s — large forms need headroom (Supabase wall clock is 150s)
 
     let claudeResponse: Response;
     try {
