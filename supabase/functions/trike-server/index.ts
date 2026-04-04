@@ -1492,6 +1492,7 @@ For each block return:
 - is_required: boolean (true for items that must be completed)
 - options: array of strings (for radio, checkboxes, dropdown only)
 - section_title: string or null (which section this block belongs to)
+- guideline_text: string or null. If a row includes "[GUIDELINE: ...]" text, extract the guideline content (without the bracket markers) and put it here. This is grading criteria shown to the form filler via an info icon. If no guideline is present, omit or set null.
 
 Also determine:
 - detected_form_type: one of "inspection", "audit", "sign-off", "ojt-checklist", "survey"
@@ -1607,6 +1608,7 @@ Return ONLY valid JSON:
         is_required: typeof b.is_required === "boolean" ? b.is_required : false,
         options: Array.isArray(b.options) ? b.options.filter((o: any) => typeof o === "string") : undefined,
         section_title: typeof b.section_title === "string" ? b.section_title : null,
+        guideline_text: typeof b.guideline_text === "string" && b.guideline_text.trim() ? b.guideline_text.trim() : undefined,
         display_order: idx,
       }));
 
@@ -1656,7 +1658,11 @@ async function handleFormsParseText(req: Request): Promise<Response> {
     if (!text || typeof text !== "string" || text.trim().length < 20) {
       return jsonResponse({ error: "Provide 'text' field with at least 20 characters of form content" }, 400);
     }
-    const truncatedText = text.slice(0, 50000);
+    const wasTruncated = text.length > 80000;
+    const truncatedText = text.slice(0, 80000);
+    if (wasTruncated) {
+      console.log(`[parse-text] Input truncated: ${text.length} → 80000 chars`);
+    }
     const systemPrompt = `You are an expert at converting document text into structured digital form fields for a form builder application.
 
 CRITICAL RULES:
@@ -1686,6 +1692,7 @@ For each block return:
 - is_required: boolean (true for items that must be completed)
 - options: array of strings (for radio, checkboxes, dropdown only)
 - section_title: string or null (which section this block belongs to)
+- guideline_text: string or null. If a row includes "[GUIDELINE: ...]" text, extract the guideline content (without the bracket markers) and put it here. This is grading criteria shown to the form filler via an info icon. If no guideline is present, omit or set null.
 
 Also determine:
 - detected_form_type: one of "inspection", "audit", "sign-off", "ojt-checklist", "survey"
@@ -1702,26 +1709,42 @@ Return ONLY valid JSON:
   "description": "..."
 }`;
 
-    const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 16384,
-        messages: [
-          {
-            role: "user",
-            content:
-              `Analyze the following document text and extract all form fields. Return the structured JSON as instructed.\n\n${sourceTitle ? `Document title: ${sourceTitle}\n\n` : ""}---\n${truncatedText}\n---`,
-          },
-        ],
-        system: systemPrompt,
-      }),
-    });
+    const abortController = new AbortController();
+    const apiTimeout = setTimeout(() => abortController.abort(), 120_000);
+
+    let claudeResponse: Response;
+    try {
+      claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 8192,
+          messages: [
+            {
+              role: "user",
+              content:
+                `Analyze the following document text and extract all form fields. Return the structured JSON as instructed.\n\n${sourceTitle ? `Document title: ${sourceTitle}\n\n` : ""}---\n${truncatedText}\n---`,
+            },
+          ],
+          system: systemPrompt,
+        }),
+        signal: abortController.signal,
+      });
+    } catch (fetchErr: unknown) {
+      clearTimeout(apiTimeout);
+      if (fetchErr instanceof DOMException && fetchErr.name === "AbortError") {
+        console.error("[parse-text] Anthropic API call timed out after 120s");
+        return jsonResponse({ error: "AI analysis timed out. Try a smaller document." }, 504);
+      }
+      throw fetchErr;
+    } finally {
+      clearTimeout(apiTimeout);
+    }
 
     if (!claudeResponse.ok) {
       const errText = await claudeResponse.text();
@@ -1731,16 +1754,31 @@ Return ONLY valid JSON:
 
     const claudeData = await claudeResponse.json();
     const rawText = claudeData.content?.[0]?.text || "";
+    const stopReason = claudeData.stop_reason;
+    console.log(`[parse-text] stop_reason: ${stopReason}, usage: ${JSON.stringify(claudeData.usage)}, text length: ${rawText.length}`);
+
+    if (!rawText) {
+      return jsonResponse({ error: "AI returned an empty response. Please try again." }, 502);
+    }
+
+    if (stopReason === "max_tokens") {
+      console.error("[parse-text] AI response truncated (hit max_tokens). Output length:", rawText.length);
+      return jsonResponse({ error: "The document is too complex for a single pass. Try a shorter document or one with fewer fields." }, 502);
+    }
 
     let parsed: any;
     try {
       parsed = extractJSON(rawText);
     } catch {
-      console.error("Failed to parse Claude response:", rawText.substring(0, 1000));
+      console.error("[parse-text] Failed to parse Claude response:", rawText.substring(0, 1000));
       return jsonResponse({ error: "AI returned invalid JSON. Please try again." }, 502);
     }
 
     const blocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
+    const droppedCount = blocks.filter((b: any) => !b || typeof b.label !== "string" || !b.label.trim()).length;
+    if (droppedCount > 0) {
+      console.log(`[parse-text] Dropped ${droppedCount} blocks with missing/empty labels`);
+    }
     const validatedBlocks = blocks
       .filter((b: any) => b && typeof b.label === "string" && b.label.trim())
       .map((b: any, idx: number) => ({
@@ -1750,6 +1788,7 @@ Return ONLY valid JSON:
         is_required: typeof b.is_required === "boolean" ? b.is_required : false,
         options: Array.isArray(b.options) ? b.options.filter((o: any) => typeof o === "string") : undefined,
         section_title: typeof b.section_title === "string" ? b.section_title : null,
+        guideline_text: typeof b.guideline_text === "string" && b.guideline_text.trim() ? b.guideline_text.trim() : undefined,
         display_order: idx,
       }));
 

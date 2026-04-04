@@ -64,16 +64,125 @@ async function extractTextFromXlsx(file: File): Promise<string> {
   const arrayBuffer = await file.arrayBuffer();
   const workbook = XLSX.read(arrayBuffer, { type: 'array' });
 
-  const lines: string[] = [];
+  // ── Smart multi-sheet handling ──
+  // Classify sheets: questionnaire (Y/N/NA items), guidelines (grading criteria), recap (score summaries)
+  // Skip legacy/duplicate sheets, skip recap/score sheets, match guidelines to questions.
+
+  const sheetData: Array<{ name: string; rows: string[][] }> = [];
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
-    if (workbook.SheetNames.length > 1) {
-      lines.push(`\n=== Sheet: ${sheetName} ===\n`);
-    }
-    // Convert to CSV-like text preserving structure
-    const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
-    lines.push(csv);
+    const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false }) as string[][];
+    sheetData.push({ name: sheetName, rows });
   }
+
+  // ── Sheet classification heuristics ──
+
+  // Recap/summary: has score totals but no Y/N columns (not a fillable form)
+  const isRecap = (name: string, rows: string[][]) => {
+    if (/\b(recap|summary|score\s*card|report)\b/i.test(name)) return true;
+    const hasTotals = rows.some(r => r.some(c => typeof c === 'string' && /\b(OVERALL SCORE|SSI SCORE)\b/i.test(c)));
+    const hasScoreCols = rows.some(r => r.some(c => typeof c === 'string' && /\b(ACTUAL|AVAILABLE|SCORE)\b/i.test(c)));
+    const hasYN = rows.some(r => r.some(c => typeof c === 'string' && /Y\s*\/\s*N/i.test(c)));
+    return hasTotals && hasScoreCols && !hasYN;
+  };
+
+  // Guidelines: grading criteria sheets with long descriptive text
+  const isGuideline = (name: string, rows: string[][]) => {
+    if (/guideline/i.test(name)) return true;
+    const longTexts = rows.filter(r => r.some(c => typeof c === 'string' && c.length > 200)).length;
+    const hasYN = rows.some(r => r.some(c => typeof c === 'string' && /Y\s*\/\s*N/i.test(c)));
+    return longTexts > 5 && !hasYN;
+  };
+
+  // Legacy duplicates: exact _V1 suffix (not partial matches like "Version 1 Data")
+  const isLegacyDuplicate = (name: string) => /_V1$/i.test(name);
+
+  // ── Build guideline lookup from guideline sheets ──
+  const guidelineMap = new Map<string, string>();
+  for (const sd of sheetData) {
+    if (isLegacyDuplicate(sd.name)) continue;
+    if (!isGuideline(sd.name, sd.rows)) continue;
+    for (const row of sd.rows) {
+      // Find the longest text cell as guideline content, use first short cell as key
+      const cells = row.map(c => c == null ? '' : String(c).trim()).filter(Boolean);
+      if (cells.length < 2) continue;
+
+      const longestCell = cells.reduce((a, b) => b.length > a.length ? b : a, '');
+      if (longestCell.length < 30) continue;
+
+      // Key is typically the first cell (lookup ID) or a short identifier
+      const keyCandidates = cells.filter(c => c !== longestCell && c.length < 80);
+      for (const key of keyCandidates) {
+        guidelineMap.set(key, longestCell);
+        guidelineMap.set(key.replace(/_$/, ''), longestCell);
+      }
+    }
+  }
+
+  // ── Filter to form/questionnaire sheets only ──
+  const formSheets = sheetData.filter(sd => {
+    if (isLegacyDuplicate(sd.name)) return false;
+    if (isRecap(sd.name, sd.rows)) return false;
+    if (isGuideline(sd.name, sd.rows)) return false;
+    return true;
+  });
+
+  const sheetsToProcess = formSheets.length > 0 ? formSheets : sheetData;
+
+  // ── Find non-empty columns to strip token waste ──
+  const findUsedColumns = (rows: string[][]): Set<number> => {
+    const used = new Set<number>();
+    for (const row of rows) {
+      for (let i = 0; i < row.length; i++) {
+        if (row[i] != null && String(row[i]).trim() !== '') used.add(i);
+      }
+    }
+    return used;
+  };
+
+  const lines: string[] = [];
+
+  if (guidelineMap.size > 0) {
+    lines.push('NOTE: This spreadsheet contains guideline/grading criteria for checklist items. When a checklist item has matching guidelines, include them in the "guideline_text" field for that block.\n');
+  }
+
+  for (const sd of sheetsToProcess) {
+    if (sheetsToProcess.length > 1) {
+      lines.push(`\n=== Sheet: ${sd.name} ===\n`);
+    }
+
+    // Only include columns that have data somewhere in the sheet
+    const usedCols = findUsedColumns(sd.rows);
+
+    for (const row of sd.rows) {
+      // Build compact CSV with only non-empty columns
+      const cells = Array.from(usedCols).sort((a, b) => a - b)
+        .map(i => row[i] == null ? '' : String(row[i]));
+      const csvLine = cells.join(',');
+
+      // Skip rows that are entirely empty after column filtering
+      if (cells.every(c => c.trim() === '')) continue;
+
+      // Match guideline by checking each cell as a potential lookup key
+      let matchedGuideline = '';
+      if (guidelineMap.size > 0) {
+        for (const cell of cells) {
+          const key = cell.trim();
+          if (key && key.length < 80 && guidelineMap.has(key)) {
+            matchedGuideline = guidelineMap.get(key)!;
+            break;
+          }
+        }
+      }
+
+      if (matchedGuideline) {
+        lines.push(`${csvLine} [GUIDELINE: ${matchedGuideline}]`);
+      } else {
+        lines.push(csvLine);
+      }
+    }
+  }
+
   return lines.join('\n');
 }
 

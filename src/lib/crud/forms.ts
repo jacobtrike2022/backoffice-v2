@@ -60,6 +60,8 @@ export interface FormBlockUpsert {
   settings?: any;
   is_required?: boolean;
   display_order: number;
+  guideline_text?: string;
+  guideline_attachments?: Array<{ url: string; type: string; name: string }>;
 }
 
 export interface FormWithSections {
