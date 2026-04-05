@@ -1346,7 +1346,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, sco
           <TabsTrigger value="logic" className="text-xs h-7 px-3 relative">
             {t('forms.propTabLogic')}
             {(hasConditionalLogic || orderIssueMessage) && (
-              <span className={`absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full ${orderIssueMessage ? 'bg-red-500' : 'bg-primary'}`} style={{ border: '2px solid var(--background)' }} />
+              <span className={`absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full ${orderIssueMessage ? 'bg-red-500' : 'bg-primary'}`} style={{ border: '2px solid var(--background)' }} />
             )}
           </TabsTrigger>
         </TabsList>
