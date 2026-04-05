@@ -8,12 +8,14 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
-import { Star, Upload, X, FileText, Loader2, AlertCircle, ClipboardCheck, Shield, FileSignature, GraduationCap, MessageSquare, Info } from 'lucide-react';
+import { Star, Upload, X, FileText, Loader2, AlertCircle, ClipboardCheck, Shield, FileSignature, GraduationCap, MessageSquare, Info, BookOpen } from 'lucide-react';
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 import {
   Select,
   SelectContent,
@@ -575,7 +577,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     }
   };
 
-  // Reusable label with optional guideline info popover
+  // Reusable label with optional guideline info sheet (bottom drawer on mobile)
   const BlockLabel = ({ block }: { block: FormBlockData }) => (
     <Label className="flex items-center gap-1.5">
       <span>
@@ -583,8 +585,8 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         {block.is_required && <span className="text-destructive ml-1">*</span>}
       </span>
       {block.guideline_text && (
-        <Popover>
-          <PopoverTrigger asChild>
+        <Sheet>
+          <SheetTrigger asChild>
             <button
               type="button"
               className="inline-flex items-center justify-center h-5 w-5 rounded-full hover:bg-muted transition-colors shrink-0"
@@ -592,28 +594,60 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
             >
               <Info className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
-          </PopoverTrigger>
-          <PopoverContent side="top" align="start" className="max-w-sm text-sm space-y-2">
-            <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide">Guideline</p>
-            <p className="text-sm whitespace-pre-wrap">{block.guideline_text}</p>
-            {block.guideline_attachments && block.guideline_attachments.length > 0 && (
-              <div className="space-y-1 pt-1 border-t">
-                {block.guideline_attachments.map((att, i) => (
-                  <a
-                    key={i}
-                    href={att.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-xs text-primary hover:underline"
-                  >
-                    <FileText className="h-3 w-3" />
-                    {att.name || 'Attachment'}
-                  </a>
-                ))}
-              </div>
-            )}
-          </PopoverContent>
-        </Popover>
+          </SheetTrigger>
+          <SheetContent side="bottom" className="max-h-[70vh] overflow-y-auto rounded-t-xl">
+            <SheetHeader className="pb-2">
+              <SheetTitle className="flex items-center gap-2 text-sm">
+                <BookOpen className="h-4 w-4" />
+                Guideline
+              </SheetTitle>
+            </SheetHeader>
+            <div className="space-y-3 pb-6">
+              <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.guideline_text}</p>
+              {block.guideline_attachments && block.guideline_attachments.length > 0 && (
+                <div className="space-y-3 pt-2 border-t">
+                  {block.guideline_attachments.map((att, i) => (
+                    att.type === 'image' ? (
+                      <div key={i} className="space-y-1">
+                        <img
+                          src={att.url}
+                          alt={att.name || 'Reference photo'}
+                          className="w-full rounded-lg border border-border"
+                        />
+                        {att.name && (
+                          <p className="text-xs text-muted-foreground">{att.name}</p>
+                        )}
+                      </div>
+                    ) : att.type === 'video' ? (
+                      <div key={i} className="space-y-1">
+                        <video
+                          src={att.url}
+                          controls
+                          className="w-full rounded-lg border border-border"
+                          preload="metadata"
+                        />
+                        {att.name && (
+                          <p className="text-xs text-muted-foreground">{att.name}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <a
+                        key={i}
+                        href={att.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 p-2 rounded-md border border-border hover:bg-muted transition-colors"
+                      >
+                        <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="text-sm truncate">{att.name || 'Attachment'}</span>
+                      </a>
+                    )
+                  ))}
+                </div>
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
       )}
     </Label>
   );
