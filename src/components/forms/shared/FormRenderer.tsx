@@ -1119,25 +1119,25 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
             {block.description && <p className="text-xs text-muted-foreground">{block.description}</p>}
             {readOnly ? (
               <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                value === 'yes' ? 'bg-green-500/20 text-green-400' :
-                value === 'no' ? 'bg-red-500/20 text-red-400' :
-                value === 'n/a' ? 'bg-gray-500/20 text-gray-400' :
+                value === 'yes' ? 'bg-green-500/10 dark:bg-green-500/20 text-green-700 dark:text-green-400' :
+                value === 'no' ? 'bg-red-500/10 dark:bg-red-500/20 text-red-700 dark:text-red-400' :
+                value === 'n/a' ? 'bg-gray-500/10 dark:bg-gray-500/20 text-gray-700 dark:text-gray-400' :
                 'text-muted-foreground'
               }`}>{value === 'yes' ? yesLabel : value === 'no' ? noLabel : value === 'n/a' ? 'N/A' : '—'}</div>
             ) : (
               <div className="flex gap-3 items-center">
                 <button type="button" onClick={() => handleChange(block.id, 'yes')}
                   className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors outline-none focus:outline-none ${
-                    value === 'yes' ? 'border-green-500 bg-green-500/20 text-green-400' : 'border-border hover:border-green-500/50'
+                    value === 'yes' ? 'border-green-500 bg-green-500/10 dark:bg-green-500/20 text-green-700 dark:text-green-400' : 'border-border hover:border-green-500/50'
                   }`}>{yesLabel}</button>
                 <button type="button" onClick={() => handleChange(block.id, 'no')}
                   className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors outline-none focus:outline-none ${
-                    value === 'no' ? 'border-red-500 bg-red-500/20 text-red-400' : 'border-border hover:border-red-500/50'
+                    value === 'no' ? 'border-red-500 bg-red-500/10 dark:bg-red-500/20 text-red-700 dark:text-red-400' : 'border-border hover:border-red-500/50'
                   }`}>{noLabel}</button>
                 {allowNa && (
                   <button type="button" onClick={() => handleChange(block.id, 'n/a')}
                     className={`px-4 py-3 rounded-lg border-2 font-medium text-sm transition-colors outline-none focus:outline-none shrink-0 ${
-                      value === 'n/a' ? 'border-gray-500 bg-gray-500/20 text-gray-300' : 'border-border hover:border-gray-500/50'
+                      value === 'n/a' ? 'border-gray-400 dark:border-gray-500 bg-gray-100 dark:bg-gray-500/20 text-gray-700 dark:text-gray-300' : 'border-border hover:border-gray-400/50 dark:hover:border-gray-500/50'
                     }`}>N/A</button>
                 )}
               </div>
