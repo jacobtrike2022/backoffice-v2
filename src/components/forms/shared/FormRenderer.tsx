@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
-import { Star, Upload, X as XIcon, FileText, Loader2, AlertCircle, ClipboardCheck, Shield, FileSignature, GraduationCap, MessageSquare, Info, BookOpen } from 'lucide-react';
+import { Star, Upload, X as XIcon, FileText, Loader2, AlertCircle, ClipboardCheck, Shield, FileSignature, GraduationCap, MessageSquare, Info, BookOpen, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -155,7 +155,7 @@ const EMPTY_ANSWERS: Record<string, unknown> = {};
 const EMPTY_SECTIONS: FormSectionData[] = [];
 const EMPTY_STORES: StoreOption[] = [];
 const DEFAULT_SHIFT_OPTIONS = ['Opening', 'Mid-day', 'Closing', 'Overnight'];
-const SECTION_PILL_COLLAPSED_MAX_HEIGHT_PX = 64; // Approx. two wrapped rows
+const SECTION_PILL_COLLAPSED_COUNT = 8;
 
 // ─── Reference Lookup Block Components ───────────────────────────────────────
 
@@ -346,10 +346,8 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
   const [lastScoringResult, setLastScoringResult] = React.useState<ScoringResult | null>(null);
   const [uploadStates, setUploadStates] = React.useState<Record<string, UploadState>>({});
   const [isSectionPillListExpanded, setIsSectionPillListExpanded] = React.useState(false);
-  const [isSectionPillListOverflowing, setIsSectionPillListOverflowing] = React.useState(false);
   const sigCanvasRefs = React.useRef<Record<string, SignatureCanvas | null>>({});
   const prevSkippedRef = React.useRef<Set<string>>(new Set());
-  const sectionPillListRef = React.useRef<HTMLDivElement | null>(null);
 
   // Compute which sections are skipped due to active skip_to_section rules
   const skippedSectionIds = React.useMemo(
@@ -374,6 +372,11 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     for (const id of conditionallyHiddenSectionIds) combined.add(id);
     return combined;
   }, [skippedSectionIds, conditionallyHiddenSectionIds]);
+  const visibleSections = React.useMemo(
+    () => sections.filter(s => !allHiddenSectionIds.has(s.id)),
+    [sections, allHiddenSectionIds]
+  );
+  const hiddenSectionPillCount = Math.max(0, visibleSections.length - SECTION_PILL_COLLAPSED_COUNT);
 
   // Build a map of section_id → section data for quick lookups
   const sectionMap = React.useMemo(() => {
@@ -490,30 +493,6 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
   // Reset collapsed state when section visibility changes.
   React.useEffect(() => {
     setIsSectionPillListExpanded(false);
-  }, [sections, allHiddenSectionIds]);
-
-  // Detect whether section chips wrap beyond two rows.
-  React.useEffect(() => {
-    const el = sectionPillListRef.current;
-    if (!el) {
-      setIsSectionPillListOverflowing(false);
-      return;
-    }
-
-    const measureOverflow = () => {
-      setIsSectionPillListOverflowing(el.scrollHeight > SECTION_PILL_COLLAPSED_MAX_HEIGHT_PX + 2);
-    };
-
-    measureOverflow();
-
-    if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(() => measureOverflow());
-      observer.observe(el);
-      return () => observer.disconnect();
-    }
-
-    window.addEventListener('resize', measureOverflow);
-    return () => window.removeEventListener('resize', measureOverflow);
   }, [sections, allHiddenSectionIds]);
 
   const handleChange = (blockId: string, value: unknown) => {
@@ -1625,17 +1604,9 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
 
       {/* Section quick-nav for forms with multiple sections */}
       {!readOnly && sections.length > 2 && (
-        <div className="space-y-1.5">
-          <div
-            ref={sectionPillListRef}
-            className={`relative flex flex-wrap gap-1.5 transition-[max-height] duration-200 ${
-              isSectionPillListExpanded ? 'max-h-[320px] overflow-y-auto pr-1' : 'overflow-hidden'
-            }`}
-            style={isSectionPillListExpanded ? undefined : { maxHeight: `${SECTION_PILL_COLLAPSED_MAX_HEIGHT_PX}px` }}
-          >
-            {sections
-              .filter(s => !allHiddenSectionIds.has(s.id))
-              .map(s => (
+        <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-2.5">
+          <div className="flex flex-wrap gap-1.5">
+            {(isSectionPillListExpanded ? visibleSections : visibleSections.slice(0, SECTION_PILL_COLLAPSED_COUNT)).map(s => (
                 <button
                   key={s.id}
                   type="button"
@@ -1648,19 +1619,16 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
               ))}
           </div>
 
-          {isSectionPillListOverflowing && !isSectionPillListExpanded && (
-            <div className="-mt-6 h-6 bg-gradient-to-t from-background to-transparent pointer-events-none rounded-b-md" />
-          )}
-
-          {isSectionPillListOverflowing && (
+          {hiddenSectionPillCount > 0 && (
             <button
               type="button"
               onClick={() => setIsSectionPillListExpanded(prev => !prev)}
-              className="text-xs font-medium text-primary hover:underline"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
             >
               {isSectionPillListExpanded
                 ? t('forms.sectionPillsShowFewer', 'Show fewer sections')
-                : t('forms.sectionPillsShowAll', 'Show all sections')}
+                : t('forms.sectionPillsShowAllCount', `Show ${hiddenSectionPillCount} more sections`)}
+              {isSectionPillListExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
             </button>
           )}
         </div>
