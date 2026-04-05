@@ -155,6 +155,7 @@ const EMPTY_ANSWERS: Record<string, unknown> = {};
 const EMPTY_SECTIONS: FormSectionData[] = [];
 const EMPTY_STORES: StoreOption[] = [];
 const DEFAULT_SHIFT_OPTIONS = ['Opening', 'Mid-day', 'Closing', 'Overnight'];
+const SECTION_PILL_COLLAPSED_MAX_HEIGHT_PX = 64; // Approx. two wrapped rows
 
 // ─── Reference Lookup Block Components ───────────────────────────────────────
 
@@ -344,8 +345,11 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
   const [isSubmitted, setIsSubmitted] = React.useState(false);
   const [lastScoringResult, setLastScoringResult] = React.useState<ScoringResult | null>(null);
   const [uploadStates, setUploadStates] = React.useState<Record<string, UploadState>>({});
+  const [isSectionPillListExpanded, setIsSectionPillListExpanded] = React.useState(false);
+  const [isSectionPillListOverflowing, setIsSectionPillListOverflowing] = React.useState(false);
   const sigCanvasRefs = React.useRef<Record<string, SignatureCanvas | null>>({});
   const prevSkippedRef = React.useRef<Set<string>>(new Set());
+  const sectionPillListRef = React.useRef<HTMLDivElement | null>(null);
 
   // Compute which sections are skipped due to active skip_to_section rules
   const skippedSectionIds = React.useMemo(
@@ -482,6 +486,35 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
   // NOTE: answers prop is only used as initial state (line 107).
   // Do NOT sync answers→formData via useEffect — it causes infinite loops
   // when callers pass `answers={}` (new object reference each render).
+
+  // Reset collapsed state when section visibility changes.
+  React.useEffect(() => {
+    setIsSectionPillListExpanded(false);
+  }, [sections, allHiddenSectionIds]);
+
+  // Detect whether section chips wrap beyond two rows.
+  React.useEffect(() => {
+    const el = sectionPillListRef.current;
+    if (!el) {
+      setIsSectionPillListOverflowing(false);
+      return;
+    }
+
+    const measureOverflow = () => {
+      setIsSectionPillListOverflowing(el.scrollHeight > SECTION_PILL_COLLAPSED_MAX_HEIGHT_PX + 2);
+    };
+
+    measureOverflow();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => measureOverflow());
+      observer.observe(el);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener('resize', measureOverflow);
+    return () => window.removeEventListener('resize', measureOverflow);
+  }, [sections, allHiddenSectionIds]);
 
   const handleChange = (blockId: string, value: unknown) => {
     setFormData(prev => ({ ...prev, [blockId]: value }));
@@ -1592,20 +1625,44 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
 
       {/* Section quick-nav for forms with multiple sections */}
       {!readOnly && sections.length > 2 && (
-        <div className="flex flex-wrap gap-1.5">
-          {sections
-            .filter(s => !allHiddenSectionIds.has(s.id))
-            .map(s => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => document.getElementById(`form-section-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                className="text-xs px-2.5 py-1 rounded-full border border-border bg-background hover:bg-muted transition-colors truncate max-w-[200px]"
-                title={s.title || ''}
-              >
-                {s.title}
-              </button>
-            ))}
+        <div className="space-y-1.5">
+          <div
+            ref={sectionPillListRef}
+            className={`relative flex flex-wrap gap-1.5 transition-[max-height] duration-200 ${
+              isSectionPillListExpanded ? 'max-h-[320px] overflow-y-auto pr-1' : 'overflow-hidden'
+            }`}
+            style={isSectionPillListExpanded ? undefined : { maxHeight: `${SECTION_PILL_COLLAPSED_MAX_HEIGHT_PX}px` }}
+          >
+            {sections
+              .filter(s => !allHiddenSectionIds.has(s.id))
+              .map(s => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => document.getElementById(`form-section-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  className="text-xs px-2.5 py-1 rounded-full border border-border bg-background hover:bg-muted transition-colors truncate max-w-[200px]"
+                  title={s.title || ''}
+                >
+                  {s.title}
+                </button>
+              ))}
+          </div>
+
+          {isSectionPillListOverflowing && !isSectionPillListExpanded && (
+            <div className="-mt-6 h-6 bg-gradient-to-t from-background to-transparent pointer-events-none rounded-b-md" />
+          )}
+
+          {isSectionPillListOverflowing && (
+            <button
+              type="button"
+              onClick={() => setIsSectionPillListExpanded(prev => !prev)}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              {isSectionPillListExpanded
+                ? t('forms.sectionPillsShowFewer', 'Show fewer sections')
+                : t('forms.sectionPillsShowAll', 'Show all sections')}
+            </button>
+          )}
         </div>
       )}
 
