@@ -605,55 +605,61 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
       <>
         {/* Backdrop */}
         <div
-          className="fixed inset-0 bg-black/50 z-40 animate-in fade-in duration-200"
+          className="fixed inset-0 bg-black/60 z-40 animate-in fade-in duration-200 backdrop-blur-[2px]"
           onClick={() => setOpenGuidelineBlock(null)}
         />
         {/* Drawer — anchored to the form container width */}
-        <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center animate-in slide-in-from-bottom duration-300">
-          <div className="w-full max-w-2xl bg-background border border-border border-b-0 rounded-t-2xl shadow-2xl flex flex-col" style={{ maxHeight: '65vh' }}>
-            {/* Handle + header */}
-            <div className="shrink-0">
-              <div className="flex justify-center pt-3 pb-1">
-                <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
-              </div>
-              <div className="flex items-center justify-between px-5 pb-3 border-b border-border">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 text-sm font-semibold">
-                    <BookOpen className="h-4 w-4 shrink-0" />
-                    Guideline
-                  </div>
-                  {block.label && (
-                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{block.label}</p>
-                  )}
+        <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center px-4 animate-in slide-in-from-bottom duration-300">
+          <div className="w-full max-w-2xl bg-background border border-border border-b-0 rounded-t-3xl shadow-2xl flex flex-col" style={{ maxHeight: '65vh' }}>
+            {/* Drag handle — tappable to close */}
+            <button
+              type="button"
+              onClick={() => setOpenGuidelineBlock(null)}
+              className="flex justify-center pt-3 pb-2 cursor-pointer hover:opacity-70 transition-opacity"
+              aria-label="Close guidelines"
+            >
+              <div className="w-12 h-1.5 rounded-full bg-muted-foreground/40" />
+            </button>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pb-3 border-b border-border shrink-0">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <BookOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  Guideline
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setOpenGuidelineBlock(null)}
-                  className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-muted transition-colors shrink-0 ml-3"
-                >
-                  <XIcon className="h-4 w-4" />
-                </button>
+                {block.label && (
+                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{block.label}</p>
+                )}
               </div>
+              <button
+                type="button"
+                onClick={() => setOpenGuidelineBlock(null)}
+                className="h-8 w-8 flex items-center justify-center rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0 ml-3"
+                aria-label="Close"
+              >
+                <XIcon className="h-4 w-4" />
+              </button>
             </div>
 
             {/* Scrollable content */}
-            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4 overscroll-contain">
               <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.guideline_text}</p>
 
               {(images.length > 0 || videos.length > 0 || files.length > 0) && (
-                <div className="space-y-3 pt-3 border-t">
+                <div className="space-y-3 pt-3 border-t border-border">
                   {images.length > 0 && (
                     <div className={images.length === 1 ? '' : 'grid grid-cols-2 gap-2'}>
                       {images.map((att, i) => (
-                        <div key={`img-${i}`} className="space-y-1">
+                        <div key={`img-${i}`} className="space-y-1.5">
                           <img
                             src={att.url}
                             alt={att.name || 'Reference photo'}
-                            className="w-full rounded-lg border border-border"
+                            className="w-full rounded-xl border border-border bg-muted/20"
                             style={{ maxHeight: '35vh', objectFit: 'contain' }}
                           />
                           {att.name && (
-                            <p className="text-[11px] text-muted-foreground truncate">{att.name}</p>
+                            <p className="text-[11px] text-muted-foreground truncate px-0.5">{att.name}</p>
                           )}
                         </div>
                       ))}
@@ -661,16 +667,16 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
                   )}
 
                   {videos.map((att, i) => (
-                    <div key={`vid-${i}`} className="space-y-1">
+                    <div key={`vid-${i}`} className="space-y-1.5">
                       <video
                         src={att.url}
                         controls
-                        className="w-full rounded-lg border border-border"
+                        className="w-full rounded-xl border border-border"
                         style={{ maxHeight: '35vh' }}
                         preload="metadata"
                       />
                       {att.name && (
-                        <p className="text-[11px] text-muted-foreground truncate">{att.name}</p>
+                        <p className="text-[11px] text-muted-foreground truncate px-0.5">{att.name}</p>
                       )}
                     </div>
                   ))}
@@ -681,7 +687,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
                       href={att.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-2 p-2.5 rounded-lg border border-border hover:bg-muted transition-colors"
+                      className="flex items-center gap-2.5 p-3 rounded-xl border border-border hover:bg-muted/50 transition-colors"
                     >
                       <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                       <span className="text-sm truncate">{att.name || 'Attachment'}</span>
