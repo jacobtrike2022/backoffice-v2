@@ -16077,7 +16077,7 @@ async function handleFormsPublicGet(req: Request, path: string): Promise<Respons
     // Fetch blocks
     const { data: blocks } = await supabase
       .from('form_blocks')
-      .select('id, type, label, description, placeholder, is_required, options, validation_rules, conditional_logic, display_order, section_id')
+      .select('id, type, label, description, placeholder, is_required, options, validation_rules, conditional_logic, display_order, section_id, guideline_text, guideline_attachments')
       .eq('form_id', formId)
       .order('display_order', { ascending: true });
 
