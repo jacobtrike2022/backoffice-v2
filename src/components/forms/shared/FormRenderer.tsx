@@ -8,14 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
-import { Star, Upload, X, FileText, Loader2, AlertCircle, ClipboardCheck, Shield, FileSignature, GraduationCap, MessageSquare, Info, BookOpen } from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
+import { Star, Upload, X as XIcon, FileText, Loader2, AlertCircle, ClipboardCheck, Shield, FileSignature, GraduationCap, MessageSquare, Info, BookOpen } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -577,7 +570,9 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     }
   };
 
-  // Reusable label with optional guideline info dialog
+  // Guideline drawer state — inline within the form, not a portal
+  const [openGuidelineBlock, setOpenGuidelineBlock] = React.useState<FormBlockData | null>(null);
+
   const BlockLabel = ({ block }: { block: FormBlockData }) => (
     <Label className="flex items-center gap-1.5">
       <span>
@@ -585,94 +580,121 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         {block.is_required && <span className="text-destructive ml-1">*</span>}
       </span>
       {block.guideline_text && (
-        <Dialog>
-          <DialogTrigger asChild>
-            <button
-              type="button"
-              className="inline-flex items-center justify-center h-5 w-5 rounded-full hover:bg-muted transition-colors shrink-0"
-              aria-label="View guidelines"
-            >
-              <Info className="h-3.5 w-3.5 text-muted-foreground" />
-            </button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto p-0 gap-0">
-            <DialogHeader className="sticky top-0 bg-background z-10 px-6 pt-6 pb-3 border-b border-border">
-              <DialogTitle className="flex items-center gap-2 text-sm">
-                <BookOpen className="h-4 w-4" />
-                Guideline
-              </DialogTitle>
-              {block.label && (
-                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{block.label}</p>
-              )}
-            </DialogHeader>
-            <div className="px-6 py-4 space-y-4">
-              <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.guideline_text}</p>
-
-              {block.guideline_attachments && block.guideline_attachments.length > 0 && (() => {
-                const images = block.guideline_attachments!.filter(a => a.type === 'image');
-                const videos = block.guideline_attachments!.filter(a => a.type === 'video');
-                const files = block.guideline_attachments!.filter(a => a.type !== 'image' && a.type !== 'video');
-
-                return (
-                  <div className="space-y-4 pt-3 border-t">
-                    {images.length > 0 && (
-                      <div className={images.length === 1 ? '' : 'grid grid-cols-2 gap-2'}>
-                        {images.map((att, i) => (
-                          <div key={`img-${i}`} className="space-y-1">
-                            <img
-                              src={att.url}
-                              alt={att.name || 'Reference photo'}
-                              className="w-full rounded-lg border border-border"
-                              style={{ maxHeight: '40vh', objectFit: 'contain' }}
-                            />
-                            {att.name && (
-                              <p className="text-[11px] text-muted-foreground truncate">{att.name}</p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {videos.map((att, i) => (
-                      <div key={`vid-${i}`} className="space-y-1">
-                        <video
-                          src={att.url}
-                          controls
-                          className="w-full rounded-lg border border-border"
-                          style={{ maxHeight: '40vh' }}
-                          preload="metadata"
-                        />
-                        {att.name && (
-                          <p className="text-[11px] text-muted-foreground truncate">{att.name}</p>
-                        )}
-                      </div>
-                    ))}
-
-                    {files.length > 0 && (
-                      <div className="space-y-1.5">
-                        {files.map((att, i) => (
-                          <a
-                            key={`file-${i}`}
-                            href={att.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 p-2.5 rounded-lg border border-border hover:bg-muted transition-colors"
-                          >
-                            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                            <span className="text-sm truncate">{att.name || 'Attachment'}</span>
-                          </a>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-          </DialogContent>
-        </Dialog>
+        <button
+          type="button"
+          onClick={() => setOpenGuidelineBlock(block)}
+          className="inline-flex items-center justify-center h-5 w-5 rounded-full hover:bg-muted transition-colors shrink-0"
+          aria-label="View guidelines"
+        >
+          <Info className="h-3.5 w-3.5 text-muted-foreground" />
+        </button>
       )}
     </Label>
   );
+
+  // Inline guideline drawer — rendered at the bottom of the form container
+  const GuidelineDrawer = () => {
+    const block = openGuidelineBlock;
+    if (!block) return null;
+
+    const images = (block.guideline_attachments || []).filter(a => a.type === 'image');
+    const videos = (block.guideline_attachments || []).filter(a => a.type === 'video');
+    const files = (block.guideline_attachments || []).filter(a => a.type !== 'image' && a.type !== 'video');
+
+    return (
+      <>
+        {/* Backdrop */}
+        <div
+          className="fixed inset-0 bg-black/50 z-40 animate-in fade-in duration-200"
+          onClick={() => setOpenGuidelineBlock(null)}
+        />
+        {/* Drawer — anchored to the form container width */}
+        <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center animate-in slide-in-from-bottom duration-300">
+          <div className="w-full max-w-2xl bg-background border border-border border-b-0 rounded-t-2xl shadow-2xl flex flex-col" style={{ maxHeight: '65vh' }}>
+            {/* Handle + header */}
+            <div className="shrink-0">
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+              </div>
+              <div className="flex items-center justify-between px-5 pb-3 border-b border-border">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <BookOpen className="h-4 w-4 shrink-0" />
+                    Guideline
+                  </div>
+                  {block.label && (
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{block.label}</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOpenGuidelineBlock(null)}
+                  className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-muted transition-colors shrink-0 ml-3"
+                >
+                  <XIcon className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable content */}
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+              <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.guideline_text}</p>
+
+              {(images.length > 0 || videos.length > 0 || files.length > 0) && (
+                <div className="space-y-3 pt-3 border-t">
+                  {images.length > 0 && (
+                    <div className={images.length === 1 ? '' : 'grid grid-cols-2 gap-2'}>
+                      {images.map((att, i) => (
+                        <div key={`img-${i}`} className="space-y-1">
+                          <img
+                            src={att.url}
+                            alt={att.name || 'Reference photo'}
+                            className="w-full rounded-lg border border-border"
+                            style={{ maxHeight: '35vh', objectFit: 'contain' }}
+                          />
+                          {att.name && (
+                            <p className="text-[11px] text-muted-foreground truncate">{att.name}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {videos.map((att, i) => (
+                    <div key={`vid-${i}`} className="space-y-1">
+                      <video
+                        src={att.url}
+                        controls
+                        className="w-full rounded-lg border border-border"
+                        style={{ maxHeight: '35vh' }}
+                        preload="metadata"
+                      />
+                      {att.name && (
+                        <p className="text-[11px] text-muted-foreground truncate">{att.name}</p>
+                      )}
+                    </div>
+                  ))}
+
+                  {files.map((att, i) => (
+                    <a
+                      key={`file-${i}`}
+                      href={att.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 p-2.5 rounded-lg border border-border hover:bg-muted transition-colors"
+                    >
+                      <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="text-sm truncate">{att.name || 'Attachment'}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  };
 
   const renderBlock = (block: FormBlockData) => {
     // Evaluate conditional logic — skip blocks that should be hidden
@@ -1629,6 +1651,9 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
           </button>
         </div>
       )}
+
+      {/* Guideline slide-up drawer */}
+      <GuidelineDrawer />
     </div>
   );
 }
