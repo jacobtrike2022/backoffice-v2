@@ -1052,8 +1052,8 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
                   }`}>{noLabel}</button>
                 {allowNa && (
                   <button type="button" onClick={() => handleChange(block.id, 'n/a')}
-                    className={`px-4 py-3 rounded-lg border font-medium text-xs transition-colors shrink-0 ${
-                      value === 'n/a' ? 'border-gray-400 bg-gray-500/20 text-gray-300' : 'border-border/50 text-muted-foreground/60 hover:border-gray-400/50 hover:text-muted-foreground'
+                    className={`px-4 py-3 rounded-lg border-2 font-medium text-sm transition-colors shrink-0 ${
+                      value === 'n/a' ? 'border-gray-500 bg-gray-500/20 text-gray-300' : 'border-border hover:border-gray-500/50'
                     }`}>N/A</button>
                 )}
               </div>

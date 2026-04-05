@@ -1291,7 +1291,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, sco
   };
 
   return (
-    <div className="shrink-0 h-full bg-background border-l border-border shadow-xl z-40 flex flex-col overflow-hidden animate-in slide-in-from-right duration-200" style={{ width: wide ? 'min(28vw, 620px)' : '460px', minWidth: wide ? '510px' : '420px' }}>
+    <div className="shrink-0 bg-background border-l border-border shadow-xl z-40 flex flex-col overflow-hidden animate-in slide-in-from-right duration-200" style={{ width: wide ? 'min(28vw, 620px)' : '460px', minWidth: wide ? '510px' : '420px', height: '100%', maxHeight: '100vh' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
@@ -1789,23 +1789,11 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, sco
 
         {/* ── GUIDELINES ──── */}
         {!['instruction', 'divider', 'section', 'html'].includes(block.block_type) && (
-          <div className="space-y-2 pt-2 border-t">
-            <div className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-muted-foreground" />
-              <Label className="text-xs font-medium">{t('forms.guidelines', 'Guidelines')}</Label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {t('forms.guidelinesDesc', 'Grading criteria or reference instructions shown to the person filling out the form via an info icon.')}
-            </p>
-            <Textarea
-              value={block.guideline_text || ''}
-              onChange={(e) => onUpdate({ guideline_text: e.target.value })}
-              placeholder={t('forms.guidelinesPlaceholder', 'e.g., Check to ensure all pumps are operational and any maintenance issues have been reported...')}
-              rows={3}
-              className="text-sm resize-y"
-            />
-          </div>
+          <GuidelineEditor block={block} onUpdate={onUpdate} />
         )}
+
+        {/* Bottom scroll padding */}
+        <div className="pb-8" />
 
         </TabsContent>
 
@@ -2045,7 +2033,7 @@ function SectionPropertiesDrawer({ section, allBlocks, scoringEnabled, scoringMo
   };
 
   return (
-    <div className="shrink-0 h-full bg-background border-l border-border shadow-xl z-40 flex flex-col overflow-hidden animate-in slide-in-from-right duration-200" style={{ width: wide ? 'min(28vw, 620px)' : '460px', minWidth: wide ? '510px' : '420px' }}>
+    <div className="shrink-0 bg-background border-l border-border shadow-xl z-40 flex flex-col overflow-hidden animate-in slide-in-from-right duration-200" style={{ width: wide ? 'min(28vw, 620px)' : '460px', minWidth: wide ? '510px' : '420px', height: '100%', maxHeight: '100vh' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
@@ -2509,6 +2497,121 @@ function FormScopeModal({ isOpen, onClose, formId, organizationId, onSaved }: {
 // ============================================================================
 // PER-ITEM ON-FAIL → ASSIGN TRAINING (inside Properties Drawer Settings tab)
 // ============================================================================
+
+// ── Guideline Editor (text + photo/video attachments) ──────────────────────
+
+function GuidelineEditor({ block, onUpdate }: { block: LocalBlock; onUpdate: (updates: Partial<LocalBlock>) => void }) {
+  const { t } = useTranslation();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const attachments = block.guideline_attachments || [];
+
+  const handleUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storagePath = `guidelines/${block.form_id}/${block.id}/${Date.now()}_${safeName}`;
+
+      const { data, error } = await supabase.storage
+        .from('form-uploads')
+        .upload(storagePath, file, { cacheControl: '3600', upsert: false });
+
+      if (error) throw error;
+
+      const { data: urlData } = supabase.storage
+        .from('form-uploads')
+        .getPublicUrl(data.path);
+
+      const newAttachment = {
+        url: urlData.publicUrl,
+        type: file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'file',
+        name: file.name,
+      };
+
+      onUpdate({
+        guideline_attachments: [...attachments, newAttachment],
+      });
+    } catch (err) {
+      console.error('Guideline attachment upload failed:', err);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemove = (index: number) => {
+    const updated = attachments.filter((_, i) => i !== index);
+    onUpdate({ guideline_attachments: updated });
+  };
+
+  return (
+    <div className="space-y-2 pt-2 border-t">
+      <div className="flex items-center gap-2">
+        <BookOpen className="h-4 w-4 text-muted-foreground" />
+        <Label className="text-xs font-medium">{t('forms.guidelines', 'Guidelines')}</Label>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {t('forms.guidelinesDesc', 'Grading criteria or reference instructions shown to the person filling out the form via an info icon.')}
+      </p>
+      <Textarea
+        value={block.guideline_text || ''}
+        onChange={(e) => onUpdate({ guideline_text: e.target.value })}
+        placeholder={t('forms.guidelinesPlaceholder', 'e.g., Check to ensure all pumps are operational and any maintenance issues have been reported...')}
+        rows={3}
+        className="text-sm resize-y"
+      />
+
+      {/* Existing attachments */}
+      {attachments.length > 0 && (
+        <div className="space-y-1.5">
+          {attachments.map((att, i) => (
+            <div key={i} className="flex items-center gap-2 p-1.5 rounded-md border border-border bg-muted/30 group">
+              {att.type === 'image' ? (
+                <img src={att.url} alt={att.name} className="h-8 w-8 rounded object-cover shrink-0" />
+              ) : (
+                <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+              )}
+              <span className="text-xs truncate flex-1">{att.name}</span>
+              <button
+                type="button"
+                onClick={() => handleRemove(i)}
+                className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Upload button */}
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+      >
+        {uploading ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <Upload className="h-3 w-3" />
+        )}
+        {uploading ? t('forms.uploading', 'Uploading...') : t('forms.addGuidelineAttachment', 'Add photo or video')}
+      </button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,video/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handleUpload(f);
+        }}
+      />
+    </div>
+  );
+}
 
 function PerItemOnFailTraining({ block, onUpdate }: { block: LocalBlock; onUpdate: (updates: Partial<LocalBlock>) => void }) {
   const { t } = useTranslation();
