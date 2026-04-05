@@ -1291,7 +1291,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, sco
   };
 
   return (
-    <div className="shrink-0 bg-background border-l border-border shadow-xl z-40 flex flex-col overflow-hidden animate-in slide-in-from-right duration-200" style={{ width: wide ? 'min(28vw, 620px)' : '460px', minWidth: wide ? '510px' : '420px', height: '100%', maxHeight: '100vh' }}>
+    <div className="shrink-0 h-full bg-background border-l border-border shadow-xl z-40 flex flex-col overflow-hidden animate-in slide-in-from-right duration-200" style={{ width: wide ? 'min(28vw, 620px)' : '460px', minWidth: wide ? '510px' : '420px' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
@@ -1353,7 +1353,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, sco
         </div>
 
         {/* ── SETTINGS TAB ─────────────────────────────────── */}
-        <TabsContent value="settings" className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4 mt-2">
+        <TabsContent value="settings" className="flex-1 basis-0 min-h-0 overflow-y-auto px-6 py-4 space-y-4 mt-2">
         {/* Label */}
         <div className="space-y-1.5">
           <Label htmlFor="block-label" className="text-xs font-medium">{t('forms.propQuestionLabel')}</Label>
@@ -1798,7 +1798,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, sco
         </TabsContent>
 
         {/* ── LOGIC TAB ────────────────────────────────────── */}
-        <TabsContent value="logic" className="flex-1 min-h-0 overflow-y-auto px-6 py-4 mt-2">
+        <TabsContent value="logic" className="flex-1 basis-0 min-h-0 overflow-y-auto px-6 py-4 mt-2">
           <div className="space-y-4">
             <div>
               <p className="text-sm font-medium">{t('forms.propConditionalLogic')}</p>
@@ -2033,7 +2033,7 @@ function SectionPropertiesDrawer({ section, allBlocks, scoringEnabled, scoringMo
   };
 
   return (
-    <div className="shrink-0 bg-background border-l border-border shadow-xl z-40 flex flex-col overflow-hidden animate-in slide-in-from-right duration-200" style={{ width: wide ? 'min(28vw, 620px)' : '460px', minWidth: wide ? '510px' : '420px', height: '100%', maxHeight: '100vh' }}>
+    <div className="shrink-0 h-full bg-background border-l border-border shadow-xl z-40 flex flex-col overflow-hidden animate-in slide-in-from-right duration-200" style={{ width: wide ? 'min(28vw, 620px)' : '460px', minWidth: wide ? '510px' : '420px' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
