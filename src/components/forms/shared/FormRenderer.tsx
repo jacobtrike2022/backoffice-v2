@@ -1043,16 +1043,16 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
             ) : (
               <div className="flex gap-3 items-center">
                 <button type="button" onClick={() => handleChange(block.id, 'yes')}
-                  className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors ${
+                  className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors outline-none focus:outline-none ${
                     value === 'yes' ? 'border-green-500 bg-green-500/20 text-green-400' : 'border-border hover:border-green-500/50'
                   }`}>{yesLabel}</button>
                 <button type="button" onClick={() => handleChange(block.id, 'no')}
-                  className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors ${
+                  className={`flex-1 py-3 rounded-lg border-2 font-medium text-sm transition-colors outline-none focus:outline-none ${
                     value === 'no' ? 'border-red-500 bg-red-500/20 text-red-400' : 'border-border hover:border-red-500/50'
                   }`}>{noLabel}</button>
                 {allowNa && (
                   <button type="button" onClick={() => handleChange(block.id, 'n/a')}
-                    className={`px-4 py-3 rounded-lg border-2 font-medium text-sm transition-colors shrink-0 ${
+                    className={`px-4 py-3 rounded-lg border-2 font-medium text-sm transition-colors outline-none focus:outline-none shrink-0 ${
                       value === 'n/a' ? 'border-gray-500 bg-gray-500/20 text-gray-300' : 'border-border hover:border-gray-500/50'
                     }`}>N/A</button>
                 )}
