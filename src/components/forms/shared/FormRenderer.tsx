@@ -595,31 +595,52 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
               <Info className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
           </SheetTrigger>
-          <SheetContent side="bottom" className="max-h-[70vh] overflow-y-auto rounded-t-xl">
-            <SheetHeader className="pb-2">
+          <SheetContent side="bottom" className="max-h-[75vh] overflow-y-auto rounded-t-2xl px-0">
+            {/* Drag handle */}
+            <div className="flex justify-center pt-2 pb-1">
+              <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+            </div>
+            <SheetHeader className="px-6 pb-3">
               <SheetTitle className="flex items-center gap-2 text-sm">
                 <BookOpen className="h-4 w-4" />
                 Guideline
               </SheetTitle>
+              {block.label && (
+                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{block.label}</p>
+              )}
             </SheetHeader>
-            <div className="space-y-3 pb-6">
+            <div className="px-6 pb-8 space-y-4">
               <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.guideline_text}</p>
-              {block.guideline_attachments && block.guideline_attachments.length > 0 && (
-                <div className="space-y-3 pt-2 border-t">
-                  {block.guideline_attachments.map((att, i) => (
-                    att.type === 'image' ? (
-                      <div key={i} className="space-y-1">
-                        <img
-                          src={att.url}
-                          alt={att.name || 'Reference photo'}
-                          className="w-full rounded-lg border border-border"
-                        />
-                        {att.name && (
-                          <p className="text-xs text-muted-foreground">{att.name}</p>
-                        )}
+
+              {block.guideline_attachments && block.guideline_attachments.length > 0 && (() => {
+                const images = block.guideline_attachments!.filter(a => a.type === 'image');
+                const videos = block.guideline_attachments!.filter(a => a.type === 'video');
+                const files = block.guideline_attachments!.filter(a => a.type !== 'image' && a.type !== 'video');
+
+                return (
+                  <div className="space-y-4 pt-3 border-t">
+                    {/* Image grid: 1 image = full width, 2+ = 2-column grid */}
+                    {images.length > 0 && (
+                      <div className={images.length === 1 ? '' : 'grid grid-cols-2 gap-2'}>
+                        {images.map((att, i) => (
+                          <div key={`img-${i}`} className="space-y-1">
+                            <img
+                              src={att.url}
+                              alt={att.name || 'Reference photo'}
+                              className="w-full rounded-lg border border-border object-cover"
+                              style={images.length > 1 ? { aspectRatio: '4/3' } : undefined}
+                            />
+                            {att.name && (
+                              <p className="text-[11px] text-muted-foreground truncate">{att.name}</p>
+                            )}
+                          </div>
+                        ))}
                       </div>
-                    ) : att.type === 'video' ? (
-                      <div key={i} className="space-y-1">
+                    )}
+
+                    {/* Videos: always full width with native controls */}
+                    {videos.map((att, i) => (
+                      <div key={`vid-${i}`} className="space-y-1">
                         <video
                           src={att.url}
                           controls
@@ -627,24 +648,31 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
                           preload="metadata"
                         />
                         {att.name && (
-                          <p className="text-xs text-muted-foreground">{att.name}</p>
+                          <p className="text-[11px] text-muted-foreground truncate">{att.name}</p>
                         )}
                       </div>
-                    ) : (
-                      <a
-                        key={i}
-                        href={att.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 p-2 rounded-md border border-border hover:bg-muted transition-colors"
-                      >
-                        <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="text-sm truncate">{att.name || 'Attachment'}</span>
-                      </a>
-                    )
-                  ))}
-                </div>
-              )}
+                    ))}
+
+                    {/* Other files */}
+                    {files.length > 0 && (
+                      <div className="space-y-1.5">
+                        {files.map((att, i) => (
+                          <a
+                            key={`file-${i}`}
+                            href={att.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 p-2.5 rounded-lg border border-border hover:bg-muted transition-colors"
+                          >
+                            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <span className="text-sm truncate">{att.name || 'Attachment'}</span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </SheetContent>
         </Sheet>
