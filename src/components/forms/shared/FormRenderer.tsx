@@ -595,21 +595,23 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
               <Info className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
           </SheetTrigger>
-          <SheetContent side="bottom" className="max-h-[75vh] overflow-y-auto rounded-t-2xl px-0">
-            {/* Drag handle */}
-            <div className="flex justify-center pt-2 pb-1">
-              <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+          <SheetContent side="bottom" className="max-h-[60vh] rounded-t-2xl px-0 flex flex-col">
+            {/* Drag handle + sticky header */}
+            <div className="shrink-0">
+              <div className="flex justify-center pt-2 pb-1">
+                <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+              </div>
+              <SheetHeader className="px-6 pb-3 border-b border-border">
+                <SheetTitle className="flex items-center gap-2 text-sm">
+                  <BookOpen className="h-4 w-4" />
+                  Guideline
+                </SheetTitle>
+                {block.label && (
+                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{block.label}</p>
+                )}
+              </SheetHeader>
             </div>
-            <SheetHeader className="px-6 pb-3">
-              <SheetTitle className="flex items-center gap-2 text-sm">
-                <BookOpen className="h-4 w-4" />
-                Guideline
-              </SheetTitle>
-              {block.label && (
-                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{block.label}</p>
-              )}
-            </SheetHeader>
-            <div className="px-6 pb-8 space-y-4">
+            <div className="px-6 pb-8 space-y-4 overflow-y-auto flex-1">
               <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.guideline_text}</p>
 
               {block.guideline_attachments && block.guideline_attachments.length > 0 && (() => {
@@ -627,8 +629,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
                             <img
                               src={att.url}
                               alt={att.name || 'Reference photo'}
-                              className="w-full rounded-lg border border-border object-cover"
-                              style={images.length > 1 ? { aspectRatio: '4/3' } : undefined}
+                              className="w-full max-h-[30vh] rounded-lg border border-border object-contain bg-muted/30"
                             />
                             {att.name && (
                               <p className="text-[11px] text-muted-foreground truncate">{att.name}</p>
