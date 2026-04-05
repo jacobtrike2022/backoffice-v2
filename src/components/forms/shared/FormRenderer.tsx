@@ -610,7 +610,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         />
         {/* Drawer — anchored to the form container width */}
         <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center px-4 animate-in slide-in-from-bottom duration-300">
-          <div className="w-full max-w-2xl bg-background border border-border border-b-0 rounded-t-3xl shadow-2xl flex flex-col" style={{ maxHeight: '65vh' }}>
+          <div className="w-full max-w-2xl bg-background border border-border border-b-0 rounded-t-3xl shadow-2xl flex flex-col overflow-hidden" style={{ maxHeight: '65vh' }}>
             {/* Drag handle — tappable to close */}
             <button
               type="button"
