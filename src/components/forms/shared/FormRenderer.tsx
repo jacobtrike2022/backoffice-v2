@@ -10,12 +10,12 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import { Star, Upload, X, FileText, Loader2, AlertCircle, ClipboardCheck, Shield, FileSignature, GraduationCap, MessageSquare, Info, BookOpen } from 'lucide-react';
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet';
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -577,7 +577,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     }
   };
 
-  // Reusable label with optional guideline info sheet (bottom drawer on mobile)
+  // Reusable label with optional guideline info dialog
   const BlockLabel = ({ block }: { block: FormBlockData }) => (
     <Label className="flex items-center gap-1.5">
       <span>
@@ -585,8 +585,8 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         {block.is_required && <span className="text-destructive ml-1">*</span>}
       </span>
       {block.guideline_text && (
-        <Sheet>
-          <SheetTrigger asChild>
+        <Dialog>
+          <DialogTrigger asChild>
             <button
               type="button"
               className="inline-flex items-center justify-center h-5 w-5 rounded-full hover:bg-muted transition-colors shrink-0"
@@ -594,24 +594,18 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
             >
               <Info className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
-          </SheetTrigger>
-          <SheetContent side="bottom" className="max-h-[60vh] rounded-t-2xl px-0 flex flex-col">
-            {/* Drag handle + sticky header */}
-            <div className="shrink-0">
-              <div className="flex justify-center pt-2 pb-1">
-                <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
-              </div>
-              <SheetHeader className="px-6 pb-3 border-b border-border">
-                <SheetTitle className="flex items-center gap-2 text-sm">
-                  <BookOpen className="h-4 w-4" />
-                  Guideline
-                </SheetTitle>
-                {block.label && (
-                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{block.label}</p>
-                )}
-              </SheetHeader>
-            </div>
-            <div className="px-6 pb-8 space-y-4 overflow-y-auto flex-1">
+          </DialogTrigger>
+          <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto p-0 gap-0">
+            <DialogHeader className="sticky top-0 bg-background z-10 px-6 pt-6 pb-3 border-b border-border">
+              <DialogTitle className="flex items-center gap-2 text-sm">
+                <BookOpen className="h-4 w-4" />
+                Guideline
+              </DialogTitle>
+              {block.label && (
+                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{block.label}</p>
+              )}
+            </DialogHeader>
+            <div className="px-6 py-4 space-y-4">
               <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.guideline_text}</p>
 
               {block.guideline_attachments && block.guideline_attachments.length > 0 && (() => {
@@ -621,7 +615,6 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
 
                 return (
                   <div className="space-y-4 pt-3 border-t">
-                    {/* Image grid: 1 image = full width, 2+ = 2-column grid */}
                     {images.length > 0 && (
                       <div className={images.length === 1 ? '' : 'grid grid-cols-2 gap-2'}>
                         {images.map((att, i) => (
@@ -629,7 +622,8 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
                             <img
                               src={att.url}
                               alt={att.name || 'Reference photo'}
-                              className="w-full max-h-[30vh] rounded-lg border border-border object-contain bg-muted/30"
+                              className="w-full rounded-lg border border-border"
+                              style={{ maxHeight: '40vh', objectFit: 'contain' }}
                             />
                             {att.name && (
                               <p className="text-[11px] text-muted-foreground truncate">{att.name}</p>
@@ -639,13 +633,13 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
                       </div>
                     )}
 
-                    {/* Videos: always full width with native controls */}
                     {videos.map((att, i) => (
                       <div key={`vid-${i}`} className="space-y-1">
                         <video
                           src={att.url}
                           controls
                           className="w-full rounded-lg border border-border"
+                          style={{ maxHeight: '40vh' }}
                           preload="metadata"
                         />
                         {att.name && (
@@ -654,7 +648,6 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
                       </div>
                     ))}
 
-                    {/* Other files */}
                     {files.length > 0 && (
                       <div className="space-y-1.5">
                         {files.map((att, i) => (
@@ -675,8 +668,8 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
                 );
               })()}
             </div>
-          </SheetContent>
-        </Sheet>
+          </DialogContent>
+        </Dialog>
       )}
     </Label>
   );
