@@ -600,6 +600,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     const images = (block.guideline_attachments || []).filter(a => a.type === 'image');
     const videos = (block.guideline_attachments || []).filter(a => a.type === 'video');
     const files = (block.guideline_attachments || []).filter(a => a.type !== 'image' && a.type !== 'video');
+    const hasAttachments = images.length > 0 || videos.length > 0 || files.length > 0;
 
     return (
       <>
@@ -651,9 +652,17 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
 
             {/* Scrollable content */}
             <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4 overscroll-contain">
-              <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.guideline_text}</p>
+              <div className={hasAttachments ? '' : 'rounded-2xl border border-border/70 bg-muted/20 px-4 py-3.5 shadow-sm'}>
+                <p
+                  className={`whitespace-pre-wrap ${
+                    hasAttachments ? 'text-sm leading-relaxed' : 'text-[15px] leading-7 text-foreground/95'
+                  }`}
+                >
+                  {block.guideline_text}
+                </p>
+              </div>
 
-              {(images.length > 0 || videos.length > 0 || files.length > 0) && (
+              {hasAttachments && (
                 <div className="space-y-3 pt-3 border-t border-border">
                   {images.length > 0 && (
                     <div className={images.length === 1 ? '' : 'grid grid-cols-2 gap-2'}>
