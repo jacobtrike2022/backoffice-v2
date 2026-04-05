@@ -1353,7 +1353,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, sco
         </div>
 
         {/* ── SETTINGS TAB ─────────────────────────────────── */}
-        <TabsContent value="settings" className="overflow-y-auto px-6 py-4 space-y-4 mt-2" style={{ maxHeight: 'calc(100vh - 160px)' }}>
+        <TabsContent value="settings" className="overflow-y-auto px-6 py-4 space-y-4 mt-2" style={{ maxHeight: 'calc(100vh - 240px)' }}>
         {/* Label */}
         <div className="space-y-1.5">
           <Label htmlFor="block-label" className="text-xs font-medium">{t('forms.propQuestionLabel')}</Label>
@@ -1798,7 +1798,7 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, sco
         </TabsContent>
 
         {/* ── LOGIC TAB ────────────────────────────────────── */}
-        <TabsContent value="logic" className="overflow-y-auto px-6 py-4 mt-2" style={{ maxHeight: 'calc(100vh - 160px)' }}>
+        <TabsContent value="logic" className="overflow-y-auto px-6 py-4 mt-2" style={{ maxHeight: 'calc(100vh - 240px)' }}>
           <div className="space-y-4">
             <div>
               <p className="text-sm font-medium">{t('forms.propConditionalLogic')}</p>
