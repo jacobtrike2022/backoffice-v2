@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
-import { Star, Upload, X as XIcon, FileText, Loader2, AlertCircle, ClipboardCheck, Shield, FileSignature, GraduationCap, MessageSquare, Info, BookOpen, ChevronDown, ChevronUp } from 'lucide-react';
+import { Star, Upload, X as XIcon, FileText, Loader2, AlertCircle, ClipboardCheck, Shield, FileSignature, GraduationCap, MessageSquare, Info, BookOpen, ChevronDown, ChevronRight } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -155,7 +155,6 @@ const EMPTY_ANSWERS: Record<string, unknown> = {};
 const EMPTY_SECTIONS: FormSectionData[] = [];
 const EMPTY_STORES: StoreOption[] = [];
 const DEFAULT_SHIFT_OPTIONS = ['Opening', 'Mid-day', 'Closing', 'Overnight'];
-const SECTION_PILL_COLLAPSED_COUNT = 8;
 
 // ─── Reference Lookup Block Components ───────────────────────────────────────
 
@@ -346,8 +345,11 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
   const [lastScoringResult, setLastScoringResult] = React.useState<ScoringResult | null>(null);
   const [uploadStates, setUploadStates] = React.useState<Record<string, UploadState>>({});
   const [isSectionPillListExpanded, setIsSectionPillListExpanded] = React.useState(false);
+  const [isSectionPillListOverflowing, setIsSectionPillListOverflowing] = React.useState(false);
+  const [collapsedSectionIds, setCollapsedSectionIds] = React.useState<string[]>([]);
   const sigCanvasRefs = React.useRef<Record<string, SignatureCanvas | null>>({});
   const prevSkippedRef = React.useRef<Set<string>>(new Set());
+  const sectionPillButtonRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
 
   // Compute which sections are skipped due to active skip_to_section rules
   const skippedSectionIds = React.useMemo(
@@ -376,7 +378,6 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     () => sections.filter(s => !allHiddenSectionIds.has(s.id)),
     [sections, allHiddenSectionIds]
   );
-  const hiddenSectionPillCount = Math.max(0, visibleSections.length - SECTION_PILL_COLLAPSED_COUNT);
 
   // Build a map of section_id → section data for quick lookups
   const sectionMap = React.useMemo(() => {
@@ -494,6 +495,56 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
   React.useEffect(() => {
     setIsSectionPillListExpanded(false);
   }, [sections, allHiddenSectionIds]);
+
+  // Collapse section pills to exactly two full rows (no clipped third row).
+  React.useEffect(() => {
+    if (isSectionPillListExpanded) return;
+    if (visibleSections.length === 0) {
+      setCollapsedSectionIds([]);
+      setIsSectionPillListOverflowing(false);
+      return;
+    }
+
+    const measureRows = () => {
+      const rendered = visibleSections
+        .map(s => ({ id: s.id, el: sectionPillButtonRefs.current[s.id] }))
+        .filter((item): item is { id: string; el: HTMLButtonElement } => Boolean(item.el));
+
+      if (rendered.length === 0) {
+        setCollapsedSectionIds([]);
+        setIsSectionPillListOverflowing(false);
+        return;
+      }
+
+      const rowTops: number[] = [];
+      for (const item of rendered) {
+        const top = item.el.offsetTop;
+        if (!rowTops.some(t => Math.abs(t - top) <= 1)) rowTops.push(top);
+      }
+      rowTops.sort((a, b) => a - b);
+
+      if (rowTops.length <= 2) {
+        setCollapsedSectionIds(rendered.map(item => item.id));
+        setIsSectionPillListOverflowing(false);
+        return;
+      }
+
+      const secondRowTop = rowTops[1];
+      const allowedIds = rendered
+        .filter(item => item.el.offsetTop <= secondRowTop + 1)
+        .map(item => item.id);
+
+      setCollapsedSectionIds(allowedIds);
+      setIsSectionPillListOverflowing(true);
+    };
+
+    const frame = window.requestAnimationFrame(measureRows);
+    window.addEventListener('resize', measureRows);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', measureRows);
+    };
+  }, [visibleSections, isSectionPillListExpanded]);
 
   const handleChange = (blockId: string, value: unknown) => {
     setFormData(prev => ({ ...prev, [blockId]: value }));
@@ -1605,32 +1656,37 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
       {/* Section quick-nav for forms with multiple sections */}
       {!readOnly && sections.length > 2 && (
         <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-2.5">
-          <div className="flex flex-wrap gap-1.5">
-            {(isSectionPillListExpanded ? visibleSections : visibleSections.slice(0, SECTION_PILL_COLLAPSED_COUNT)).map(s => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => document.getElementById(`form-section-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                  className="text-xs px-2.5 py-1 rounded-full border border-border bg-background hover:bg-muted transition-colors truncate max-w-[200px]"
-                  title={s.title || ''}
-                >
-                  {s.title}
-                </button>
-              ))}
-          </div>
+          <div className="flex items-start gap-2">
+            <div className="flex-1 flex flex-wrap gap-1.5 min-w-0">
+              {(isSectionPillListExpanded
+                ? visibleSections
+                : visibleSections.filter(s => collapsedSectionIds.includes(s.id))
+              ).map(s => (
+                  <button
+                    key={s.id}
+                    ref={(el) => { sectionPillButtonRefs.current[s.id] = el; }}
+                    type="button"
+                    onClick={() => document.getElementById(`form-section-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                    className="text-xs px-2.5 py-1 rounded-full border border-border bg-background hover:bg-muted transition-colors truncate max-w-[200px]"
+                    title={s.title || ''}
+                  >
+                    {s.title}
+                  </button>
+                ))}
+            </div>
 
-          {hiddenSectionPillCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setIsSectionPillListExpanded(prev => !prev)}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-            >
-              {isSectionPillListExpanded
-                ? t('forms.sectionPillsShowFewer', 'Show fewer sections')
-                : t('forms.sectionPillsShowAllCount', `Show ${hiddenSectionPillCount} more sections`)}
-              {isSectionPillListExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            </button>
-          )}
+            {isSectionPillListOverflowing && (
+              <button
+                type="button"
+                onClick={() => setIsSectionPillListExpanded(prev => !prev)}
+                className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                aria-label={isSectionPillListExpanded ? 'Collapse sections' : 'Expand sections'}
+                title={isSectionPillListExpanded ? 'Collapse sections' : 'Expand sections'}
+              >
+                {isSectionPillListExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </button>
+            )}
+          </div>
         </div>
       )}
 
