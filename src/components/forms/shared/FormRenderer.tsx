@@ -345,7 +345,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
   const [lastScoringResult, setLastScoringResult] = React.useState<ScoringResult | null>(null);
   const [uploadStates, setUploadStates] = React.useState<Record<string, UploadState>>({});
   const [isSectionPillListExpanded, setIsSectionPillListExpanded] = React.useState(false);
-  const [isSectionPillListOverflowing, setIsSectionPillListOverflowing] = React.useState(false);
+  const [sectionPillRowBreak, setSectionPillRowBreak] = React.useState<number | null>(null);
   const sigCanvasRefs = React.useRef<Record<string, SignatureCanvas | null>>({});
   const prevSkippedRef = React.useRef<Set<string>>(new Set());
   const sectionPillContainerRef = React.useRef<HTMLDivElement | null>(null);
@@ -495,25 +495,45 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     setIsSectionPillListExpanded(false);
   }, [sections, allHiddenSectionIds]);
 
-  // Detect whether section pills overflow the two-row collapsed viewport.
+  // Measure pill positions to find where row 3 starts (deterministic row-based collapse).
   React.useEffect(() => {
     const container = sectionPillContainerRef.current;
     if (!container) {
-      setIsSectionPillListOverflowing(false);
+      setSectionPillRowBreak(null);
       return;
     }
 
-    const checkOverflow = () => {
-      setIsSectionPillListOverflowing(container.scrollHeight > container.clientHeight + 1);
+    const measure = () => {
+      const children = Array.from(container.children) as HTMLElement[];
+      if (children.length === 0) { setSectionPillRowBreak(null); return; }
+
+      // Collect distinct row tops
+      const rowTops: number[] = [];
+      for (const child of children) {
+        const top = child.offsetTop;
+        if (rowTops.length === 0 || top > rowTops[rowTops.length - 1] + 2) {
+          rowTops.push(top);
+        }
+      }
+
+      if (rowTops.length <= 2) {
+        // Everything fits in two rows — no collapse needed
+        setSectionPillRowBreak(null);
+      } else {
+        // Find index of first child on row 3+
+        const row3Top = rowTops[2];
+        const breakIdx = children.findIndex(c => c.offsetTop >= row3Top - 1);
+        setSectionPillRowBreak(breakIdx > 0 ? breakIdx : null);
+      }
     };
 
-    const frame = window.requestAnimationFrame(checkOverflow);
-    window.addEventListener('resize', checkOverflow);
+    const frame = window.requestAnimationFrame(measure);
+    window.addEventListener('resize', measure);
     return () => {
       window.cancelAnimationFrame(frame);
-      window.removeEventListener('resize', checkOverflow);
+      window.removeEventListener('resize', measure);
     };
-  }, [visibleSections, isSectionPillListExpanded]);
+  }, [visibleSections]);
 
   const handleChange = (blockId: string, value: unknown) => {
     setFormData(prev => ({ ...prev, [blockId]: value }));
@@ -1624,28 +1644,44 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
 
       {/* Section quick-nav for forms with multiple sections */}
       {!readOnly && sections.length > 2 && (
-        <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-2.5">
+        <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 relative">
+          {/* Hidden full-list container for row measurement — same width as visible container */}
+          <div
+            ref={sectionPillContainerRef}
+            className="flex flex-wrap gap-1.5"
+            style={{ visibility: 'hidden', height: 0, overflow: 'hidden', pointerEvents: 'none' }}
+            aria-hidden="true"
+          >
+            {visibleSections.map(s => (
+              <span
+                key={s.id}
+                className="h-8 text-xs px-2.5 rounded-full border border-border bg-background truncate max-w-[200px] leading-none inline-flex items-center"
+              >
+                {s.title}
+              </span>
+            ))}
+          </div>
+
           <div className="flex items-start gap-2">
-            <div
-              ref={sectionPillContainerRef}
-              className={`flex-1 flex flex-wrap gap-1.5 min-w-0 ${
-                isSectionPillListExpanded ? 'max-h-[320px] overflow-y-auto pr-1' : 'max-h-[4.375rem] overflow-hidden'
-              }`}
-            >
-              {visibleSections.map(s => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => document.getElementById(`form-section-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                    className="h-8 text-xs px-2.5 rounded-full border border-border bg-background hover:bg-muted transition-colors truncate max-w-[200px] leading-none"
-                    title={s.title || ''}
-                  >
-                    {s.title}
-                  </button>
-                ))}
+            {/* Visible pills — trimmed to first two rows when collapsed */}
+            <div className="flex-1 flex flex-wrap gap-1.5 min-w-0">
+              {(isSectionPillListExpanded || sectionPillRowBreak === null
+                ? visibleSections
+                : visibleSections.slice(0, sectionPillRowBreak)
+              ).map(s => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => document.getElementById(`form-section-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  className="h-8 text-xs px-2.5 rounded-full border border-border bg-background hover:bg-muted transition-colors truncate max-w-[200px] leading-none"
+                  title={s.title || ''}
+                >
+                  {s.title}
+                </button>
+              ))}
             </div>
 
-            {isSectionPillListOverflowing && (
+            {sectionPillRowBreak !== null && (
               <button
                 type="button"
                 onClick={() => setIsSectionPillListExpanded(prev => !prev)}
