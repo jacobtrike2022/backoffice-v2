@@ -580,8 +580,27 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     }
     if (Object.keys(errors).length > 0) {
       setValidationErrors(errors);
-      // Scroll to the first invalid field
       const firstErrorId = Object.keys(errors)[0];
+
+      // In paginated mode, navigate to the section containing the first error
+      if (isPaginated) {
+        const errorBlock = blocks.find(b => b.id === firstErrorId);
+        const errorSectionId = errorBlock?.section_id || (firstErrorId.startsWith('_') ? null : null);
+        if (errorSectionId) {
+          const sectionIdx = visibleSections.findIndex(s => s.id === errorSectionId);
+          if (sectionIdx >= 0 && sectionIdx !== clampedSectionIdx) {
+            setActiveSectionIdx(sectionIdx);
+            // Scroll after React re-renders the new section
+            requestAnimationFrame(() => {
+              const el = document.getElementById(`form-field-${firstErrorId}`);
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+            return;
+          }
+        }
+      }
+
+      // Scroll to the first invalid field (same section or non-paginated mode)
       const el = document.getElementById(`form-field-${firstErrorId}`);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
