@@ -110,7 +110,7 @@ import type { TrackScopeLevel, SectorType } from '../../lib/crud/trackScopes';
 import { getTagsByCategory } from '../../lib/crud/tags';
 import { getBlockGroups, saveBlockGroup, deleteBlockGroup, type BlockGroup, type BlockTemplate } from '../../lib/crud/blockGroups';
 import { serializeBlocksToGroupTemplate, hasUnboundParent, getGroupInstanceId, PARENT_PLACEHOLDER } from '../../lib/forms/blockGroupSerializer';
-import { isFollowUpPackBlock } from '../../lib/forms/builtinFollowUps';
+import { isFollowUpPackBlock, getFollowUpTrigger } from '../../lib/forms/builtinFollowUps';
 
 // ============================================================================
 // TYPES
@@ -1273,10 +1273,12 @@ interface PropertiesDrawerProps {
   orderIssueMessage?: string;
   /** Built-in follow-up pack controls for yes_no blocks */
   hasFollowUpPack?: boolean;
+  followUpTrigger?: 'Yes' | 'No';
   onToggleFollowUpPack?: (enabled: boolean) => void;
+  onChangeFollowUpTrigger?: (trigger: 'Yes' | 'No') => void;
 }
 
-function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, scoringMode, onUpdate, onDelete, onClose, wide = false, initialTab, dependencyMap = {}, orderIssueMessage, hasFollowUpPack: followUpAttached = false, onToggleFollowUpPack }: PropertiesDrawerProps) {
+function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, scoringMode, onUpdate, onDelete, onClose, wide = false, initialTab, dependencyMap = {}, orderIssueMessage, hasFollowUpPack: followUpAttached = false, followUpTrigger = 'No', onToggleFollowUpPack, onChangeFollowUpTrigger }: PropertiesDrawerProps) {
   const { t } = useTranslation();
   const typeDef = getBlockTypeDef(block.block_type);
   const Icon = typeDef?.icon ?? Type;
@@ -1599,15 +1601,17 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, sco
               />
             </div>
 
-            {/* Built-in "No" Follow-Up Pack */}
+            {/* Built-in Follow-Up Pack */}
             {onToggleFollowUpPack && (
               <>
                 <Separator />
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label htmlFor="block-followup-pack" className="text-xs font-medium cursor-pointer">&ldquo;No&rdquo; Follow-Up Questions</Label>
-                      <p className="text-[10px] text-muted-foreground">Auto-show follow-ups when &ldquo;No&rdquo; is selected</p>
+                      <Label htmlFor="block-followup-pack" className="text-xs font-medium cursor-pointer">
+                        &ldquo;{followUpTrigger}&rdquo; Follow-Up Questions
+                      </Label>
+                      <p className="text-[10px] text-muted-foreground">Auto-show follow-ups when &ldquo;{followUpTrigger}&rdquo; is selected</p>
                     </div>
                     <Switch
                       id="block-followup-pack"
@@ -1616,22 +1620,39 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, sco
                     />
                   </div>
                   {followUpAttached && (
-                    <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 space-y-1">
-                      <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Shown when &ldquo;No&rdquo;</p>
-                      <div className="flex items-center gap-2 text-xs text-foreground/80">
-                        <Type className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        <span>Comments / Details</span>
-                        <Badge variant="outline" className="ml-auto text-[9px] px-1 py-0 h-3.5">required</Badge>
+                    <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">Trigger when:</Label>
+                        <Select
+                          value={followUpTrigger}
+                          onValueChange={(v) => onChangeFollowUpTrigger?.(v as 'Yes' | 'No')}
+                        >
+                          <SelectTrigger className="h-6 text-xs w-20">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="No">No</SelectItem>
+                            <SelectItem value="Yes">Yes</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-foreground/80">
-                        <ImageIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        <span>Photo Evidence</span>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Shown when &ldquo;{followUpTrigger}&rdquo;</p>
+                        <div className="flex items-center gap-2 text-xs text-foreground/80">
+                          <Type className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          <span>Comments / Details</span>
+                          <Badge variant="outline" className="ml-auto text-[9px] px-1 py-0 h-3.5">required</Badge>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-foreground/80">
+                          <ImageIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          <span>Photo Evidence</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-foreground/80">
+                          <Type className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          <span>Follow-Up Required</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-foreground/80">
-                        <Type className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        <span>Follow-Up Required</span>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground/70 pt-0.5">These blocks appear below and can be edited individually.</p>
+                      <p className="text-[10px] text-muted-foreground/70">These blocks appear below and can be edited individually.</p>
                     </div>
                   )}
                 </div>
@@ -1783,11 +1804,11 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, sco
                 )}
               </div>
 
-              {/* Weighted mode: custom point value */}
-              {scoringMode === 'weighted' && (
+              {/* Custom point value — available in weighted and section modes */}
+              {(scoringMode === 'weighted' || scoringMode === 'section') && (
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium">Points</Label>
-                  <p className="text-[10px] text-muted-foreground">How many points this question is worth</p>
+                  <p className="text-[10px] text-muted-foreground">How many points this question is worth (default: 1 = equal weight)</p>
                   <Input
                     type="number"
                     min={0}
@@ -1798,8 +1819,8 @@ function PropertiesDrawer({ block, allBlocks, sections = [], scoringEnabled, sco
                 </div>
               )}
 
-              {/* Weighted mode: per-answer point values (radio/dropdown/yes_no) */}
-              {scoringMode === 'weighted' && ['radio', 'dropdown', 'yes_no'].includes(block.block_type) && (
+              {/* Per-answer point values (radio/dropdown/yes_no) — weighted and section modes */}
+              {(scoringMode === 'weighted' || scoringMode === 'section') && ['radio', 'dropdown', 'yes_no'].includes(block.block_type) && (
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium">Point Values per Answer</Label>
                   <p className="text-[10px] text-muted-foreground">Assign different point values to each answer option (optional)</p>
@@ -4772,12 +4793,17 @@ export function FormBuilder({
             dependencyMap={blockDependencyMap}
             orderIssueMessage={orderIssues.get(selectedBlock.id)}
             hasFollowUpPack={selectedBlock.block_type === 'yes_no' ? hook.hasFollowUpPack(selectedBlock.id) : undefined}
+            followUpTrigger={selectedBlock.block_type === 'yes_no' ? getFollowUpTrigger(selectedBlock.settings as Record<string, unknown>) : undefined}
             onToggleFollowUpPack={selectedBlock.block_type === 'yes_no' ? (enabled) => {
               if (enabled) {
-                hook.addFollowUpPack(selectedBlock.id);
+                const trigger = getFollowUpTrigger(selectedBlock.settings as Record<string, unknown>);
+                hook.addFollowUpPack(selectedBlock.id, trigger);
               } else {
                 hook.removeFollowUpPack(selectedBlock.id);
               }
+            } : undefined}
+            onChangeFollowUpTrigger={selectedBlock.block_type === 'yes_no' ? (trigger) => {
+              hook.updateFollowUpTrigger(selectedBlock.id, trigger);
             } : undefined}
           />
         )}

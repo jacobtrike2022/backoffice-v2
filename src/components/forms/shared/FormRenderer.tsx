@@ -1497,6 +1497,9 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     const didFail = lastScoringResult && !lastScoringResult.passed;
     const failMessage = didFail ? submissionConfig?.on_fail?.fail_message : undefined;
     const confirmMsg = submissionConfig?.confirmation_message || t('forms.publicSubmissionReceived');
+    const sectionScores = lastScoringResult?.section_scores;
+    const hasSectionScorecard = sectionScores && sectionScores.length > 0;
+
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
         {failMessage ? (
@@ -1515,12 +1518,81 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
               <ClipboardCheck className="h-8 w-8 text-green-600 dark:text-green-400" />
             </div>
             <p className="text-lg font-semibold">{confirmMsg}</p>
-            {lastScoringResult && (
+            {lastScoringResult && !hasSectionScorecard && (
               <p className="text-sm text-muted-foreground">
-                {t('forms.fillFinalScore', { score: Math.round(lastScoringResult.percentage) })}
+                {t('forms.fillFinalScore', { score: Math.round(lastScoringResult.score_percentage) })}
               </p>
             )}
           </>
+        )}
+
+        {/* Section Scorecard — shown for section-scored forms */}
+        {hasSectionScorecard && lastScoringResult && (
+          <div className="w-full max-w-lg text-left mt-2">
+            <div className="rounded-xl border border-border overflow-hidden">
+              {/* Header */}
+              <div className="bg-muted/50 px-4 py-2.5 border-b border-border">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Section Scorecard</p>
+              </div>
+              {/* Table */}
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/20">
+                    <th className="text-left px-4 py-2 text-xs font-medium text-muted-foreground">Section</th>
+                    <th className="text-center px-2 py-2 text-xs font-medium text-muted-foreground w-16">Pts</th>
+                    <th className="text-center px-2 py-2 text-xs font-medium text-muted-foreground w-16">Earned</th>
+                    <th className="text-center px-2 py-2 text-xs font-medium text-muted-foreground w-14">%</th>
+                    <th className="text-center px-2 py-2 text-xs font-medium text-muted-foreground w-20">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sectionScores.map((ss) => (
+                    <tr key={ss.section_id} className="border-b border-border/50 last:border-0">
+                      <td className="px-4 py-2.5 text-sm font-medium">{ss.section_title}</td>
+                      <td className="text-center px-2 py-2.5 text-sm tabular-nums text-muted-foreground">{ss.possible}</td>
+                      <td className="text-center px-2 py-2.5 text-sm tabular-nums">{ss.earned}</td>
+                      <td className="text-center px-2 py-2.5 text-sm tabular-nums font-medium">{Math.round(ss.percentage)}%</td>
+                      <td className="text-center px-2 py-2.5">
+                        {ss.passed ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+                            <ClipboardCheck className="h-3 w-3" /> Pass
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">
+                            <AlertCircle className="h-3 w-3" /> Fail
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                {/* Total row */}
+                <tfoot>
+                  <tr className="border-t-2 border-border bg-muted/30">
+                    <td className="px-4 py-2.5 text-sm font-semibold">Total</td>
+                    <td className="text-center px-2 py-2.5 text-sm tabular-nums font-semibold">{lastScoringResult.total_weight}</td>
+                    <td className="text-center px-2 py-2.5 text-sm tabular-nums font-semibold">{lastScoringResult.earned_weight}</td>
+                    <td className="text-center px-2 py-2.5 text-sm tabular-nums font-bold">{Math.round(lastScoringResult.score_percentage)}%</td>
+                    <td className="text-center px-2 py-2.5">
+                      {lastScoringResult.passed ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-bold text-green-600 dark:text-green-400">
+                          <ClipboardCheck className="h-3 w-3" /> Pass
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs font-bold text-red-600 dark:text-red-400">
+                          <AlertCircle className="h-3 w-3" /> Fail
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            {/* Pass threshold note */}
+            <p className="text-[11px] text-muted-foreground mt-2 px-1">
+              Pass threshold: {sectionScores[0]?.threshold ?? passThreshold}% per section
+            </p>
+          </div>
         )}
       </div>
     );

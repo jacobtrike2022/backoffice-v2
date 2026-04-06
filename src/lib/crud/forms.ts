@@ -734,9 +734,6 @@ export async function bulkUpsertFormBlocks(
   formId: string,
   blocks: FormBlockUpsert[]
 ): Promise<void> {
-  const toInsert = blocks.filter(b => !b.id);
-  const toUpdate = blocks.filter(b => !!b.id);
-
   // Helper: map block_type → type; merge settings into validation_rules (settings column doesn't exist in schema)
   const toDbRow = (b: FormBlockUpsert) => {
     const { block_type, settings, validation_rules, ...rest } = b;
@@ -747,8 +744,7 @@ export async function bulkUpsertFormBlocks(
   };
 
   // Step 1: Delete blocks that are no longer in the provided list.
-  // Must happen BEFORE insert so newly inserted IDs aren't accidentally deleted.
-  const incomingIds = toUpdate.map(b => b.id as string).filter(Boolean);
+  const incomingIds = blocks.map(b => b.id as string).filter(Boolean);
 
   const { data: currentBlocks, error: fetchError } = await supabase
     .from('form_blocks')
@@ -770,30 +766,15 @@ export async function bulkUpsertFormBlocks(
     if (deleteError) throw deleteError;
   }
 
-  // Step 2: Insert new blocks
-  if (toInsert.length > 0) {
-    const { error: insertError } = await supabase
+  // Step 2: Upsert all blocks in a single batch operation.
+  // Client provides stable UUIDs from creation, so new blocks get inserted
+  // and existing blocks get updated — all in one DB round-trip.
+  if (blocks.length > 0) {
+    const { error: upsertError } = await supabase
       .from('form_blocks')
-      .insert(toInsert.map(toDbRow));
+      .upsert(blocks.map(toDbRow), { onConflict: 'id' });
 
-    if (insertError) throw insertError;
-  }
-
-  // Step 3: Update existing blocks in parallel
-  if (toUpdate.length > 0) {
-    const updateResults = await Promise.all(
-      toUpdate.map(b => {
-        const { id, ...rowWithId } = toDbRow(b) as any;
-        return supabase
-          .from('form_blocks')
-          .update(rowWithId)
-          .eq('id', b.id as string);
-      })
-    );
-
-    for (const result of updateResults) {
-      if (result.error) throw result.error;
-    }
+    if (upsertError) throw upsertError;
   }
 
 }

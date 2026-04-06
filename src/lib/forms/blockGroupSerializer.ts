@@ -97,7 +97,7 @@ export function instantiateGroupTemplate(
   // Build ref_id → new block ID map
   const refIdToNewId = new Map<string, string>();
   templates.forEach(tmpl => {
-    refIdToNewId.set(tmpl.ref_id, `new-${crypto.randomUUID()}`);
+    refIdToNewId.set(tmpl.ref_id, crypto.randomUUID());
   });
 
   // Compute starting display_order

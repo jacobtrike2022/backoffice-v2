@@ -148,7 +148,9 @@ function scoreBlock(
 
   const correct = isAnswerCorrect(block.type, answer, correctAnswer);
 
-  if (mode === 'weighted') {
+  if (mode === 'weighted' || mode === 'section') {
+    // Weighted and section modes support custom per-block point values.
+    // If no _points is set, default to 1 (equal weight).
     const pointValues = vr._point_values as Record<string, number> | undefined;
     const blockPoints = (vr._points as number) ?? 1;
 
@@ -176,7 +178,7 @@ function scoreBlock(
     };
   }
 
-  // pass_fail and section modes: 1 point per correct answer
+  // pass_fail mode: 1 point per correct answer
   return {
     block_id: block.id,
     section_id: block.section_id ?? null,
