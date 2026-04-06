@@ -346,10 +346,9 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
   const [uploadStates, setUploadStates] = React.useState<Record<string, UploadState>>({});
   const [isSectionPillListExpanded, setIsSectionPillListExpanded] = React.useState(false);
   const [isSectionPillListOverflowing, setIsSectionPillListOverflowing] = React.useState(false);
-  const [collapsedSectionIds, setCollapsedSectionIds] = React.useState<string[]>([]);
   const sigCanvasRefs = React.useRef<Record<string, SignatureCanvas | null>>({});
   const prevSkippedRef = React.useRef<Set<string>>(new Set());
-  const sectionPillButtonRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
+  const sectionPillContainerRef = React.useRef<HTMLDivElement | null>(null);
 
   // Compute which sections are skipped due to active skip_to_section rules
   const skippedSectionIds = React.useMemo(
@@ -496,58 +495,23 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     setIsSectionPillListExpanded(false);
   }, [sections, allHiddenSectionIds]);
 
-  // Collapse section pills to exactly two full rows (no clipped third row).
+  // Detect whether section pills overflow the two-row collapsed viewport.
   React.useEffect(() => {
-    if (isSectionPillListExpanded) return;
-    if (visibleSections.length === 0) {
-      setCollapsedSectionIds([]);
+    const container = sectionPillContainerRef.current;
+    if (!container) {
       setIsSectionPillListOverflowing(false);
       return;
     }
 
-    const measureRows = () => {
-      const rendered = visibleSections
-        .map(s => ({ id: s.id, el: sectionPillButtonRefs.current[s.id] }))
-        .filter((item): item is { id: string; el: HTMLButtonElement } => Boolean(item.el));
-
-      if (rendered.length === 0) {
-        setCollapsedSectionIds([]);
-        setIsSectionPillListOverflowing(false);
-        return;
-      }
-
-      const rowTops: number[] = [];
-      for (const item of rendered) {
-        const top = item.el.offsetTop;
-        if (!rowTops.some(t => Math.abs(t - top) <= 1)) rowTops.push(top);
-      }
-      rowTops.sort((a, b) => a - b);
-
-      if (rowTops.length <= 2) {
-        setCollapsedSectionIds(rendered.map(item => item.id));
-        setIsSectionPillListOverflowing(false);
-        return;
-      }
-
-      const secondRowTop = rowTops[1];
-      const allowedIds = rendered
-        .filter(item => item.el.offsetTop <= secondRowTop + 1)
-        .map(item => item.id);
-
-      setCollapsedSectionIds(allowedIds);
-      setIsSectionPillListOverflowing(true);
+    const checkOverflow = () => {
+      setIsSectionPillListOverflowing(container.scrollHeight > container.clientHeight + 1);
     };
 
-    const frame = window.requestAnimationFrame(measureRows);
-    const onResize = () => {
-      // Temporarily show all pills so row measurement remains accurate after wrap changes.
-      setCollapsedSectionIds([]);
-      window.requestAnimationFrame(() => measureRows());
-    };
-    window.addEventListener('resize', onResize);
+    const frame = window.requestAnimationFrame(checkOverflow);
+    window.addEventListener('resize', checkOverflow);
     return () => {
       window.cancelAnimationFrame(frame);
-      window.removeEventListener('resize', onResize);
+      window.removeEventListener('resize', checkOverflow);
     };
   }, [visibleSections, isSectionPillListExpanded]);
 
@@ -1662,25 +1626,23 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
       {!readOnly && sections.length > 2 && (
         <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-2.5">
           <div className="flex items-start gap-2">
-            <div className="flex-1 flex flex-wrap gap-1.5 min-w-0">
-              {visibleSections.map(s => {
-                const shouldRenderAllForMeasurement = !isSectionPillListExpanded && collapsedSectionIds.length === 0;
-                const isVisible = isSectionPillListExpanded || shouldRenderAllForMeasurement || collapsedSectionIds.includes(s.id);
-                return (
+            <div
+              ref={sectionPillContainerRef}
+              className={`flex-1 flex flex-wrap gap-1.5 min-w-0 ${
+                isSectionPillListExpanded ? 'max-h-[320px] overflow-y-auto pr-1' : 'max-h-[4.375rem] overflow-hidden'
+              }`}
+            >
+              {visibleSections.map(s => (
                   <button
                     key={s.id}
-                    ref={(el) => { sectionPillButtonRefs.current[s.id] = el; }}
                     type="button"
                     onClick={() => document.getElementById(`form-section-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                    className={`text-xs px-2.5 py-1 rounded-full border border-border bg-background hover:bg-muted transition-colors truncate max-w-[200px] ${
-                      isVisible ? '' : 'hidden'
-                    }`}
+                    className="h-8 text-xs px-2.5 rounded-full border border-border bg-background hover:bg-muted transition-colors truncate max-w-[200px] leading-none"
                     title={s.title || ''}
                   >
                     {s.title}
                   </button>
-                );
-              })}
+                ))}
             </div>
 
             {isSectionPillListOverflowing && (
