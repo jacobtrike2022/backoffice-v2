@@ -984,7 +984,7 @@ export function DocumentIntelligenceEditor({
    * BLADE MODE: Handle click on chunk content to split at that position.
    * Uses browser caret APIs to accurately find click position, then splits at the line ABOVE.
    */
-  function handleBladeClick(chunkId: string, clickEvent: React.MouseEvent<HTMLDivElement>) {
+  async function handleBladeClick(chunkId: string, clickEvent: React.MouseEvent<HTMLDivElement>) {
     console.log('[Blade] Click detected, bladeMode:', bladeMode, 'splitting:', splitting);
 
     if (!bladeMode || splitting) {
@@ -1059,9 +1059,9 @@ export function DocumentIntelligenceEditor({
       return;
     }
 
-    // Perform the split
+    // Perform the split (awaited to prevent concurrent splits)
     console.log('[Blade] Calling performBladeSplit at index:', splitIndex);
-    performBladeSplit(chunkId, splitIndex);
+    await performBladeSplit(chunkId, splitIndex);
   }
 
   /**
@@ -1141,122 +1141,112 @@ export function DocumentIntelligenceEditor({
     toast.success(t('contentAuthoring.toastChunkSplit'), { icon: '✂️' });
     console.log('[Blade Split] Optimistic UI updated');
 
-    // BACKGROUND DB SYNC - fire and forget, don't block UI
-    // Use an async IIFE to handle DB sync without blocking
-    (async () => {
-      try {
-        // Two-phase index shift to avoid unique constraint conflicts:
-        // Phase 1: Shift all affected chunks to temporary high indices (add 10000)
-        // Phase 2: Set final indices
-        const TEMP_OFFSET = 10000;
-        const chunksToShift = chunks
-          .filter(c => c.chunk_index > originalIndex)
-          .sort((a, b) => a.chunk_index - b.chunk_index); // Lowest first for phase 1
+    // DB SYNC - await completion to prevent concurrent splits from colliding
+    try {
+      // Fetch fresh chunk indices from DB to avoid stale-state conflicts
+      const { data: dbChunks, error: fetchErr } = await supabase
+        .from('source_chunks')
+        .select('id, chunk_index')
+        .eq('source_file_id', sourceFileId!)
+        .gt('chunk_index', originalIndex)
+        .order('chunk_index', { ascending: false }); // Highest first
 
-        console.log('[Blade Split] Chunks to shift:', chunksToShift.length);
+      if (fetchErr) {
+        console.error('[Blade Split] Failed to fetch chunks for shift:', fetchErr);
+      }
 
-        // Phase 1: Move all to temporary indices (sequential, lowest first)
-        for (const c of chunksToShift) {
-          const { error } = await supabase
-            .from('source_chunks')
-            .update({ chunk_index: c.chunk_index + TEMP_OFFSET })
-            .eq('id', c.id);
-          if (error) {
-            console.warn('[Blade Split] Phase 1 shift warning:', c.id, error.message);
+      const chunksToShift = dbChunks || [];
+      console.log('[Blade Split] Chunks to shift:', chunksToShift.length);
+
+      // Shift indices highest-first to avoid unique constraint conflicts
+      // (moving index 5→6, then 4→5 is safe; moving 4→5 first would collide with existing 5)
+      for (const c of chunksToShift) {
+        const { error } = await supabase
+          .from('source_chunks')
+          .update({ chunk_index: c.chunk_index + 1 })
+          .eq('id', c.id);
+        if (error) {
+          console.warn('[Blade Split] Shift warning:', c.id, error.message);
+        }
+      }
+
+      // Update original chunk and create new chunk in parallel
+      const [updateResult, insertResult] = await Promise.all([
+        supabase
+          .from('source_chunks')
+          .update({
+            content: beforeText,
+            title: `${baseTitle} (Part 1)`,
+            word_count: beforeText.split(/\s+/).length,
+          })
+          .eq('id', chunk.id),
+
+        supabase
+          .from('source_chunks')
+          .insert({
+            source_file_id: sourceFileId,
+            organization_id: sourceFile?.organization_id,
+            chunk_index: originalIndex + 1,
+            content: afterText,
+            title: `${baseTitle} (Part 2)`,
+            word_count: afterText.split(/\s+/).length,
+            chunk_type: chunk.chunk_type,
+            content_class: chunk.content_class,
+            content_class_confidence: chunk.content_class_confidence,
+            is_extractable: chunk.is_extractable,
+            extraction_status: 'pending',
+            key_terms: [],
+            hierarchy_level: chunk.hierarchy_level,
+          })
+          .select()
+          .single(),
+      ]);
+
+      if (updateResult.error) {
+        console.error('[Blade Split] Update error:', updateResult.error);
+      }
+      if (insertResult.error) {
+        console.error('[Blade Split] Insert error:', insertResult.error);
+      }
+
+      // Update the optimistic chunk ID with the real one from DB
+      if (insertResult.data) {
+        const realId = insertResult.data.id;
+        console.log('[Blade Split] New chunk created with ID:', realId);
+        setChunks(prevChunks =>
+          prevChunks.map(c =>
+            c.id === newChunkId ? { ...c, id: realId } : c
+          )
+        );
+        // Also update expanded chunks set with real ID
+        setExpandedChunks(prev => {
+          const next = new Set(prev);
+          if (next.has(newChunkId)) {
+            next.delete(newChunkId);
+            next.add(realId);
           }
-        }
-
-        // Phase 2: Set final indices (sequential, highest first to avoid conflicts)
-        for (const c of chunksToShift.slice().reverse()) {
-          const { error } = await supabase
-            .from('source_chunks')
-            .update({ chunk_index: c.chunk_index + 1 }) // Final index is original + 1
-            .eq('id', c.id);
-          if (error) {
-            console.warn('[Blade Split] Phase 2 shift warning:', c.id, error.message);
-          }
-        }
-
-        // Update original chunk and create new chunk in parallel
-        const [updateResult, insertResult] = await Promise.all([
-          supabase
-            .from('source_chunks')
-            .update({
-              content: beforeText,
-              title: `${baseTitle} (Part 1)`,
-              word_count: beforeText.split(/\s+/).length,
-            })
-            .eq('id', chunk.id),
-
-          supabase
-            .from('source_chunks')
-            .insert({
-              source_file_id: sourceFileId,
-              organization_id: sourceFile?.organization_id,
-              chunk_index: originalIndex + 1,
-              content: afterText,
-              title: `${baseTitle} (Part 2)`,
-              word_count: afterText.split(/\s+/).length,
-              chunk_type: chunk.chunk_type,
-              content_class: chunk.content_class,
-              content_class_confidence: chunk.content_class_confidence,
-              is_extractable: chunk.is_extractable,
-              extraction_status: 'pending',
-              key_terms: [],
-              hierarchy_level: chunk.hierarchy_level,
-            })
-            .select()
-            .single(),
-        ]);
-
-        if (updateResult.error) {
-          console.error('[Blade Split] Update error:', updateResult.error);
-        }
-        if (insertResult.error) {
-          console.error('[Blade Split] Insert error:', insertResult.error);
-        }
-
-        // Update the optimistic chunk ID with the real one from DB
-        if (insertResult.data) {
-          const realId = insertResult.data.id;
-          console.log('[Blade Split] New chunk created with ID:', realId);
-          setChunks(prevChunks =>
-            prevChunks.map(c =>
-              c.id === newChunkId ? { ...c, id: realId } : c
-            )
-          );
-          // Also update expanded chunks set with real ID
-          setExpandedChunks(prev => {
-            const next = new Set(prev);
-            if (next.has(newChunkId)) {
-              next.delete(newChunkId);
-              next.add(realId);
-            }
-            return next;
-          });
-        }
-
-        // Update chunk_count on source file
-        await supabase
-          .from('source_files')
-          .update({ chunk_count: chunks.length + 1 })
-          .eq('id', sourceFileId);
-
-        console.log('[Blade Split] DB sync complete');
-
-      } catch (error: any) {
-        // Log error but don't refresh - UI state is still valid
-        console.error('[Blade Split] DB sync error:', error);
-        // Only show toast, don't reload - optimistic UI is fine
-        toast.error(t('contentAuthoring.toastSyncIssues'), {
-          description: 'Your changes are saved locally. Refresh if you see issues.',
-          duration: 3000
+          return next;
         });
       }
-    })();
 
-    // Set splitting false immediately after optimistic update
-    setSplitting(false);
+      // Update chunk_count on source file
+      const currentChunkCount = chunks.length + 1;
+      await supabase
+        .from('source_files')
+        .update({ chunk_count: currentChunkCount })
+        .eq('id', sourceFileId);
+
+      console.log('[Blade Split] DB sync complete');
+
+    } catch (error: any) {
+      console.error('[Blade Split] DB sync error:', error);
+      toast.error(t('contentAuthoring.toastSyncIssues'), {
+        description: 'Your changes are saved locally. Refresh if you see issues.',
+        duration: 3000
+      });
+    } finally {
+      setSplitting(false);
+    }
   }
 
   // Create role from Job Description chunk
