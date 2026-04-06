@@ -302,6 +302,13 @@ function PersonLookupBlock({ block, value, onChange, readOnly, t, organizationId
   );
 }
 
+/** Block types that accept user input (used for required-field validation). */
+const INPUT_BLOCK_TYPES = new Set([
+  'text', 'textarea', 'number', 'date', 'time', 'radio', 'checkbox', 'checkboxes',
+  'select', 'dropdown', 'multiselect', 'rating', 'file', 'yes_no', 'slider',
+  'photo', 'signature', 'location',
+]);
+
 export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, answers = EMPTY_ANSWERS, readOnly = false, scoringEnabled, scoringMode, passThreshold = 70, onSubmit, formId, submissionConfig, formType, formTitle, linkedContent, ojtMetadata, onOjtMetadataChange, startConfig, stores = EMPTY_STORES, organizationId }: FormRendererProps) {
   const { t } = useTranslation();
 
@@ -549,27 +556,13 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     if (submitValidationMessage) setSubmitValidationMessage(null);
   };
 
-  const handleSubmit = async () => {
-    // Validate required fields that are currently visible
+  /** Validate a set of blocks and return errors for required-but-empty fields. */
+  const validateBlocks = (blocksToValidate: FormBlockData[]) => {
     const errors: Record<string, string> = {};
-
-    // Validate start config fields
-    if (startConfig) {
-      if (startConfig.identity_mode === 'location' && !formData._location_id) {
-        errors._location_id = t('forms.fieldRequired');
-      }
-    }
-
-    const INPUT_BLOCK_TYPES = new Set([
-      'text', 'textarea', 'number', 'date', 'time', 'radio', 'checkbox', 'checkboxes',
-      'select', 'dropdown', 'multiselect', 'rating', 'file', 'yes_no', 'slider',
-      'photo', 'signature', 'location',
-    ]);
-    for (const block of blocks) {
+    for (const block of blocksToValidate) {
       if (!block.is_required) continue;
       if (!INPUT_BLOCK_TYPES.has(block.type)) continue;
       if (!isBlockVisible(block.conditional_logic, formData)) continue;
-      // Skip validation for blocks in hidden sections (skip_to_section or section conditions)
       if (block.section_id && allHiddenSectionIds.has(block.section_id)) continue;
       const val = formData[block.id];
       const isEmpty =
@@ -581,20 +574,44 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         errors[block.id] = t('forms.fieldRequired');
       }
     }
+    return errors;
+  };
+
+  const handleSubmit = async () => {
+    // Validate required fields that are currently visible
+    const errors: Record<string, string> = {};
+
+    // Validate start config fields
+    if (startConfig) {
+      if (startConfig.identity_mode === 'location' && !formData._location_id) {
+        errors._location_id = t('forms.fieldRequired');
+      }
+    }
+
+    // Validate all blocks across all sections
+    Object.assign(errors, validateBlocks(blocks));
+
     if (Object.keys(errors).length > 0) {
       setValidationErrors(errors);
-      // Build a helpful message showing which fields/sections have errors
-      const errorBlockLabels = Object.keys(errors).slice(0, 3).map(id => {
-        const b = blocks.find(bl => bl.id === id);
-        return b?.label ? `"${b.label.slice(0, 30)}"` : id;
-      });
-      const moreCount = Object.keys(errors).length - errorBlockLabels.length;
-      const labelList = errorBlockLabels.join(', ') + (moreCount > 0 ? ` +${moreCount} more` : '');
-      setSubmitValidationMessage(`${Object.keys(errors).length} required field(s) need to be completed: ${labelList}`);
-      const firstErrorId = Object.keys(errors)[0];
 
-      // In paginated mode, navigate to the section containing the first error
+      // In paginated mode, build section-aware error messages
       if (isPaginated) {
+        const errorsBySection = new Map<string, string[]>();
+        for (const id of Object.keys(errors)) {
+          const b = blocks.find(bl => bl.id === id);
+          const secId = b?.section_id || '__unsectioned__';
+          if (!errorsBySection.has(secId)) errorsBySection.set(secId, []);
+          errorsBySection.get(secId)!.push(id);
+        }
+        const sectionMessages = [...errorsBySection.entries()].map(([secId, ids]) => {
+          if (secId === '__unsectioned__') return `${ids.length} field(s)`;
+          const sec = sectionMap.get(secId);
+          return `${ids.length} field(s) in "${sec?.title || 'Untitled Section'}"`;
+        });
+        setSubmitValidationMessage(`Required fields need to be completed: ${sectionMessages.join(', ')}`);
+
+        // Navigate to the section containing the first error
+        const firstErrorId = Object.keys(errors)[0];
         const errorBlock = blocks.find(b => b.id === firstErrorId);
         const errorSectionId = errorBlock?.section_id;
         if (errorSectionId) {
@@ -604,18 +621,27 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
               setActiveSectionIdx(sectionIdx);
             }
             // Scroll after React re-renders the new section
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                const el = document.getElementById(`form-field-${firstErrorId}`);
-                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              });
-            });
+            setTimeout(() => {
+              const el = document.getElementById(`form-field-${firstErrorId}`);
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 150);
             return;
           }
         }
+        return;
       }
 
-      // Scroll to the first invalid field (same section or non-paginated mode)
+      // Non-paginated: show field-level error message
+      const errorBlockLabels = Object.keys(errors).slice(0, 3).map(id => {
+        const b = blocks.find(bl => bl.id === id);
+        return b?.label ? `"${b.label.slice(0, 30)}"` : id;
+      });
+      const moreCount = Object.keys(errors).length - errorBlockLabels.length;
+      const labelList = errorBlockLabels.join(', ') + (moreCount > 0 ? ` +${moreCount} more` : '');
+      setSubmitValidationMessage(`${Object.keys(errors).length} required field(s) need to be completed: ${labelList}`);
+
+      // Scroll to the first invalid field
+      const firstErrorId = Object.keys(errors)[0];
       const el = document.getElementById(`form-field-${firstErrorId}`);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
@@ -1940,7 +1966,25 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
           ) : (
             <button
               type="button"
-              onClick={() => { setActiveSectionIdx(i => Math.min(visibleSections.length - 1, i + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              onClick={() => {
+                // Validate current section before advancing
+                const currentBlocks = blocks.filter(b => b.section_id === activeSection?.id);
+                const sectionErrors = validateBlocks(currentBlocks);
+                if (Object.keys(sectionErrors).length > 0) {
+                  setValidationErrors(prev => ({ ...prev, ...sectionErrors }));
+                  setSubmitValidationMessage(`Please complete ${Object.keys(sectionErrors).length} required field(s) before continuing.`);
+                  const firstErrorId = Object.keys(sectionErrors)[0];
+                  requestAnimationFrame(() => {
+                    const el = document.getElementById(`form-field-${firstErrorId}`);
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  });
+                  return;
+                }
+                setSubmitValidationMessage(null);
+                setValidationErrors({});
+                setActiveSectionIdx(i => Math.min(visibleSections.length - 1, i + 1));
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
               className="flex items-center gap-1.5 px-6 py-2.5 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors font-medium text-sm"
             >
               Next

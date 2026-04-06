@@ -643,12 +643,20 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
         orgId
       );
 
+      const isUnsectionedContext = !afterSectionId || afterSectionId === null;
+
       setSections(prev => {
-        // Compute insertion index from current state, not stale closure
-        let insertIdx = prev.length;
-        if (afterSectionId) {
+        let insertIdx: number;
+        if (afterSectionId === '__end__') {
+          // Explicit append at end (global "Add Section" button)
+          insertIdx = prev.length;
+        } else if (afterSectionId) {
+          // Insert after the specified section
           const afterIdx = prev.findIndex(s => s.id === afterSectionId);
-          if (afterIdx >= 0) insertIdx = afterIdx + 1;
+          insertIdx = afterIdx >= 0 ? afterIdx + 1 : 0;
+        } else {
+          // No section context (unsectioned blocks) — insert at top
+          insertIdx = 0;
         }
         const updated = [...prev];
         updated.splice(insertIdx, 0, newSection);
@@ -661,6 +669,14 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
           return { ...s, display_order: i };
         });
       });
+
+      // When adding from unsectioned context, move all unsectioned blocks into the new section
+      if (isUnsectionedContext) {
+        setBlocks(prev => prev.map(b =>
+          !b.section_id ? { ...b, section_id: newSection.id, _isDirty: true } : b
+        ));
+        markDirty();
+      }
 
       // Scroll to the new section after React renders it
       setTimeout(() => {
