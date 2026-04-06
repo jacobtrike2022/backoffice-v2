@@ -289,7 +289,7 @@ interface BlockPickerProps {
   savedGroups?: BlockGroup[];
   onInsertGroup?: (group: BlockGroup) => void;
   onDeleteGroup?: (groupId: string) => void;
-  onAddSection?: () => void;
+  onAddSection?: (afterSectionId?: string | null) => void;
 }
 
 function BlockPicker({ onSelect, onClose, anchorRef, formType, savedGroups, onInsertGroup, onDeleteGroup, onAddSection }: BlockPickerProps) {
@@ -466,7 +466,7 @@ interface AddBlockButtonProps {
   savedGroups?: BlockGroup[];
   onInsertGroup?: (group: BlockGroup, sectionId?: string | null, afterBlockId?: string) => void;
   onDeleteGroup?: (groupId: string) => void;
-  onAddSection?: () => void;
+  onAddSection?: (afterSectionId?: string | null) => void;
 }
 
 function AddBlockButton({ afterBlockId, sectionId, onAdd, formType, savedGroups, onInsertGroup, onDeleteGroup, onAddSection }: AddBlockButtonProps) {
@@ -492,7 +492,7 @@ function AddBlockButton({ afterBlockId, sectionId, onAdd, formType, savedGroups,
           savedGroups={savedGroups}
           onInsertGroup={(group) => onInsertGroup?.(group, sectionId, afterBlockId)}
           onDeleteGroup={onDeleteGroup}
-          onAddSection={onAddSection}
+          onAddSection={onAddSection ? () => onAddSection(sectionId) : undefined}
         />
       )}
     </div>
@@ -522,7 +522,7 @@ interface BlockCardProps {
   savedGroups?: BlockGroup[];
   onInsertGroup?: (group: BlockGroup, sectionId?: string | null, afterBlockId?: string) => void;
   onDeleteGroup?: (groupId: string) => void;
-  onAddSection?: () => void;
+  onAddSection?: (afterSectionId?: string | null) => void;
 }
 
 function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, onSelect, onDelete, onAdd, onOpenLogic, formType, isBulkSelected, onBulkToggle, showDependencies, connectingFromBlockId, onStartConnect, onCompleteConnect, savedGroups, onInsertGroup, onDeleteGroup, onAddSection }: BlockCardProps) {

@@ -128,7 +128,7 @@ export interface UseFormBuilderReturn {
 
   // Sections state
   sections: FormSection[];
-  addSection: () => Promise<void>;
+  addSection: (afterSectionId?: string | null) => Promise<void>;
   updateSection: (sectionId: string, updates: Partial<FormSection>) => void;
   deleteSection: (sectionId: string) => Promise<void>;
 
@@ -633,18 +633,38 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
   // SECTIONS
   // ============================================================================
 
-  const addSection = useCallback(async () => {
+  const addSection = useCallback(async (afterSectionId?: string | null) => {
     if (!form) return;
     try {
+      // Determine insertion index
+      let insertIdx = sections.length;
+      if (afterSectionId) {
+        const afterIdx = sections.findIndex(s => s.id === afterSectionId);
+        if (afterIdx >= 0) insertIdx = afterIdx + 1;
+      }
+
       const newSection = await createFormSection(
         form.id,
         {
           title: 'New Section',
-          display_order: sections.length,
+          display_order: insertIdx,
         },
         orgId
       );
-      setSections(prev => [...prev, newSection]);
+
+      setSections(prev => {
+        const updated = [...prev];
+        updated.splice(insertIdx, 0, newSection);
+        // Re-index display_orders
+        return updated.map((s, i) => {
+          if (s.display_order !== i) {
+            updateFormSection(s.id, { display_order: i }).catch(() => {});
+            return { ...s, display_order: i };
+          }
+          return s;
+        });
+      });
+
       // Scroll to the new section after React renders it
       requestAnimationFrame(() => {
         const el = document.querySelector(`[data-section-id="${newSection.id}"]`);
