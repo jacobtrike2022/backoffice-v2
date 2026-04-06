@@ -4661,7 +4661,7 @@ export function FormBuilder({
                 strategy={verticalListSortingStrategy}
               >
             {hook.sections.map(section => (
-              <div key={section.id} className="mt-4">
+              <div key={section.id} data-section-id={section.id} className="mt-4">
                 <SectionHeaderCard
                   sectionId={section.id}
                   title={section.title}

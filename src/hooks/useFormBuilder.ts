@@ -645,6 +645,11 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
         orgId
       );
       setSections(prev => [...prev, newSection]);
+      // Scroll to the new section after React renders it
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-section-id="${newSection.id}"]`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
     } catch (err) {
       console.error('Error creating section:', err);
       setError(err instanceof Error ? err.message : 'Failed to create section');
