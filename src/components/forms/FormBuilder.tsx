@@ -4045,9 +4045,16 @@ export function FormBuilder({
     onPublished?.();
   }
 
-  const selectedBlock = hook.selectedBlockId
+  // Stabilize selectedBlock reference: only update when the block's content
+  // actually changes — not on every setBlocks call (which happens on save).
+  const selectedBlockRaw = hook.selectedBlockId
     ? hook.blocks.find(b => b.id === hook.selectedBlockId) ?? null
     : null;
+  const selectedBlockJson = selectedBlockRaw ? JSON.stringify(selectedBlockRaw) : null;
+  const selectedBlock = useMemo(
+    () => selectedBlockJson ? JSON.parse(selectedBlockJson) as LocalBlock : null,
+    [selectedBlockJson]
+  );
 
   const selectedSection = selectedSectionId
     ? hook.sections.find(s => s.id === selectedSectionId) ?? null

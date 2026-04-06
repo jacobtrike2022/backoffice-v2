@@ -181,7 +181,9 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
     isDirtyRef.current = isDirty;
   }, [isDirty]);
 
-  // Mark dirty and schedule auto-save
+  // Mark dirty and schedule auto-save.
+  // Uses a longer idle-based debounce: the timer resets on every edit,
+  // so a save only fires after the user stops editing for the full interval.
   const markDirty = useCallback(() => {
     setIsDirty(true);
     isDirtyRef.current = true;
@@ -190,15 +192,20 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
     }
     debounceTimerRef.current = setTimeout(() => {
       saveFormRef.current?.();
-    }, 3000);
+    }, 5000);
   }, []);
 
   // ============================================================================
   // SAVE
   // ============================================================================
 
+  const isSavingRef = useRef(false);
+
   const saveForm = useCallback(async () => {
     if (!form) return;
+    // If already saving, skip — the debounce will reschedule if still dirty.
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
     setIsSaving(true);
     try {
       // Save form metadata
@@ -246,64 +253,82 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
 
       await bulkUpsertFormBlocks(form.id, blocksToUpsert);
 
-      // Always re-fetch so newly-inserted blocks get real DB IDs.
-      // Merge carefully: keep the live in-memory version for existing blocks
-      // (the user may be actively editing them) and only use the DB version
-      // for blocks that were _isNew (they now have real IDs in the response).
-      // This avoids stamping stale state onto blocks being typed into.
-      const refreshed = await getFormWithSections(form.id, orgId);
-      if (refreshed) {
-        const refreshedBlocks = buildLocalBlocks(refreshed);
-        setBlocks(prev => {
-          // Index current in-memory blocks by real DB ID (exclude temp _isNew IDs)
-          const currentMap = new Map(prev.filter(b => !b._isNew).map(b => [b.id, b]));
+      // Re-fetch so newly-inserted blocks get real DB IDs.
+      // Only do the expensive merge when there were _isNew blocks that need
+      // their temp IDs replaced with real DB IDs.  For saves where every
+      // block already has a real ID we can skip the re-fetch entirely —
+      // the in-memory state is already authoritative.
+      const hadNewBlocks = blocks.some(b => b._isNew);
 
-          // Build a mapping from old temp IDs → new real DB IDs so we can
-          // update conditional_logic references that pointed at temp IDs.
-          const tempIdMap = new Map<string, string>();
-          const prevNewBlocks = prev.filter(b => b._isNew);
-          for (const oldBlock of prevNewBlocks) {
-            // Match by display_order + block_type (both are preserved through upsert)
-            const match = refreshedBlocks.find(
-              rb => Math.round(rb.display_order) === Math.round(oldBlock.display_order)
-                && rb.block_type === oldBlock.block_type
-                && !currentMap.has(rb.id) // not an existing block
-            );
-            if (match) {
-              tempIdMap.set(oldBlock.id, match.id);
+      if (hadNewBlocks) {
+        const refreshed = await getFormWithSections(form.id, orgId);
+        if (refreshed) {
+          const refreshedBlocks = buildLocalBlocks(refreshed);
+          setBlocks(prev => {
+            // Index current in-memory blocks by real DB ID (exclude temp _isNew IDs)
+            const currentMap = new Map(prev.filter(b => !b._isNew).map(b => [b.id, b]));
+
+            // Build a mapping from old temp IDs → new real DB IDs so we can
+            // update conditional_logic references that pointed at temp IDs.
+            const tempIdMap = new Map<string, string>();
+            const prevNewBlocks = prev.filter(b => b._isNew);
+            for (const oldBlock of prevNewBlocks) {
+              // Match by display_order + block_type (both are preserved through upsert)
+              const match = refreshedBlocks.find(
+                rb => Math.round(rb.display_order) === Math.round(oldBlock.display_order)
+                  && rb.block_type === oldBlock.block_type
+                  && !currentMap.has(rb.id) // not an existing block
+              );
+              if (match) {
+                tempIdMap.set(oldBlock.id, match.id);
+              }
             }
-          }
 
-          // For each DB block: prefer the live in-memory version if one exists
-          // (preserves unsaved typing); fall back to DB version for new blocks.
-          // Clear _isDirty/_isNew since the save succeeded.
-          const merged = refreshedBlocks.map(rb => {
-            const inMem = currentMap.get(rb.id);
-            if (inMem) return { ...inMem, _isDirty: false, _isNew: false };
-            return { ...rb, _isDirty: false, _isNew: false };
-          });
-
-          // Remap any conditional_logic source_block_id references from temp → real IDs
-          if (tempIdMap.size > 0) {
-            return merged.map(b => {
-              const logic = b.conditional_logic as {
-                action?: string; operator?: string;
-                conditions?: Array<{ source_block_id: string; operator: string; value: string }>;
-              } | null | undefined;
-              if (!logic?.conditions?.length) return b;
-              let changed = false;
-              const updatedConditions = logic.conditions.map(c => {
-                const newId = tempIdMap.get(c.source_block_id);
-                if (newId) { changed = true; return { ...c, source_block_id: newId }; }
-                return c;
+            // Remap selectedBlockId if it was a temp ID that just got a real DB ID
+            if (tempIdMap.size > 0) {
+              setSelectedBlockId(currentId => {
+                if (!currentId) return currentId;
+                return tempIdMap.get(currentId) ?? currentId;
               });
-              if (!changed) return b;
-              return { ...b, conditional_logic: { ...logic, conditions: updatedConditions }, _isDirty: true };
-            });
-          }
+            }
 
-          return merged;
-        });
+            // For each DB block: prefer the live in-memory version if one exists
+            // (preserves unsaved typing); fall back to DB version for new blocks.
+            // Clear _isDirty/_isNew since the save succeeded.
+            const merged = refreshedBlocks.map(rb => {
+              const inMem = currentMap.get(rb.id);
+              if (inMem) return { ...inMem, _isDirty: false, _isNew: false };
+              return { ...rb, _isDirty: false, _isNew: false };
+            });
+
+            // Remap any conditional_logic source_block_id references from temp → real IDs
+            if (tempIdMap.size > 0) {
+              return merged.map(b => {
+                const logic = b.conditional_logic as {
+                  action?: string; operator?: string;
+                  conditions?: Array<{ source_block_id: string; operator: string; value: string }>;
+                } | null | undefined;
+                if (!logic?.conditions?.length) return b;
+                let changed = false;
+                const updatedConditions = logic.conditions.map(c => {
+                  const newId = tempIdMap.get(c.source_block_id);
+                  if (newId) { changed = true; return { ...c, source_block_id: newId }; }
+                  return c;
+                });
+                if (!changed) return b;
+                return { ...b, conditional_logic: { ...logic, conditions: updatedConditions }, _isDirty: true };
+              });
+            }
+
+            return merged;
+          });
+        }
+      } else {
+        // No new blocks — just clear dirty/new flags in-place without re-fetching.
+        // This avoids a DB round-trip and prevents any re-render disruption.
+        setBlocks(prev => prev.map(b =>
+          (b._isDirty || b._isNew) ? { ...b, _isDirty: false, _isNew: false } : b
+        ));
       }
 
       setIsDirty(false);
@@ -315,7 +340,16 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
       setIsDirty(true);
       isDirtyRef.current = true;
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
+      // If the form became dirty again while we were saving (user kept editing),
+      // schedule another save so nothing gets lost.
+      if (isDirtyRef.current) {
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = setTimeout(() => {
+          saveFormRef.current?.();
+        }, 2000);
+      }
     }
   }, [form, blocks, orgId]);
 
