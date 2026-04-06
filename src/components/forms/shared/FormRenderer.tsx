@@ -342,6 +342,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
   const [validationErrors, setValidationErrors] = React.useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [isSubmitted, setIsSubmitted] = React.useState(false);
+  const [submitValidationMessage, setSubmitValidationMessage] = React.useState<string | null>(null);
   const [lastScoringResult, setLastScoringResult] = React.useState<ScoringResult | null>(null);
   const [uploadStates, setUploadStates] = React.useState<Record<string, UploadState>>({});
   const [isSectionPillListExpanded, setIsSectionPillListExpanded] = React.useState(false);
@@ -544,6 +545,8 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     if (validationErrors[blockId]) {
       setValidationErrors(prev => { const next = { ...prev }; delete next[blockId]; return next; });
     }
+    // Clear the submit validation banner when user starts fixing
+    if (submitValidationMessage) setSubmitValidationMessage(null);
   };
 
   const handleSubmit = async () => {
@@ -580,20 +583,32 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     }
     if (Object.keys(errors).length > 0) {
       setValidationErrors(errors);
+      // Build a helpful message showing which fields/sections have errors
+      const errorBlockLabels = Object.keys(errors).slice(0, 3).map(id => {
+        const b = blocks.find(bl => bl.id === id);
+        return b?.label ? `"${b.label.slice(0, 30)}"` : id;
+      });
+      const moreCount = Object.keys(errors).length - errorBlockLabels.length;
+      const labelList = errorBlockLabels.join(', ') + (moreCount > 0 ? ` +${moreCount} more` : '');
+      setSubmitValidationMessage(`${Object.keys(errors).length} required field(s) need to be completed: ${labelList}`);
       const firstErrorId = Object.keys(errors)[0];
 
       // In paginated mode, navigate to the section containing the first error
       if (isPaginated) {
         const errorBlock = blocks.find(b => b.id === firstErrorId);
-        const errorSectionId = errorBlock?.section_id || (firstErrorId.startsWith('_') ? null : null);
+        const errorSectionId = errorBlock?.section_id;
         if (errorSectionId) {
           const sectionIdx = visibleSections.findIndex(s => s.id === errorSectionId);
-          if (sectionIdx >= 0 && sectionIdx !== clampedSectionIdx) {
-            setActiveSectionIdx(sectionIdx);
+          if (sectionIdx >= 0) {
+            if (sectionIdx !== clampedSectionIdx) {
+              setActiveSectionIdx(sectionIdx);
+            }
             // Scroll after React re-renders the new section
             requestAnimationFrame(() => {
-              const el = document.getElementById(`form-field-${firstErrorId}`);
-              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              requestAnimationFrame(() => {
+                const el = document.getElementById(`form-field-${firstErrorId}`);
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              });
             });
             return;
           }
@@ -605,6 +620,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
+    setSubmitValidationMessage(null);
     setValidationErrors({});
     setIsSubmitting(true);
     try {
@@ -636,9 +652,16 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         );
       }
 
-      await onSubmit?.(formData, scoring);
+      if (onSubmit) {
+        await onSubmit(formData, scoring);
+      }
       if (scoring) setLastScoringResult(scoring);
       setIsSubmitted(true);
+    } catch (err) {
+      console.error('[FormRenderer] Submit error:', err);
+      setSubmitValidationMessage(
+        err instanceof Error ? `Submit failed: ${err.message}` : 'Submit failed. Please try again.'
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -1874,6 +1897,14 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
           <span className="font-bold text-lg">{completionPct}%</span>
         </div>
       )}
+      {/* Validation feedback banner */}
+      {submitValidationMessage && (
+        <div className="flex items-center gap-2 p-3 rounded-lg border border-destructive/50 bg-destructive/10 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>{submitValidationMessage}</span>
+        </div>
+      )}
+
       {/* Section-paginated navigation: Previous / Next / Submit */}
       {isPaginated && !readOnly && (
         <div className="pt-4 border-t mt-2 flex items-center gap-3">
