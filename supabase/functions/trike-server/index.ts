@@ -16346,7 +16346,9 @@ function generateSubmissionPdfHtml(params: {
   storeName?: string;
   submittedAt?: string;
   score?: { total: number; passed: boolean; max: number } | null;
-  blocks: Array<{ id: string; label?: string; type?: string }>;
+  sectionScores?: Array<{ section_id: string; section_title?: string; earned: number; possible: number; percentage?: number; passed: boolean }> | Record<string, any> | null;
+  blocks: Array<{ id: string; label?: string; type?: string; is_required?: boolean; section_id?: string | null }>;
+  sections?: Array<{ id: string; title?: string; display_order?: number }>;
   responses: Record<string, unknown>;
   orgLogoUrl?: string;
   orgName?: string;
@@ -16359,7 +16361,9 @@ function generateSubmissionPdfHtml(params: {
     storeName,
     submittedAt,
     score,
+    sectionScores,
     blocks,
+    sections,
     responses,
     orgLogoUrl,
     orgName,
@@ -16399,6 +16403,40 @@ function generateSubmissionPdfHtml(params: {
       </div>`;
   }
 
+  // Section-by-section scoring breakdown
+  let sectionScoreHtml = '';
+  // Normalize: DB stores as array of SectionScore, but could also be a map
+  const sectionScoreEntries: Array<{ section_id: string; section_title?: string; title?: string; earned: number; possible: number; percentage?: number; passed: boolean }> =
+    Array.isArray(sectionScores) ? sectionScores :
+    (sectionScores && typeof sectionScores === 'object') ? Object.entries(sectionScores).map(([k, v]: [string, any]) => ({ section_id: k, ...v })) : [];
+  if (sectionScoreEntries.length > 0) {
+    const sectionRows = sectionScoreEntries.map(sec => {
+      const secPct = sec.percentage ?? (sec.possible > 0 ? Math.round((sec.earned / sec.possible) * 100) : 0);
+      const secStatusColor = sec.passed ? '#16a34a' : '#dc2626';
+      const secStatus = sec.passed ? 'PASS' : 'FAIL';
+      const secTitle = sec.section_title || sec.title || (sections || []).find(s => s.id === sec.section_id)?.title || 'Section';
+      return `<tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;font-weight:500;color:#334155;">${escapeHtml(secTitle)}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#64748b;text-align:center;">${sec.earned} / ${sec.possible}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;font-weight:600;text-align:center;">${secPct}%</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;text-align:center;"><span style="display:inline-block;padding:2px 10px;border-radius:9999px;font-size:11px;font-weight:700;color:#fff;background:${secStatusColor};">${secStatus}</span></td>
+      </tr>`;
+    }).join('');
+    sectionScoreHtml = `
+      <div style="margin:20px 0;">
+        <div style="font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Score by Section</div>
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;">
+          <thead><tr style="background:#f8fafc;">
+            <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Section</th>
+            <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Score</th>
+            <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">%</th>
+            <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Status</th>
+          </tr></thead>
+          <tbody>${sectionRows}</tbody>
+        </table>
+      </div>`;
+  }
+
   // Submitter info section
   const submitterParts: string[] = [];
   if (submitterName) submitterParts.push(`<strong>${escapeHtml(submitterName)}</strong>`);
@@ -16420,6 +16458,10 @@ function generateSubmissionPdfHtml(params: {
       </tr>`
     : '';
 
+  // Build section lookup for headers
+  const sectionMap = new Map((sections || []).map(s => [s.id, s]));
+  const sectionHeadersRendered = new Set<string>();
+
   // Build response rows per block (in display_order)
   const responsesHtml = identityRow + blocks.map(block => {
     const rawVal = responses[block.id] ?? responses[block.label || ''] ?? null;
@@ -16430,7 +16472,6 @@ function generateSubmissionPdfHtml(params: {
       return `<tr><td colspan="2" style="padding:12px 0;">
         <div style="background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;padding:12px 16px;">
           ${label ? `<div style="font-size:13px;font-weight:600;color:#334155;margin-bottom:4px;">${escapeHtml(label)}</div>` : ''}
-          ${block.description ? `<div style="font-size:12px;color:#64748b;line-height:1.5;">${escapeHtml(block.description)}</div>` : ''}
         </div>
       </td></tr>`;
     }
@@ -16441,6 +16482,26 @@ function generateSubmissionPdfHtml(params: {
     }
     if (block.type === 'heading' || block.type === 'separator' || block.type === 'section_header' || block.type === 'paragraph') {
       return ''; // skip legacy content types
+    }
+
+    // Check if value is empty
+    const isEmpty = rawVal === null || rawVal === undefined || rawVal === '' || (Array.isArray(rawVal) && rawVal.length === 0);
+
+    // Skip non-required empty fields — but include them if they have any input
+    if (!block.is_required && isEmpty) {
+      return '';
+    }
+
+    // Inject section header before first block of each section
+    let sectionHeaderRow = '';
+    if (block.section_id && !sectionHeadersRendered.has(block.section_id)) {
+      sectionHeadersRendered.add(block.section_id);
+      const sec = sectionMap.get(block.section_id);
+      if (sec?.title) {
+        sectionHeaderRow = `<tr><td colspan="2" style="padding:20px 0 8px 0;">
+          <div style="font-size:13px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:0.04em;border-bottom:2px solid #f97316;padding-bottom:6px;">${escapeHtml(sec.title)}</div>
+        </td></tr>`;
+      }
     }
 
     let displayVal: string;
@@ -16462,10 +16523,15 @@ function generateSubmissionPdfHtml(params: {
       if (Array.isArray(rawVal)) {
         displayVal = rawVal.map((f: any) => {
           if (typeof f === 'object' && f.url) return `<a href="${escapeHtml(f.url)}" style="color:#3b82f6;">${escapeHtml(f.filename || f.name || 'File')}</a>`;
+          if (typeof f === 'string' && f.startsWith('http')) return `<div style="margin:4px 0;"><img src="${escapeHtml(f)}" alt="Photo" style="max-width:280px;max-height:200px;border-radius:6px;border:1px solid #e2e8f0;" /></div>`;
           return escapeHtml(String(f));
-        }).join(', ') || '<em style="color:#94a3b8;">—</em>';
+        }).join('') || '<em style="color:#94a3b8;">—</em>';
       } else if (rawVal && typeof rawVal === 'object' && 'url' in (rawVal as any)) {
-        displayVal = `<a href="${escapeHtml((rawVal as any).url)}" style="color:#3b82f6;">${escapeHtml((rawVal as any).filename || 'File')}</a>`;
+        const url = escapeHtml((rawVal as any).url);
+        displayVal = `<div style="margin:4px 0;"><img src="${url}" alt="Photo" style="max-width:280px;max-height:200px;border-radius:6px;border:1px solid #e2e8f0;" /></div>`;
+      } else if (rawVal && typeof rawVal === 'string' && (rawVal as string).startsWith('http')) {
+        // Plain URL string — common format from FormRenderer photo upload
+        displayVal = `<div style="margin:4px 0;"><img src="${escapeHtml(rawVal as string)}" alt="Photo" style="max-width:280px;max-height:200px;border-radius:6px;border:1px solid #e2e8f0;" /></div>`;
       } else { displayVal = '<em style="color:#94a3b8;">—</em>'; }
     } else if (block.type === 'rating') {
       const num = Number(rawVal);
@@ -16488,7 +16554,7 @@ function generateSubmissionPdfHtml(params: {
       displayVal = escapeHtml(String(rawVal));
     }
 
-    return `<tr>
+    return sectionHeaderRow + `<tr>
       <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-weight:500;color:#334155;vertical-align:top;width:35%;font-size:13px;">${escapeHtml(label || 'Question')}</td>
       <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;color:#1e293b;font-size:14px;">${displayVal}</td>
     </tr>`;
@@ -16539,6 +16605,7 @@ function generateSubmissionPdfHtml(params: {
   </div>
   ${submitterHtml}
   ${scoreHtml}
+  ${sectionScoreHtml}
   ${responsesHtml ? `<table>${responsesHtml}</table>` : '<p style="color:#94a3b8;font-size:14px;">No responses recorded.</p>'}
   <div class="footer">Generated by ${brandName} &middot; Powered by Trike &middot; ${now}</div>
 </body>
@@ -16815,9 +16882,31 @@ async function processFormSubmissionEmails(params: {
     // Fetch form blocks for label mapping in response summaries
     const { data: blocks } = await supabase
       .from('form_blocks')
-      .select('id, label, type')
+      .select('id, label, type, is_required, section_id')
       .eq('form_id', params.form_id)
       .order('display_order', { ascending: true });
+
+    // Fetch form sections for section headers and section score titles
+    const { data: formSections } = await supabase
+      .from('form_sections')
+      .select('id, title, display_order')
+      .eq('form_id', params.form_id)
+      .order('display_order', { ascending: true });
+
+    // Fetch section_scores and submitted_at from the submission record
+    let submissionSectionScores: Record<string, any> | null = null;
+    let submittedAt: string | undefined;
+    if (params.submission_id) {
+      const { data: sub } = await supabase
+        .from('form_submissions')
+        .select('section_scores, submitted_at')
+        .eq('id', params.submission_id)
+        .single();
+      if (sub) {
+        submissionSectionScores = (sub.section_scores as Record<string, any>) || null;
+        submittedAt = sub.submitted_at || undefined;
+      }
+    }
 
     // Fetch org info for branding
     let orgName = '';
@@ -16901,8 +16990,11 @@ async function processFormSubmissionEmails(params: {
               submitterName: submitterName || undefined,
               submitterEmail: submitterEmail || undefined,
               storeName: submitterStore || undefined,
+              submittedAt,
               score: params.score,
+              sectionScores: submissionSectionScores,
               blocks: blocks || [],
+              sections: formSections || [],
               responses: params.responses,
               orgLogoUrl: orgLogoDarkUrl || undefined,
               orgName: orgName || undefined,
@@ -16910,8 +17002,9 @@ async function processFormSubmissionEmails(params: {
             // Resend expects base64-encoded content for attachments
             const base64Content = btoa(unescape(encodeURIComponent(pdfHtml)));
             const safeTitle = formTitle.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_');
+            const dateStamp = submittedAt ? new Date(submittedAt).toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '') : new Date().toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '');
             attachments = [{
-              filename: `${safeTitle}_submission.html`,
+              filename: `${safeTitle}_${dateStamp}.html`,
               content: base64Content,
             }];
           } catch (pdfErr) {
@@ -16996,16 +17089,20 @@ async function processFormSubmissionEmails(params: {
             submitterName: submitterName || undefined,
             submitterEmail: submitterEmail || undefined,
             storeName: submitterStore || undefined,
+            submittedAt,
             score: params.score,
+            sectionScores: submissionSectionScores,
             blocks: blocks || [],
+            sections: formSections || [],
             responses: params.responses,
             orgLogoUrl: orgLogoDarkUrl || undefined,
             orgName: orgName || undefined,
           });
           const base64Content = btoa(unescape(encodeURIComponent(thresholdPdfHtml)));
           const safeTitle = formTitle.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_');
+          const dateStamp = submittedAt ? new Date(submittedAt).toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '') : new Date().toISOString().slice(0, 16).replace('T', '_').replace(/:/g, '');
           thresholdAttachments = [{
-            filename: `${safeTitle}_submission.html`,
+            filename: `${safeTitle}_${dateStamp}.html`,
             content: base64Content,
           }];
         } catch (pdfErr) {
@@ -17112,11 +17209,13 @@ async function handleFormSubmissionHtml(req: Request, path: string): Promise<Res
         total_score,
         max_possible_score,
         score_percentage,
+        section_scores,
         form:forms(
           title,
           type,
           organization_id,
-          form_blocks(id, label, type, display_order)
+          form_blocks(id, label, type, display_order, is_required, section_id),
+          form_sections(id, title, display_order)
         )
       `)
       .eq('id', submissionId)
@@ -17143,123 +17242,35 @@ async function handleFormSubmissionHtml(req: Request, path: string): Promise<Res
 
     const rawBlocks: any[] = form?.form_blocks ?? [];
     const blocks = [...rawBlocks].sort((a: any, b: any) => (a.display_order ?? 0) - (b.display_order ?? 0));
+    const rawSections: any[] = form?.form_sections ?? [];
+    const formSections = [...rawSections].sort((a: any, b: any) => (a.display_order ?? 0) - (b.display_order ?? 0));
 
     const answers: Record<string, unknown> = (submission as any).answers ?? {};
 
-    const submittedAt = submission.submitted_at
-      ? new Date(submission.submitted_at).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-        })
-      : '—';
-
-    // Build per-question HTML with block-type-aware rendering
-    const answersHtml = blocks
-      .filter((block: any) => block.type !== 'heading' && block.type !== 'separator' && block.type !== 'section_header' && block.type !== 'paragraph')
-      .map((block: any) => {
-        const rawVal = answers[block.id] ?? answers[block.label] ?? null;
-        const label = block.label || 'Question';
-        let displayHtml: string;
-
-        if (block.type === 'signature') {
-          displayHtml = rawVal
-            ? '<em style="color:#64748b;">[Digital signature captured]</em>'
-            : '<em style="color:#94a3b8;">No signature</em>';
-        } else if (block.type === 'yes_no' || block.type === 'yesno') {
-          if (rawVal === true || rawVal === 'yes' || rawVal === 'Yes') {
-            displayHtml = '<span style="color:#16a34a;font-weight:600;">&#10003; Yes</span>';
-          } else if (rawVal === false || rawVal === 'no' || rawVal === 'No') {
-            displayHtml = '<span style="color:#dc2626;font-weight:600;">&#10007; No</span>';
-          } else {
-            displayHtml = '<em style="color:#94a3b8;">No response</em>';
-          }
-        } else if (block.type === 'photo' || block.type === 'file_upload' || block.type === 'file') {
-          if (Array.isArray(rawVal)) {
-            displayHtml = rawVal.map((f: any) => {
-              if (typeof f === 'object' && f.url) return escapeHtml(f.filename || f.name || 'File');
-              return escapeHtml(String(f));
-            }).join(', ') || '<em style="color:#94a3b8;">No files</em>';
-          } else {
-            displayHtml = '<em style="color:#94a3b8;">No files</em>';
-          }
-        } else if (rawVal === null || rawVal === undefined) {
-          displayHtml = '<em style="color:#94a3b8;">No response</em>';
-        } else if (Array.isArray(rawVal)) {
-          displayHtml = escapeHtml(rawVal.join(', '));
-        } else if (typeof rawVal === 'boolean') {
-          displayHtml = rawVal ? 'Yes' : 'No';
-        } else {
-          displayHtml = escapeHtml(String(rawVal));
-        }
-
-        return `
-      <div class="question">
-        <div class="question-label">${escapeHtml(label)}</div>
-        <div class="answer">${displayHtml}</div>
-      </div>`;
-      })
-      .join('');
-
-    const scorePercentage = (submission as any).score_percentage;
     const totalScore = (submission as any).total_score;
     const maxPossibleScore = (submission as any).max_possible_score;
+    const scorePercentage = (submission as any).score_percentage;
+    const subSectionScores = (submission as any).section_scores as Record<string, any> | null;
 
-    const scoreHtml =
-      scorePercentage != null
-        ? `<div class="score-row">
-        <span>Score</span>
-        <strong>${scorePercentage}% (${totalScore}/${maxPossibleScore})</strong>
-      </div>`
-        : '';
+    const scoreObj = scorePercentage != null ? {
+      total: totalScore ?? 0,
+      max: maxPossibleScore ?? 0,
+      passed: scorePercentage >= 70,
+    } : null;
 
-    const submissionStatus: string = (submission as any).status ?? 'submitted';
-    const isApproved = submissionStatus === 'approved';
-
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(formTitle)} — ${escapeHtml(orgName)}</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111; background: #fff; padding: 40px; max-width: 800px; margin: 0 auto; }
-    .header { display: flex; align-items: center; gap: 16px; padding-bottom: 24px; border-bottom: 2px solid #f97316; margin-bottom: 32px; }
-    .logo { max-height: 48px; max-width: 160px; object-fit: contain; }
-    .org-name { font-size: 20px; font-weight: 700; color: #f97316; }
-    .form-title { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
-    .meta { font-size: 13px; color: #666; margin-bottom: 8px; }
-    .status { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #dcfce7; color: #166534; }
-    .status.pending { background: #fef9c3; color: #854d0e; }
-    .score-row { display: flex; align-items: center; gap: 8px; font-size: 15px; margin-top: 8px; }
-    .questions { margin-top: 32px; }
-    .question { padding: 16px 0; border-bottom: 1px solid #e5e7eb; }
-    .question:last-child { border-bottom: none; }
-    .question-label { font-size: 13px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
-    .answer { font-size: 16px; color: #111; }
-    .footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #999; text-align: center; }
-    @media print {
-      body { padding: 20px; }
-      @page { margin: 20mm; }
-    }
-  </style>
-</head>
-<body>
-  <div class="header">
-    ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(orgName)}" class="logo" />` : ''}
-    <div class="org-name">${escapeHtml(orgName)}</div>
-  </div>
-  <div class="form-title">${escapeHtml(formTitle)}${formType ? ` <span style="display:inline-block;padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600;background:#ede9fe;color:#6d28d9;vertical-align:middle;">${escapeHtml(formType)}</span>` : ''}</div>
-  <div class="meta">Submitted: ${submittedAt}</div>
-  <div class="meta">Status: <span class="status${isApproved ? '' : ' pending'}">${escapeHtml(submissionStatus)}</span></div>
-  ${scoreHtml}
-  <div class="questions">${answersHtml || '<p style="color:#999;font-size:14px;">No answers recorded.</p>'}</div>
-  <div class="footer">Generated by Trike Backoffice &middot; ${escapeHtml(orgName)}</div>
-</body>
-</html>`;
+    // Reuse the unified PDF HTML generator for consistent rendering
+    const html = generateSubmissionPdfHtml({
+      formTitle,
+      formType,
+      submittedAt: submission.submitted_at || undefined,
+      score: scoreObj,
+      sectionScores: subSectionScores,
+      blocks,
+      sections: formSections,
+      responses: answers,
+      orgLogoUrl: logoUrl || undefined,
+      orgName: orgName || undefined,
+    });
 
     return new Response(html, {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
