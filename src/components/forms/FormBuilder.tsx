@@ -289,9 +289,10 @@ interface BlockPickerProps {
   savedGroups?: BlockGroup[];
   onInsertGroup?: (group: BlockGroup) => void;
   onDeleteGroup?: (groupId: string) => void;
+  onAddSection?: () => void;
 }
 
-function BlockPicker({ onSelect, onClose, anchorRef, formType, savedGroups, onInsertGroup, onDeleteGroup }: BlockPickerProps) {
+function BlockPicker({ onSelect, onClose, anchorRef, formType, savedGroups, onInsertGroup, onDeleteGroup, onAddSection }: BlockPickerProps) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'questions' | 'content' | 'actions'>('questions');
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -434,6 +435,20 @@ function BlockPicker({ onSelect, onClose, anchorRef, formType, savedGroups, onIn
             </button>
           );
         })}
+        {/* Add Section — shown in the content tab */}
+        {activeTab === 'content' && onAddSection && (
+          <button
+            type="button"
+            onClick={() => {
+              onAddSection();
+              onClose();
+            }}
+            className="flex items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted transition-colors text-left col-span-2 border border-dashed border-border mt-1"
+          >
+            <FolderPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span>{t('forms.builderAddSection')}</span>
+          </button>
+        )}
       </div>
     </div>
   );
@@ -451,9 +466,10 @@ interface AddBlockButtonProps {
   savedGroups?: BlockGroup[];
   onInsertGroup?: (group: BlockGroup, sectionId?: string | null, afterBlockId?: string) => void;
   onDeleteGroup?: (groupId: string) => void;
+  onAddSection?: () => void;
 }
 
-function AddBlockButton({ afterBlockId, sectionId, onAdd, formType, savedGroups, onInsertGroup, onDeleteGroup }: AddBlockButtonProps) {
+function AddBlockButton({ afterBlockId, sectionId, onAdd, formType, savedGroups, onInsertGroup, onDeleteGroup, onAddSection }: AddBlockButtonProps) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
 
@@ -476,6 +492,7 @@ function AddBlockButton({ afterBlockId, sectionId, onAdd, formType, savedGroups,
           savedGroups={savedGroups}
           onInsertGroup={(group) => onInsertGroup?.(group, sectionId, afterBlockId)}
           onDeleteGroup={onDeleteGroup}
+          onAddSection={onAddSection}
         />
       )}
     </div>
@@ -505,9 +522,10 @@ interface BlockCardProps {
   savedGroups?: BlockGroup[];
   onInsertGroup?: (group: BlockGroup, sectionId?: string | null, afterBlockId?: string) => void;
   onDeleteGroup?: (groupId: string) => void;
+  onAddSection?: () => void;
 }
 
-function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, onSelect, onDelete, onAdd, onOpenLogic, formType, isBulkSelected, onBulkToggle, showDependencies, connectingFromBlockId, onStartConnect, onCompleteConnect, savedGroups, onInsertGroup, onDeleteGroup }: BlockCardProps) {
+function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, onSelect, onDelete, onAdd, onOpenLogic, formType, isBulkSelected, onBulkToggle, showDependencies, connectingFromBlockId, onStartConnect, onCompleteConnect, savedGroups, onInsertGroup, onDeleteGroup, onAddSection }: BlockCardProps) {
   const { t } = useTranslation();
   const {
     attributes,
@@ -601,6 +619,7 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
           savedGroups={savedGroups}
           onInsertGroup={onInsertGroup}
           onDeleteGroup={onDeleteGroup}
+          onAddSection={onAddSection}
         />
       </div>
     );
@@ -815,6 +834,7 @@ function SortableBlockCard({ block, allBlocks, isSelected, referencedByCount, on
         savedGroups={savedGroups}
         onInsertGroup={onInsertGroup}
         onDeleteGroup={onDeleteGroup}
+        onAddSection={onAddSection}
       />
     </div>
   );
@@ -4564,6 +4584,7 @@ export function FormBuilder({
                 savedGroups={savedGroups}
                 onInsertGroup={handleInsertGroup}
                 onDeleteGroup={handleDeleteGroup}
+                onAddSection={hook.addSection}
               />
             )}
 
@@ -4623,6 +4644,7 @@ export function FormBuilder({
                     savedGroups={savedGroups}
                     onInsertGroup={handleInsertGroup}
                     onDeleteGroup={handleDeleteGroup}
+                    onAddSection={hook.addSection}
                   />
                 ))}
               </SortableContext>
@@ -4682,6 +4704,7 @@ export function FormBuilder({
                         savedGroups={savedGroups}
                         onInsertGroup={handleInsertGroup}
                         onDeleteGroup={handleDeleteGroup}
+                        onAddSection={hook.addSection}
                       />
                     ))}
                   </SortableContext>
@@ -4689,7 +4712,7 @@ export function FormBuilder({
 
                 {/* Only show section-level + when section is empty (cards render their own + after themselves) */}
                 {(blocksBySection[section.id] ?? []).length === 0 && (
-                  <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} formType={hook.form?.type} savedGroups={savedGroups} onInsertGroup={handleInsertGroup} onDeleteGroup={handleDeleteGroup} />
+                  <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} formType={hook.form?.type} savedGroups={savedGroups} onInsertGroup={handleInsertGroup} onDeleteGroup={handleDeleteGroup} onAddSection={hook.addSection} />
                 )}
               </div>
             ))}
