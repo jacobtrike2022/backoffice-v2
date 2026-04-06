@@ -4704,7 +4704,7 @@ export function FormBuilder({
                         savedGroups={savedGroups}
                         onInsertGroup={handleInsertGroup}
                         onDeleteGroup={handleDeleteGroup}
-                        onAddSection={hook.addSection}
+                        onAddSection={(afterSecId) => hook.addSection(afterSecId ?? section.id)}
                       />
                     ))}
                   </SortableContext>
@@ -4712,7 +4712,7 @@ export function FormBuilder({
 
                 {/* Only show section-level + when section is empty (cards render their own + after themselves) */}
                 {(blocksBySection[section.id] ?? []).length === 0 && (
-                  <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} formType={hook.form?.type} savedGroups={savedGroups} onInsertGroup={handleInsertGroup} onDeleteGroup={handleDeleteGroup} onAddSection={hook.addSection} />
+                  <AddBlockButton sectionId={section.id} onAdd={hook.addBlock} formType={hook.form?.type} savedGroups={savedGroups} onInsertGroup={handleInsertGroup} onDeleteGroup={handleDeleteGroup} onAddSection={(afterSecId) => hook.addSection(afterSecId ?? section.id)} />
                 )}
               </div>
             ))}
@@ -4725,7 +4725,7 @@ export function FormBuilder({
                 variant="outline"
                 size="sm"
                 className="text-xs gap-1.5 text-muted-foreground border-dashed border-border"
-                onClick={hook.addSection}
+                onClick={() => hook.addSection('__end__')}
               >
                 <Plus className="h-3.5 w-3.5" />
                 {t('forms.builderAddSection')}
