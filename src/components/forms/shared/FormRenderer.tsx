@@ -1156,7 +1156,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
                   }}
                   className="text-muted-foreground hover:text-destructive transition-colors"
                 >
-                  <X className="w-4 h-4" />
+                  <XIcon className="w-4 h-4" />
                 </button>
               </div>
             ) : (
@@ -1298,7 +1298,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
                     }}
                     className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:bg-destructive/80 transition-colors"
                   >
-                    <X className="w-3.5 h-3.5" />
+                    <XIcon className="w-3.5 h-3.5" />
                   </button>
                 </div>
                 <p className="text-xs text-muted-foreground">{photoUpState?.fileName || 'Photo uploaded'}</p>
