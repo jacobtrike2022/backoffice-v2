@@ -24,7 +24,7 @@ export const NO_FOLLOWUP_PACK: BlockTemplate[] = [
     conditional_logic: {
       action: 'show' as const,
       operator: 'AND' as const,
-      conditions: [{ source_block_id: PARENT_PLACEHOLDER, operator: 'equals', value: 'no' }],
+      conditions: [{ source_block_id: PARENT_PLACEHOLDER, operator: 'equals', value: 'No' }],
     },
   },
   {
@@ -36,7 +36,7 @@ export const NO_FOLLOWUP_PACK: BlockTemplate[] = [
     conditional_logic: {
       action: 'show' as const,
       operator: 'AND' as const,
-      conditions: [{ source_block_id: PARENT_PLACEHOLDER, operator: 'equals', value: 'no' }],
+      conditions: [{ source_block_id: PARENT_PLACEHOLDER, operator: 'equals', value: 'No' }],
     },
   },
   {
@@ -49,7 +49,7 @@ export const NO_FOLLOWUP_PACK: BlockTemplate[] = [
     conditional_logic: {
       action: 'show' as const,
       operator: 'AND' as const,
-      conditions: [{ source_block_id: PARENT_PLACEHOLDER, operator: 'equals', value: 'no' }],
+      conditions: [{ source_block_id: PARENT_PLACEHOLDER, operator: 'equals', value: 'No' }],
     },
   },
 ];
