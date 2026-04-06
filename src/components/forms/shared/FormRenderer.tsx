@@ -539,10 +539,15 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     };
 
     const frame = window.requestAnimationFrame(measureRows);
-    window.addEventListener('resize', measureRows);
+    const onResize = () => {
+      // Temporarily show all pills so row measurement remains accurate after wrap changes.
+      setCollapsedSectionIds([]);
+      window.requestAnimationFrame(() => measureRows());
+    };
+    window.addEventListener('resize', onResize);
     return () => {
       window.cancelAnimationFrame(frame);
-      window.removeEventListener('resize', measureRows);
+      window.removeEventListener('resize', onResize);
     };
   }, [visibleSections, isSectionPillListExpanded]);
 
@@ -1658,21 +1663,24 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-2.5">
           <div className="flex items-start gap-2">
             <div className="flex-1 flex flex-wrap gap-1.5 min-w-0">
-              {(isSectionPillListExpanded
-                ? visibleSections
-                : visibleSections.filter(s => collapsedSectionIds.includes(s.id))
-              ).map(s => (
+              {visibleSections.map(s => {
+                const shouldRenderAllForMeasurement = !isSectionPillListExpanded && collapsedSectionIds.length === 0;
+                const isVisible = isSectionPillListExpanded || shouldRenderAllForMeasurement || collapsedSectionIds.includes(s.id);
+                return (
                   <button
                     key={s.id}
                     ref={(el) => { sectionPillButtonRefs.current[s.id] = el; }}
                     type="button"
                     onClick={() => document.getElementById(`form-section-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                    className="text-xs px-2.5 py-1 rounded-full border border-border bg-background hover:bg-muted transition-colors truncate max-w-[200px]"
+                    className={`text-xs px-2.5 py-1 rounded-full border border-border bg-background hover:bg-muted transition-colors truncate max-w-[200px] ${
+                      isVisible ? '' : 'hidden'
+                    }`}
                     title={s.title || ''}
                   >
                     {s.title}
                   </button>
-                ))}
+                );
+              })}
             </div>
 
             {isSectionPillListOverflowing && (
