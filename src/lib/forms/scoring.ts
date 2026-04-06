@@ -136,9 +136,15 @@ function scoreBlock(
   mode: ScoringMode,
 ): BlockScore | null {
   const vr = (block.validation_rules ?? {}) as Record<string, unknown>;
-  const correctAnswer = getCorrectAnswer(vr);
+  let correctAnswer = getCorrectAnswer(vr);
   const isCritical = !!(vr._critical);
   const allowNa = !!(vr._allow_na);
+
+  // For yes_no blocks, default correct answer to 'yes' if not explicitly set
+  // (standard for audit/inspection forms where "Yes" means compliant)
+  if (!correctAnswer && block.type === 'yes_no') {
+    correctAnswer = 'yes';
+  }
 
   // Block must have a correct answer to be scored
   if (!correctAnswer) return null;
