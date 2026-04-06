@@ -15,6 +15,7 @@ import {
 import { createFormVersion } from '../lib/crud/formVersions';
 import type { BlockTemplate } from '../lib/crud/blockGroups';
 import { instantiateGroupTemplate } from '../lib/forms/blockGroupSerializer';
+import { NO_FOLLOWUP_PACK, FOLLOWUP_PACK_MARKER, isFollowUpPackBlock } from '../lib/forms/builtinFollowUps';
 
 // ============================================================================
 // TYPES
@@ -137,6 +138,9 @@ export interface UseFormBuilderReturn {
   setSelectedBlockId: (id: string | null) => void;
   addBlock: (blockType: string, sectionId?: string | null, afterBlockId?: string) => void;
   addBlockGroup: (templates: import('../lib/crud/blockGroups').BlockTemplate[], sectionId?: string | null, afterBlockId?: string) => void;
+  addFollowUpPack: (parentBlockId: string) => void;
+  removeFollowUpPack: (parentBlockId: string) => void;
+  hasFollowUpPack: (parentBlockId: string) => boolean;
   updateBlock: (blockId: string, updates: Partial<LocalBlock>) => void;
   deleteBlock: (blockId: string) => void;
   reorderBlock: (blockId: string, newIndex: number, sectionId?: string | null) => void;
@@ -472,7 +476,46 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
                     guideline_attachments: (b as any).guideline_attachments,
                   };
                 });
-                setBlocks(localBlocks);
+                // For inspection/audit forms, auto-attach follow-up packs to yes_no blocks
+                const formType = data.type || initialType;
+                if (formType === 'inspection' || formType === 'audit') {
+                  const yesNoBlocks = localBlocks.filter(b => b.block_type === 'yes_no');
+                  const followUpInserts: LocalBlock[] = [];
+
+                  for (const ynBlock of yesNoBlocks) {
+                    const packBlocks = instantiateGroupTemplate(
+                      NO_FOLLOWUP_PACK,
+                      formId,
+                      ynBlock.section_id ?? null,
+                      ynBlock.id,
+                      [...localBlocks, ...followUpInserts],
+                      ynBlock.id,
+                      { [FOLLOWUP_PACK_MARKER]: true, _followup_parent_id: ynBlock.id }
+                    );
+                    followUpInserts.push(...packBlocks);
+                  }
+
+                  if (followUpInserts.length > 0) {
+                    // Interleave follow-ups after their parent yes_no blocks
+                    const merged: LocalBlock[] = [];
+                    for (const b of localBlocks) {
+                      merged.push(b);
+                      if (b.block_type === 'yes_no') {
+                        const myFollowUps = followUpInserts.filter(
+                          fb => (fb.settings as Record<string, unknown>)?._followup_parent_id === b.id
+                        );
+                        merged.push(...myFollowUps);
+                      }
+                    }
+                    // Re-index display_order
+                    merged.forEach((b, i) => { b.display_order = i; });
+                    setBlocks(merged);
+                  } else {
+                    setBlocks(localBlocks);
+                  }
+                } else {
+                  setBlocks(localBlocks);
+                }
                 markDirty();
               } catch {
                 // Fallback to normal loaded blocks
@@ -738,6 +781,58 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
     markDirty();
   }, [form, blocks, markDirty]);
 
+  // ── Built-in "No" Follow-Up Pack ─────────────────────────────────────────
+
+  const hasFollowUpPack = useCallback((parentBlockId: string): boolean => {
+    return blocks.some(b => {
+      if (!isFollowUpPackBlock(b.settings as Record<string, unknown>)) return false;
+      const logic = b.conditional_logic as { conditions?: Array<{ source_block_id: string }> } | null;
+      return logic?.conditions?.some(c => c.source_block_id === parentBlockId) ?? false;
+    });
+  }, [blocks]);
+
+  const addFollowUpPack = useCallback((parentBlockId: string) => {
+    if (!form) return;
+    // Don't add if already attached
+    if (hasFollowUpPack(parentBlockId)) return;
+
+    const parentBlock = blocks.find(b => b.id === parentBlockId);
+    const sectionId = parentBlock?.section_id ?? null;
+
+    const newBlocks = instantiateGroupTemplate(
+      NO_FOLLOWUP_PACK,
+      form.id,
+      sectionId,
+      parentBlockId,
+      blocks,
+      parentBlockId,
+      { [FOLLOWUP_PACK_MARKER]: true, _followup_parent_id: parentBlockId }
+    );
+
+    setBlocks(prev => {
+      const parentIdx = prev.findIndex(b => b.id === parentBlockId);
+      const insertIdx = parentIdx !== -1 ? parentIdx + 1 : prev.length;
+      const updated = [...prev];
+      updated.splice(insertIdx, 0, ...newBlocks);
+      return updated;
+    });
+
+    markDirty();
+  }, [form, blocks, hasFollowUpPack, markDirty]);
+
+  const removeFollowUpPack = useCallback((parentBlockId: string) => {
+    setBlocks(prev => prev.filter(b => {
+      if (!isFollowUpPackBlock(b.settings as Record<string, unknown>)) return true;
+      // Only remove blocks whose conditional logic points to this parent
+      const logic = b.conditional_logic as { conditions?: Array<{ source_block_id: string }> } | null;
+      const pointsToParent = logic?.conditions?.some(c => c.source_block_id === parentBlockId) ?? false;
+      // Also check the _followup_parent_id setting for blocks whose logic was edited
+      const settingsParent = (b.settings as Record<string, unknown>)?._followup_parent_id === parentBlockId;
+      return !(pointsToParent || settingsParent);
+    }));
+    markDirty();
+  }, [markDirty]);
+
   const updateBlock = useCallback((blockId: string, updates: Partial<LocalBlock>) => {
     setBlocks(prev =>
       prev.map(b =>
@@ -818,6 +913,9 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
     setSelectedBlockId,
     addBlock,
     addBlockGroup,
+    addFollowUpPack,
+    removeFollowUpPack,
+    hasFollowUpPack,
     updateBlock,
     deleteBlock,
     reorderBlock,

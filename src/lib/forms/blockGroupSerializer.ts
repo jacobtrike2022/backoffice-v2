@@ -86,7 +86,11 @@ export function instantiateGroupTemplate(
   formId: string,
   sectionId: string | null,
   afterBlockId: string | null,
-  existingBlocks: LocalBlock[]
+  existingBlocks: LocalBlock[],
+  /** When provided, resolves __PARENT__ references to this block ID instead of leaving them unbound. */
+  resolveParentToBlockId?: string,
+  /** Extra settings to merge into every instantiated block (e.g. follow-up pack marker). */
+  extraSettings?: Record<string, unknown>
 ): LocalBlock[] {
   const groupInstanceId = crypto.randomUUID();
 
@@ -125,9 +129,9 @@ export function instantiateGroupTemplate(
     if (tmpl.conditional_logic?.conditions?.length) {
       const resolvedConditions = tmpl.conditional_logic.conditions.map(cond => {
         if (cond.source_block_id === PARENT_PLACEHOLDER) {
-          // Keep as __PARENT__ — the connect step will resolve this
+          // Resolve to concrete parent block ID if provided, otherwise keep as __PARENT__
           return {
-            source_block_id: PARENT_PLACEHOLDER,
+            source_block_id: resolveParentToBlockId || PARENT_PLACEHOLDER,
             operator: cond.operator,
             value: cond.value,
           };
@@ -163,6 +167,7 @@ export function instantiateGroupTemplate(
       validation_rules: tmpl.validation_rules ? { ...tmpl.validation_rules } : undefined,
       settings: {
         ...(tmpl.settings || {}),
+        ...(extraSettings || {}),
         group_instance_id: groupInstanceId,
       },
       conditional_logic: conditionalLogic,
