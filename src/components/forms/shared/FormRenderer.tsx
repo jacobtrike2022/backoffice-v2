@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
-import { Star, Upload, X as XIcon, FileText, Loader2, AlertCircle, ClipboardCheck, Shield, FileSignature, GraduationCap, MessageSquare, Info, BookOpen, ChevronDown, ChevronRight } from 'lucide-react';
+import { Star, Upload, X as XIcon, FileText, Loader2, AlertCircle, ClipboardCheck, Shield, FileSignature, GraduationCap, MessageSquare, Info, BookOpen, ChevronDown, ChevronRight, ChevronLeft, ArrowRight } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -346,6 +346,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
   const [uploadStates, setUploadStates] = React.useState<Record<string, UploadState>>({});
   const [isSectionPillListExpanded, setIsSectionPillListExpanded] = React.useState(false);
   const [sectionPillRowBreak, setSectionPillRowBreak] = React.useState<number | null>(null);
+  const [activeSectionIdx, setActiveSectionIdx] = React.useState(0);
   const sigCanvasRefs = React.useRef<Record<string, SignatureCanvas | null>>({});
   const prevSkippedRef = React.useRef<Set<string>>(new Set());
   const sectionPillContainerRef = React.useRef<HTMLDivElement | null>(null);
@@ -421,10 +422,12 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
       return;
     }
 
-    // Sanitize the filename: remove special chars, keep extension
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    // Sanitize the filename aggressively for Supabase storage path compliance:
+    // strip non-ASCII, collapse runs of special chars, ensure a clean extension.
+    const ext = file.name.includes('.') ? file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin' : 'bin';
+    const baseName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 60) || 'file';
     const timestamp = Date.now();
-    const storagePath = `${formId}/${blockId}/${timestamp}_${safeName}`;
+    const storagePath = `${formId}/${blockId}/${timestamp}_${baseName}.${ext}`;
 
     setUploadStates(prev => ({
       ...prev,
@@ -1598,6 +1601,13 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
     );
   }
 
+  // Section-paginated mode: show one section at a time for scored-by-section forms
+  const isPaginated = !readOnly && scoringMode === 'section' && visibleSections.length > 1;
+  const clampedSectionIdx = Math.min(activeSectionIdx, visibleSections.length - 1);
+  const activeSection = isPaginated ? visibleSections[clampedSectionIdx] : null;
+  const isLastSection = isPaginated && clampedSectionIdx >= visibleSections.length - 1;
+  const isFirstSection = clampedSectionIdx === 0;
+
   return (
     <div className="space-y-6">
       {/* Type-specific header */}
@@ -1714,8 +1724,34 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
         </div>
       )}
 
-      {/* Section quick-nav for forms with multiple sections */}
-      {!readOnly && sections.length > 2 && (
+      {/* Section navigation — paginated stepper for section-scored forms, pill nav otherwise */}
+      {isPaginated ? (
+        <div className="rounded-xl border border-border/70 bg-muted/20 p-3 space-y-2">
+          {/* Section stepper dots */}
+          <div className="flex items-center gap-1.5 justify-center">
+            {visibleSections.map((s, i) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setActiveSectionIdx(i)}
+                className={`h-2 rounded-full transition-all ${
+                  i === clampedSectionIdx ? 'w-6 bg-primary' : 'w-2 bg-muted-foreground/30 hover:bg-muted-foreground/50'
+                }`}
+                title={s.title || `Section ${i + 1}`}
+              />
+            ))}
+          </div>
+          {/* Current section label */}
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              Section {clampedSectionIdx + 1} of {visibleSections.length}
+            </p>
+            <p className="text-xs font-medium truncate max-w-[60%] text-right">
+              {activeSection?.title}
+            </p>
+          </div>
+        </div>
+      ) : !readOnly && sections.length > 2 ? (
         <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 relative">
           {/* Hidden full-list container for row measurement — same width as visible container */}
           <div
@@ -1766,12 +1802,17 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
             )}
           </div>
         </div>
-      )}
+      ) : null}
 
       {(() => {
         const elems: React.ReactNode[] = [];
         const sectionHeadersRendered = new Set<string>();
         for (const block of blocks) {
+          // In paginated mode, skip blocks not in the active section
+          if (isPaginated && activeSection) {
+            if (block.section_id !== activeSection.id) continue;
+          }
+
           // If we have sections, inject section headers before first block in each section
           if (sections.length > 0) {
             const sid = block.section_id;
@@ -1781,7 +1822,7 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
               if (section && !allHiddenSectionIds.has(sid)) {
                 elems.push(
                   <div key={`section-header-${sid}`} id={`form-section-${sid}`} className="pt-4 first:pt-0">
-                    {elems.length > 0 && <Separator className="mb-5" />}
+                    {!isPaginated && elems.length > 0 && <Separator className="mb-5" />}
                     <div className="mb-4">
                       {section.title && (
                         <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{section.title}</h3>
@@ -1814,7 +1855,48 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
           <span className="font-bold text-lg">{completionPct}%</span>
         </div>
       )}
-      {!readOnly && onSubmit && (
+      {/* Section-paginated navigation: Previous / Next / Submit */}
+      {isPaginated && !readOnly && (
+        <div className="pt-4 border-t mt-2 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => { setActiveSectionIdx(i => Math.max(0, i - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            disabled={isFirstSection}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-md border border-border bg-background hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Previous
+          </button>
+          <div className="flex-1" />
+          {isLastSection ? (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className="flex items-center gap-2 px-8 py-2.5 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed font-medium text-sm"
+            >
+              {isSubmitting && (
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              )}
+              {isSubmitting ? t('forms.fillSubmitting', 'Submitting...') : t('forms.fillSubmit', 'Submit')}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => { setActiveSectionIdx(i => Math.min(visibleSections.length - 1, i + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              className="flex items-center gap-1.5 px-6 py-2.5 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors font-medium text-sm"
+            >
+              Next
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      )}
+      {/* Standard submit button for non-paginated forms */}
+      {!isPaginated && !readOnly && onSubmit && (
         <div className="pt-6 border-t mt-2">
           <button
             type="button"
