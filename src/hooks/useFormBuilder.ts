@@ -636,45 +636,42 @@ export function useFormBuilder({ formId, orgId, initialType }: UseFormBuilderPro
   const addSection = useCallback(async (afterSectionId?: string | null) => {
     if (!form) return;
     try {
-      // Determine insertion index
-      let insertIdx = sections.length;
-      if (afterSectionId) {
-        const afterIdx = sections.findIndex(s => s.id === afterSectionId);
-        if (afterIdx >= 0) insertIdx = afterIdx + 1;
-      }
-
+      // Create section with a temporary display_order — will be fixed in setSections
       const newSection = await createFormSection(
         form.id,
-        {
-          title: 'New Section',
-          display_order: insertIdx,
-        },
+        { title: 'New Section', display_order: 9999 },
         orgId
       );
 
       setSections(prev => {
+        // Compute insertion index from current state, not stale closure
+        let insertIdx = prev.length;
+        if (afterSectionId) {
+          const afterIdx = prev.findIndex(s => s.id === afterSectionId);
+          if (afterIdx >= 0) insertIdx = afterIdx + 1;
+        }
         const updated = [...prev];
         updated.splice(insertIdx, 0, newSection);
-        // Re-index display_orders
+        // Re-index all display_orders and persist
         return updated.map((s, i) => {
-          if (s.display_order !== i) {
+          const needsUpdate = s.display_order !== i;
+          if (needsUpdate) {
             updateFormSection(s.id, { display_order: i }).catch(() => {});
-            return { ...s, display_order: i };
           }
-          return s;
+          return { ...s, display_order: i };
         });
       });
 
       // Scroll to the new section after React renders it
-      requestAnimationFrame(() => {
+      setTimeout(() => {
         const el = document.querySelector(`[data-section-id="${newSection.id}"]`);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      });
+      }, 100);
     } catch (err) {
       console.error('Error creating section:', err);
       setError(err instanceof Error ? err.message : 'Failed to create section');
     }
-  }, [form, sections, orgId]);
+  }, [form, orgId]);
 
   const updateSection = useCallback((sectionId: string, updates: Partial<FormSection>) => {
     setSections(prev =>
