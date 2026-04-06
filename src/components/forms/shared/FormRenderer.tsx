@@ -1530,12 +1530,16 @@ export function FormRenderer({ blocks: rawBlocks, sections = EMPTY_SECTIONS, ans
   // --- Type-specific computed values ---
   const typeUx = formType ? FORM_TYPE_UX[formType] : undefined;
   const INPUT_TYPES = new Set(['text','textarea','number','date','time','radio','checkbox','checkboxes','select','dropdown','multiselect','rating','file','yes_no','slider','photo','signature','location']);
-  const inputBlocks = blocks.filter(b => INPUT_TYPES.has(b.type) && isBlockVisible(b.conditional_logic, formData));
-  const completedCount = inputBlocks.filter(b => {
+  // Progress counter tracks only required visible blocks — optional fields don't count toward completion
+  const requiredInputBlocks = blocks.filter(b =>
+    b.is_required && INPUT_TYPES.has(b.type) && isBlockVisible(b.conditional_logic, formData)
+    && !(b.section_id && allHiddenSectionIds.has(b.section_id))
+  );
+  const completedCount = requiredInputBlocks.filter(b => {
     const v = formData[b.id];
     return v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
   }).length;
-  const totalCount = inputBlocks.length;
+  const totalCount = requiredInputBlocks.length;
   const completionPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   if (isSubmitted) {
