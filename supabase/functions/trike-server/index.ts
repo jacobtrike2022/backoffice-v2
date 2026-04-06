@@ -16410,12 +16410,14 @@ function generateSubmissionPdfHtml(params: {
     Array.isArray(sectionScores) ? sectionScores :
     (sectionScores && typeof sectionScores === 'object') ? Object.entries(sectionScores).map(([k, v]: [string, any]) => ({ section_id: k, ...v })) : [];
   if (sectionScoreEntries.length > 0) {
+    let rowIdx = 0;
     const sectionRows = sectionScoreEntries.map(sec => {
+      const rowBg = rowIdx++ % 2 === 0 ? 'background:#f8fafc;' : '';
       const secPct = sec.percentage ?? (sec.possible > 0 ? Math.round((sec.earned / sec.possible) * 100) : 0);
       const secStatusColor = sec.passed ? '#16a34a' : '#dc2626';
       const secStatus = sec.passed ? 'PASS' : 'FAIL';
       const secTitle = sec.section_title || sec.title || (sections || []).find(s => s.id === sec.section_id)?.title || 'Section';
-      return `<tr>
+      return `<tr style="${rowBg}">
         <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;font-weight:500;color:#334155;">${escapeHtml(secTitle)}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#64748b;text-align:center;">${sec.earned} / ${sec.possible}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;font-weight:600;text-align:center;">${secPct}%</td>
@@ -16487,8 +16489,9 @@ function generateSubmissionPdfHtml(params: {
     // Check if value is empty
     const isEmpty = rawVal === null || rawVal === undefined || rawVal === '' || (Array.isArray(rawVal) && rawVal.length === 0);
 
-    // Skip non-required empty fields — but include them if they have any input
-    if (!block.is_required && isEmpty) {
+    // In reports, skip any block with no response — nothing to display.
+    // Required fields were either filled (show) or conditionally hidden (empty = skip).
+    if (isEmpty) {
       return '';
     }
 
@@ -16619,15 +16622,17 @@ function buildFormEmailHtml(params: {
   formTitle: string;
   submitterInfo: string;
   score?: { total: number; passed: boolean; max: number } | null;
+  sectionScores?: Array<{ section_id: string; section_title?: string; earned: number; possible: number; percentage?: number; passed: boolean }> | Record<string, any> | null;
   includeScore: boolean;
   includeResponses: boolean;
   responses?: Record<string, unknown>;
-  blocks?: Array<{ id: string; label?: string; type?: string }>;
+  blocks?: Array<{ id: string; label?: string; type?: string; is_required?: boolean; section_id?: string | null }>;
+  sections?: Array<{ id: string; title?: string; display_order?: number }>;
   customMessage?: string;
   orgLogoUrl?: string;
   orgName?: string;
 }): string {
-  const { formTitle, submitterInfo, score, includeScore, includeResponses, responses, blocks, customMessage, orgLogoUrl, orgName } = params;
+  const { formTitle, submitterInfo, score, sectionScores, includeScore, includeResponses, responses, blocks, sections, customMessage, orgLogoUrl, orgName } = params;
 
   let scoreSection = '';
   if (includeScore && score) {
@@ -16642,6 +16647,26 @@ function buildFormEmailHtml(params: {
       </div>`;
   }
 
+  // Section score breakdown for email
+  let emailSectionScoreHtml = '';
+  if (includeScore && sectionScores) {
+    const entries: Array<{ section_id: string; section_title?: string; title?: string; earned: number; possible: number; percentage?: number; passed: boolean }> =
+      Array.isArray(sectionScores) ? sectionScores :
+      (typeof sectionScores === 'object') ? Object.entries(sectionScores).map(([k, v]: [string, any]) => ({ section_id: k, ...v })) : [];
+    if (entries.length > 0) {
+      let ri = 0;
+      const secRows = entries.map(sec => {
+        const p = sec.percentage ?? (sec.possible > 0 ? Math.round((sec.earned / sec.possible) * 100) : 0);
+        const bg = ri++ % 2 === 0 ? 'background:#f8fafc;' : '';
+        const sc = sec.passed ? '#16a34a' : '#dc2626';
+        const sl = sec.passed ? 'PASS' : 'FAIL';
+        const t = sec.section_title || sec.title || (sections || []).find(s => s.id === sec.section_id)?.title || 'Section';
+        return `<tr style="${bg}"><td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#334155;">${escapeHtml(t)}</td><td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#64748b;text-align:center;">${sec.earned}/${sec.possible}</td><td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:600;text-align:center;">${p}%</td><td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:center;"><span style="display:inline-block;padding:1px 8px;border-radius:9999px;font-size:10px;font-weight:700;color:#fff;background:${sc};">${sl}</span></td></tr>`;
+      }).join('');
+      emailSectionScoreHtml = `<div style="margin:12px 0;"><h3 style="margin:0 0 6px;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Score by Section</h3><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f1f5f9;"><th style="padding:5px 10px;text-align:left;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Section</th><th style="padding:5px 10px;text-align:center;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Score</th><th style="padding:5px 10px;text-align:center;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">%</th><th style="padding:5px 10px;text-align:center;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Status</th></tr></thead><tbody>${secRows}</tbody></table></div>`;
+    }
+  }
+
   let responsesSection = '';
   if (includeResponses && responses && blocks && blocks.length > 0) {
     // Identity "Submitted by" row (auto-injected by FormRenderer at fill time)
@@ -16653,18 +16678,35 @@ function buildFormEmailHtml(params: {
         </tr>`
       : '';
 
-    // Iterate blocks in display_order (they're already sorted from the query)
-    // This ensures email matches the actual form order
+    // Build section lookup for headers
+    const emailSectionMap = new Map((sections || []).map(s => [s.id, s]));
+    const emailSectionHeadersRendered = new Set<string>();
+
+    // Iterate blocks in display_order — skip empty blocks, add section headers
     const rows = emailIdentityRow + blocks
       .filter(b => b.type !== 'instruction' && b.type !== 'divider' && b.type !== 'heading' && b.type !== 'separator' && b.type !== 'section_header' && b.type !== 'paragraph')
       .map(block => {
         const val = responses[block.id] ?? responses[block.label || ''] ?? null;
         const label = block.label || 'Question';
         const blockType = block.type || '';
+
+        // Skip empty blocks in email — same logic as PDF attachment
+        const valEmpty = val === null || val === undefined || val === '' || (Array.isArray(val) && val.length === 0);
+        if (valEmpty) return '';
+
+        // Inject section header
+        let sectionHeader = '';
+        if (block.section_id && !emailSectionHeadersRendered.has(block.section_id)) {
+          emailSectionHeadersRendered.add(block.section_id);
+          const sec = emailSectionMap.get(block.section_id);
+          if (sec?.title) {
+            sectionHeader = `<tr><td colspan="2" style="padding:14px 12px 6px 12px;"><div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:0.04em;border-bottom:2px solid #f97316;padding-bottom:4px;">${escapeHtml(sec.title)}</div></td></tr>`;
+          }
+        }
+
         let displayHtml: string;
 
         if (blockType === 'signature') {
-          // Gmail strips data: URLs — use text only in email
           displayHtml = val ? '<em style="color:#64748b;">&#9998; Digital signature captured</em>' : '—';
         } else if (blockType === 'yes_no' || blockType === 'yesno') {
           if (val === true || val === 'yes' || val === 'Yes') {
@@ -16678,8 +16720,15 @@ function buildFormEmailHtml(params: {
           const num = Number(val);
           displayHtml = (!isNaN(num) && num > 0) ? '&#9733;'.repeat(num) + ` (${num}/5)` : '—';
         } else if (blockType === 'photo' || blockType === 'file' || blockType === 'file_upload') {
+          // In email, show filename text (Gmail strips images/links)
           if (Array.isArray(val)) {
-            displayHtml = val.map((f: any) => typeof f === 'object' && f?.filename ? escapeHtml(f.filename) : escapeHtml(String(f))).join(', ') || '—';
+            displayHtml = val.map((f: any) => {
+              if (typeof f === 'object' && f?.filename) return escapeHtml(f.filename);
+              if (typeof f === 'string' && f.startsWith('http')) return '<em style="color:#3b82f6;">Photo attached</em>';
+              return escapeHtml(String(f));
+            }).join(', ') || '—';
+          } else if (val && typeof val === 'string' && (val as string).startsWith('http')) {
+            displayHtml = '<em style="color:#3b82f6;">Photo attached (see HTML report)</em>';
           } else { displayHtml = '—'; }
         } else if (blockType === 'location') {
           if (val && typeof val === 'object') {
@@ -16699,7 +16748,7 @@ function buildFormEmailHtml(params: {
           displayHtml = escapeHtml(String(val));
         }
 
-        return `<tr>
+        return sectionHeader + `<tr>
           <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: 500; color: #334155; vertical-align: top; width: 35%;">${escapeHtml(label)}</td>
           <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #475569;">${displayHtml}</td>
         </tr>`;
@@ -16742,6 +16791,7 @@ function buildFormEmailHtml(params: {
         <p style="margin: 0 0 16px; font-size: 14px; color: #64748b;">Submitted by ${escapeHtml(submitterInfo)}</p>
         ${customMessageBlock}
         ${scoreSection}
+        ${emailSectionScoreHtml}
         ${responsesSection}
       </div>
       <!-- Footer -->
@@ -16973,10 +17023,12 @@ async function processFormSubmissionEmails(params: {
           formTitle,
           submitterInfo,
           score: params.score,
+          sectionScores: submissionSectionScores,
           includeScore: notification.include_score ?? false,
           includeResponses: notification.include_responses ?? false,
           responses: params.responses,
           blocks: blocks || [],
+          sections: formSections || [],
           orgLogoUrl: orgLogoUrl || undefined,
           orgName: orgName || undefined,
         });
@@ -17072,10 +17124,12 @@ async function processFormSubmissionEmails(params: {
           formTitle,
           submitterInfo,
           score: params.score,
+          sectionScores: submissionSectionScores,
           includeScore: true,
           includeResponses: true,
           responses: params.responses,
           blocks: blocks || [],
+          sections: formSections || [],
           customMessage: config.score_threshold_action.below_threshold_message || 'This submission scored below the passing threshold and may require attention.',
           orgLogoUrl: orgLogoUrl || undefined,
           orgName: orgName || undefined,
