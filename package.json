@@ -52,6 +52,7 @@
     "i18next": "^26.0.2",
     "input-otp": "^1.4.2",
     "jspdf": "*",
+    "libphonenumber-js": "^1.12.41",
     "lucide-react": "^0.487.0",
     "mammoth": "^1.12.0",
     "motion": "*",

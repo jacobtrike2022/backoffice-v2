@@ -22,6 +22,7 @@ interface User {
   last_name: string;
   email: string;
   phone?: string | null;
+  mobile_phone?: string | null;
   employee_id?: string | null;
   hire_date?: string | null;
   termination_date?: string | null;
@@ -43,6 +44,7 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [mobilePhone, setMobilePhone] = useState('');
   const [employeeId, setEmployeeId] = useState('');
   const [hireDate, setHireDate] = useState('');
   const [terminationDate, setTerminationDate] = useState('');
@@ -63,6 +65,7 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
       setLastName(user.last_name || '');
       setEmail(user.email || '');
       setPhone(user.phone || '');
+      setMobilePhone(user.mobile_phone || '');
       setEmployeeId(user.employee_id || '');
       setHireDate(user.hire_date ? user.hire_date.split('T')[0] : '');
       setTerminationDate(user.termination_date ? user.termination_date.split('T')[0] : '');
@@ -97,6 +100,7 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
         last_name: lastName.trim(),
         email: email.trim(),
         phone: phone.trim() || null,
+        mobile_phone: mobilePhone.trim() || null,
         employee_id: employeeId.trim() || null,
         hire_date: hireDate || null,
         termination_date: terminationDate || null,
@@ -201,15 +205,27 @@ export function EditPeopleDialog({ isOpen, onClose, user, onSuccess }: EditPeopl
                 placeholder="john.doe@company.com"
               />
             </div>
-            <div>
-              <Label htmlFor="phone">{t('people.phoneNumberLabel')}</Label>
-              <Input
-                id="phone"
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="(555) 123-4567"
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="mobilePhone">Mobile Phone *</Label>
+                <Input
+                  id="mobilePhone"
+                  type="tel"
+                  value={mobilePhone}
+                  onChange={(e) => setMobilePhone(e.target.value)}
+                  placeholder="(555) 123-4567"
+                />
+              </div>
+              <div>
+                <Label htmlFor="phone">{t('people.phoneNumberLabel')}</Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="(555) 123-4567"
+                />
+              </div>
             </div>
           </div>
 

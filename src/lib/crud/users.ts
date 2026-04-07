@@ -13,6 +13,7 @@ export interface CreateUserInput {
   employee_id?: string;
   hire_date?: string;
   phone?: string;
+  mobile_phone?: string;
   organization_id?: string;
 }
 
@@ -61,6 +62,7 @@ export async function createUser(input: CreateUserInput) {
       employee_id: input.employee_id,
       hire_date: input.hire_date,
       phone: input.phone,
+      mobile_phone: input.mobile_phone,
       status: 'active'
     })
     .select()
@@ -352,6 +354,7 @@ export interface BulkCreateUsersInput {
     employee_id?: string;
     hire_date?: string;
     phone?: string;
+    mobile_phone?: string;
   }>;
   organization_id: string;
   defaultRoleId?: string;
@@ -444,6 +447,7 @@ export async function bulkCreateUsers(input: BulkCreateUsersInput): Promise<Bulk
       if (row.employee_id) updates.employee_id = row.employee_id;
       if (row.hire_date) updates.hire_date = row.hire_date;
       if (row.phone) updates.phone = row.phone;
+      if (row.mobile_phone) updates.mobile_phone = row.mobile_phone;
 
       try {
         const { error } = await supabase
@@ -473,6 +477,7 @@ export async function bulkCreateUsers(input: BulkCreateUsersInput): Promise<Bulk
     if (row.employee_id) record.employee_id = row.employee_id;
     if (row.hire_date) record.hire_date = row.hire_date;
     if (row.phone) record.phone = row.phone;
+    if (row.mobile_phone) record.mobile_phone = row.mobile_phone;
 
     try {
       const { error } = await supabase
