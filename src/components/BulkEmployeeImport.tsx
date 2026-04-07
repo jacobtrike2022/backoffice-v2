@@ -1276,25 +1276,26 @@ function ReviewStep({
           </>
         )}
 
-        <Separator />
-
-        <div>
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Duplicate Emails</h3>
-          <Select value={duplicateStrategy} onValueChange={(v) => setDuplicateStrategy(v as 'skip' | 'update')}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="skip">Skip existing</SelectItem>
-              <SelectItem value="update">Update existing</SelectItem>
-            </SelectContent>
-          </Select>
-          {duplicateEmailCount > 0 && (
-            <p className="text-[11px] text-amber-600 mt-1.5">
-              {duplicateEmailCount} {duplicateEmailCount === 1 ? 'email already exists' : 'emails already exist'} — will {duplicateStrategy === 'skip' ? 'skip' : 'update'}
-            </p>
-          )}
-        </div>
+        {duplicateEmailCount > 0 && (
+          <>
+            <Separator />
+            <div>
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Duplicate Emails</h3>
+              <Select value={duplicateStrategy} onValueChange={(v) => setDuplicateStrategy(v as 'skip' | 'update')}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="skip">Skip existing</SelectItem>
+                  <SelectItem value="update">Update existing</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-amber-600 mt-1.5">
+                {duplicateEmailCount} {duplicateEmailCount === 1 ? 'email already exists in your org' : 'emails already exist in your org'} — will {duplicateStrategy === 'skip' ? 'skip' : 'update'}
+              </p>
+            </div>
+          </>
+        )}
 
         <Separator />
 
