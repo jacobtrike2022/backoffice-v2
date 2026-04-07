@@ -116,7 +116,10 @@ export const FIELD_DEFINITIONS: TargetField[] = [
     aliases: [
       'store', 'location', 'site', 'sitesdescription', 'defaultdepartment',
       'storename', 'unit', 'branch', 'office', 'facility', 'worklocation',
-      'homelocation', 'homestore', 'assignedstore', 'department'
+      'homelocation', 'homestore', 'assignedstore', 'department',
+      // Common HRIS cost-center column names (Paylocity, ADP, Workday)
+      'costcenter', 'costcenter1', 'costcenter2', 'costcenter2description',
+      'cc', 'cc2', 'paylocitycostcenter', 'homedepartment'
     ]
   },
   {
