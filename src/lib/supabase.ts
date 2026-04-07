@@ -242,6 +242,101 @@ export async function getCurrentUserProfile() {
   return data;
 }
 
+// ============================================================================
+// ORGANIZATIONS
+// ============================================================================
+
+export type EmployeeMatchStrategy = 'auto' | 'external_id' | 'email' | 'mobile_phone';
+
+/**
+ * Fetch a single organization by id.
+ */
+export async function getOrganization(organization_id: string) {
+  const { data, error } = await supabase
+    .from('organizations')
+    .select('*')
+    .eq('id', organization_id)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error fetching organization:', error);
+    return null;
+  }
+  return data;
+}
+
+/**
+ * Update an organization. Accepts partial fields.
+ *
+ * NOTE: This does NOT enforce the `employee_match_strategy_locked` flag — the
+ * caller (UI) is responsible for permission checks before invoking this.
+ */
+export async function updateOrganization(
+  organization_id: string,
+  updates: {
+    name?: string;
+    street_address?: string;
+    city?: string;
+    state?: string;
+    zip_code?: string;
+    phone?: string;
+    email?: string;
+    website?: string;
+    logo_dark_url?: string | null;
+    logo_light_url?: string | null;
+    preferred_language?: string;
+    employee_match_strategy?: EmployeeMatchStrategy;
+    employee_match_strategy_locked?: boolean;
+    [key: string]: any;
+  }
+) {
+  const { data, error } = await supabase
+    .from('organizations')
+    .update(updates)
+    .eq('id', organization_id)
+    .select('*')
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error updating organization:', error);
+    throw error;
+  }
+  return data;
+}
+
+/**
+ * Get the effective employee match strategy for an organization.
+ * If strategy is 'auto', resolves it based on the org's HRIS source or defaults to 'external_id'.
+ */
+export async function getEffectiveMatchStrategy(
+  organization_id: string
+): Promise<'external_id' | 'email' | 'mobile_phone'> {
+  try {
+    const { data, error } = await supabase
+      .from('organizations')
+      .select('employee_match_strategy')
+      .eq('id', organization_id)
+      .maybeSingle();
+
+    if (error || !data) {
+      return 'external_id';
+    }
+
+    const strategy = (data as any).employee_match_strategy as EmployeeMatchStrategy | null | undefined;
+
+    if (strategy && strategy !== 'auto') {
+      return strategy;
+    }
+
+    // 'auto' or unset → safe default. The import fallback ladder will handle
+    // missing fields on individual employee rows.
+    return 'external_id';
+  } catch (err) {
+    console.error('Error resolving effective match strategy:', err);
+    return 'external_id';
+  }
+}
+
 /**
  * Upload file to Supabase Storage
  */

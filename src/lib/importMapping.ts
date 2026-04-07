@@ -72,11 +72,21 @@ export const FIELD_DEFINITIONS: TargetField[] = [
     ]
   },
   {
+    key: 'external_id',
+    label: 'Employee ID (HRIS)',
+    required: false,
+    aliases: [
+      'externalid', 'employeeid', 'empid', 'paylocityemployeeid',
+      'workdayemployeeid', 'adpemployeeid', 'paylocityid', 'adpid',
+      'workdayid', 'gustoid', 'bamboohrid', 'hrisid', 'sourceid'
+    ]
+  },
+  {
     key: 'employee_id',
     label: 'Employee ID',
     required: false,
     aliases: [
-      'employeeid', 'empid', 'badge', 'badgenumber', 'emp',
+      'badge', 'badgenumber', 'emp',
       'empno', 'employeenumber', 'employeeno', 'empnum'
     ]
   },
@@ -152,6 +162,50 @@ export const FIELD_DEFINITIONS: TargetField[] = [
     ]
   }
 ];
+
+/**
+ * Recommended target fields for employee imports.
+ * These aren't strictly required (the row can still be imported without them),
+ * but their absence means the corresponding employee data field will go stale
+ * during ongoing sync. Used in the mapping step to surface a soft warning.
+ */
+export const RECOMMENDED_FIELDS: Array<{ key: string; reason: string }> = [
+  { key: 'external_id', reason: 'recommended primary key for sync (Paylocity/ADP/Workday Employee ID)' },
+  { key: 'email', reason: 'needed for login + notifications' },
+  { key: 'mobile_phone', reason: 'needed for SMS communication' },
+  { key: 'first_name', reason: 'employee identity' },
+  { key: 'last_name', reason: 'employee identity' },
+  { key: 'role_name', reason: 'role/position assignment' },
+  { key: 'store_name', reason: 'unit/location assignment' },
+  { key: 'hire_date', reason: 'tenure tracking + FLSA compliance' },
+];
+
+export interface MissingRecommendedField {
+  key: string;
+  label: string;
+  reason: string;
+}
+
+/**
+ * Given the current column mappings, return the list of RECOMMENDED_FIELDS
+ * that are not mapped. Use this to render a warning banner in the Map step.
+ *
+ * The order of the returned array matches the RECOMMENDED_FIELDS order so the
+ * warning banner shows critical fields first.
+ */
+export function getMissingRecommendedFields(mappings: ColumnMatch[]): MissingRecommendedField[] {
+  const mappedKeys = new Set(mappings.filter(m => m.targetField).map(m => m.targetField!));
+  return RECOMMENDED_FIELDS
+    .filter(f => !mappedKeys.has(f.key))
+    .map(f => {
+      const def = FIELD_DEFINITIONS.find(d => d.key === f.key);
+      return {
+        key: f.key,
+        label: def?.label ?? f.key,
+        reason: f.reason,
+      };
+    });
+}
 
 /**
  * Normalize a header string for comparison.

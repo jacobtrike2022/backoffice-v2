@@ -52,6 +52,7 @@ interface Store {
   updated_at?: string;
   managerEmail?: string;
   managerId?: string;
+  status?: 'active' | 'ignored' | 'deactivated';
 }
 
 interface UnitsProps {
@@ -81,7 +82,8 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
   const { stores: rawStores, loading: storesLoading, error: storesError, refetch: refetchStores } = useStores(
     effectiveOrgId ? {
       organization_id: effectiveOrgId,
-      is_active: true
+      is_active: true,
+      include_ignored: true
     } : undefined
   );
 
@@ -112,7 +114,8 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
     created_at: store.created_at,
     updated_at: store.updated_at,
     managerEmail: store.manager?.email,
-    managerId: store.manager_id
+    managerId: store.manager_id,
+    status: store.status || 'active'
   }));
 
   // Get stores based on role
@@ -493,6 +496,16 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
                       <Badge variant="outline" className={`${getPerformanceColor(store.performance)} text-xs py-0 h-5 flex-shrink-0`}>
                         {store.performance.replace('-', ' ')}
                       </Badge>
+                      {store.status === 'ignored' && (
+                        <Badge variant="outline" className="text-[10px] bg-slate-100 text-slate-600 border-slate-300 flex-shrink-0">
+                          Ignored
+                        </Badge>
+                      )}
+                      {store.status === 'deactivated' && (
+                        <Badge variant="outline" className="text-[10px] bg-gray-100 text-gray-500 border-gray-200 flex-shrink-0">
+                          Deactivated
+                        </Badge>
+                      )}
                     </div>
                     <div className="flex items-center space-x-3 text-xs text-muted-foreground">
                       <span className="truncate">{t('units.manager', { name: store.manager })}</span>

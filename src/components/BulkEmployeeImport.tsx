@@ -62,24 +62,34 @@ import {
   getConfidenceLabel,
   fuzzyMatchValue,
   fuzzyMatchRole,
+  getMissingRecommendedFields,
   FIELD_DEFINITIONS,
   FALLBACK_FIELDS,
   SKIP_VALUE,
-  type ColumnMatch
+  type ColumnMatch,
+  type MissingRecommendedField,
 } from '../lib/importMapping';
-import { bulkCreateUsers, type BulkCreateUsersResult } from '../lib/crud/users';
-import { bulkCreateStores } from '../lib/crud/stores';
+import {
+  classifyUserSync,
+  commitUserSync,
+  type UserSyncInput,
+  type SyncClassificationResult,
+  type SyncCommitResult,
+  type MatchStrategy,
+} from '../lib/crud/users';
+import { bulkCreateStores, getIgnoredStoreIds } from '../lib/crud/stores';
 import { bulkCreateRoles } from '../lib/api/roles';
 import { useRoles, useStores, useEffectiveOrgId } from '../lib/hooks/useSupabase';
-import { supabase } from '../lib/supabase';
+import { supabase, getEffectiveMatchStrategy } from '../lib/supabase';
 import { toast } from 'sonner@2.0.3';
 import { EditableImportTable, type ColumnDef, type RowData, type CellStatus } from './EditableImportTable';
+import { SyncReviewDiff, type SyncTab, type MissingAction } from './SyncReviewDiff';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-type Step = 'upload' | 'mapping' | 'review' | 'importing' | 'results';
+type Step = 'upload' | 'mapping' | 'review' | 'sync_preview' | 'importing' | 'results';
 
 interface BulkEmployeeImportProps {
   open: boolean;
@@ -159,8 +169,23 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
   const [step, setStep] = useState<Step>('upload');
   const [progress, setProgress] = useState(0);
   const [importingMessage, setImportingMessage] = useState('Importing...');
-  const [results, setResults] = useState<BulkCreateUsersResult | null>(null);
+  const [results, setResults] = useState<SyncCommitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Sync engine state — populated when transitioning into sync_preview step
+  const [classification, setClassification] = useState<SyncClassificationResult | null>(null);
+  const [syncTab, setSyncTab] = useState<SyncTab>('all');
+  const [applyFilter, setApplyFilter] = useState<Record<number, { create?: boolean; update?: boolean }>>({});
+  const [missingAction, setMissingAction] = useState<MissingAction>('leave');
+  const [matchStrategy, setMatchStrategy] = useState<MatchStrategy>('auto');
+  // Confirmation text the admin must type to commit a "deactivate" action
+  const [deactivateConfirmText, setDeactivateConfirmText] = useState('');
+  // Loading state for the Preview Sync button (classifyUserSync can take a few seconds for large files)
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  // Stores configured as "ignored" (.gitignore-style) — fetched on entering review.
+  // Rows whose resolved store_id is in this set are soft-skipped from the sync.
+  const [ignoredStoreIds, setIgnoredStoreIds] = useState<Set<string>>(new Set());
 
   // ============================================================================
   // HELPERS
@@ -261,6 +286,7 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
       const isLandline = phoneResult.valid && !phoneResult.isMobile;
 
       // ---------- Other fields ----------
+      const externalId = eff('external_id').trim();
       const employeeId = eff('employee_id');
       const hireRaw = eff('hire_date');
       const hireDate = normalizeDateValue(hireRaw);
@@ -310,6 +336,7 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
 
       return {
         rowIndex: idx,
+        external_id: externalId,
         first_name: firstName,
         last_name: lastName,
         email: email || '',
@@ -414,6 +441,13 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
         : m
     ));
   }, []);
+
+  // Missing recommended fields — flagged in the Mapping step so admins know
+  // which data will go stale during sync.
+  const missingRecommended = useMemo(
+    () => getMissingRecommendedFields(columnMappings),
+    [columnMappings]
+  );
 
   // ============================================================================
   // HANDLERS
@@ -553,22 +587,188 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
         console.warn('Failed to save mapping preference:', err);
       }
     }
-    // Pre-fetch existing emails so the table can flag duplicates live
+
+    // Fetch the cross-cutting context the review step needs:
+    //   - existing org emails (live duplicate flagging)
+    //   - ignored store IDs (.gitignore-style filter)
+    //   - effective match strategy from org settings
     if (orgId) {
       try {
-        const { data } = await supabase
-          .from('users')
-          .select('email')
-          .eq('organization_id', orgId)
-          .not('email', 'is', null);
-        if (data) {
-          setExistingEmails(new Set(data.map(u => (u.email as string).toLowerCase()).filter(Boolean)));
+        const [emailRes, ignoredIds, strategy] = await Promise.all([
+          supabase.from('users').select('email').eq('organization_id', orgId).not('email', 'is', null),
+          getIgnoredStoreIds(orgId),
+          getEffectiveMatchStrategy(orgId),
+        ]);
+        if (emailRes.data) {
+          setExistingEmails(new Set(emailRes.data.map(u => (u.email as string).toLowerCase()).filter(Boolean)));
         }
+        setIgnoredStoreIds(ignoredIds);
+        setMatchStrategy(strategy);
       } catch (err) {
-        console.error('Failed to pre-fetch existing emails:', err);
+        console.error('Failed to pre-fetch review-step context:', err);
       }
     }
     setStep('review');
+  };
+
+  // Build UserSyncInput[] from the resolved rows. Used by sync_preview classification
+  // and the eventual commit. Filters out terminated rows and rows that mapped to an ignored store.
+  const buildSyncInputs = useCallback((): { rows: UserSyncInput[]; ignoredCount: number } => {
+    let ignoredCount = 0;
+    const rows: UserSyncInput[] = [];
+    resolvedRows.forEach(r => {
+      if (r.isTerminated || r.rowStatus === 'error') return;
+      const finalStoreId = r.store_id; // already resolved (existing or pending)
+      if (finalStoreId && ignoredStoreIds.has(finalStoreId)) {
+        ignoredCount++;
+        return;
+      }
+      rows.push({
+        external_id: r.external_id || undefined,
+        email: r.email || undefined,
+        mobile_phone: r.mobile_phone || undefined,
+        first_name: r.first_name,
+        last_name: r.last_name,
+        role_id: r.role_id || undefined,
+        store_id: r.store_id || undefined,
+        employee_id: r.employee_id || undefined,
+        hire_date: r.hire_date || undefined,
+        source_row: r.rowIndex,
+      });
+    });
+    return { rows, ignoredCount };
+  }, [resolvedRows, ignoredStoreIds]);
+
+  // Maps populated when pending stores/roles are flushed to the DB.
+  // Keyed by normalized pending key, value is the new id.
+  const [resolvedStoreCreates, setResolvedStoreCreates] = useState<Record<string, string>>({});
+  const [resolvedRoleCreates, setResolvedRoleCreates] = useState<Record<string, string>>({});
+  const [failedStoreCreates, setFailedStoreCreates] = useState<Record<string, string>>({});
+  const [failedRoleCreates, setFailedRoleCreates] = useState<Record<string, string>>({});
+
+  const handleGoToSyncPreview = async () => {
+    if (!orgId) {
+      toast.error('No organization context available.');
+      return;
+    }
+    setError(null);
+    setPreviewLoading(true);
+    try {
+      // ========== Phase 1: Flush pending store/role creates BEFORE classifying ==========
+      // This ensures the preview the admin sees is identical to what gets committed —
+      // no reclassification drift between preview and apply.
+      const newStoreEntries = Object.entries(activePendingStores);
+      const newRoleEntries = Object.entries(activePendingRoles);
+
+      const createdStoreByKey: Record<string, string> = {};
+      const failedStoreByKey: Record<string, string> = {};
+      const createdRoleByKey: Record<string, string> = {};
+      const failedRoleByKey: Record<string, string> = {};
+
+      if (newStoreEntries.length > 0 || newRoleEntries.length > 0) {
+        const [storeResult, roleResult] = await Promise.all([
+          newStoreEntries.length > 0
+            ? bulkCreateStores({
+                rows: newStoreEntries.map(([, s]) => ({
+                  name: s.displayName,
+                  unit_number: extractNumber(s.displayName) ?? undefined,
+                })),
+                organization_id: orgId,
+              })
+            : Promise.resolve(null),
+          newRoleEntries.length > 0
+            ? bulkCreateRoles({
+                rows: newRoleEntries.map(([, r]) => ({ name: r.displayName })),
+                organization_id: orgId,
+              })
+            : Promise.resolve(null),
+        ]);
+
+        if (storeResult) {
+          storeResult.createdStores.forEach(c => {
+            const entry = newStoreEntries[c.input_index];
+            if (entry) createdStoreByKey[entry[0]] = c.id;
+          });
+          storeResult.errors.forEach(e => {
+            const entry = newStoreEntries[e.row];
+            if (entry) failedStoreByKey[entry[0]] = e.error;
+          });
+          if (storeResult.failed > 0) {
+            toast.error(`Failed to create ${storeResult.failed} unit${storeResult.failed !== 1 ? 's' : ''}`);
+          }
+          if (storeResult.created > 0) refetchStores();
+        }
+
+        if (roleResult) {
+          roleResult.createdRoles.forEach(c => {
+            const entry = newRoleEntries[c.input_index];
+            if (entry) createdRoleByKey[entry[0]] = c.id;
+          });
+          roleResult.errors.forEach(e => {
+            const entry = newRoleEntries[e.row];
+            if (entry) failedRoleByKey[entry[0]] = e.error;
+          });
+          if (roleResult.failed > 0) {
+            toast.error(`Failed to create ${roleResult.failed} role${roleResult.failed !== 1 ? 's' : ''}`);
+          }
+          if (roleResult.created > 0) refetchRoles();
+        }
+
+        setResolvedStoreCreates(createdStoreByKey);
+        setResolvedRoleCreates(createdRoleByKey);
+        setFailedStoreCreates(failedStoreByKey);
+        setFailedRoleCreates(failedRoleByKey);
+      }
+
+      // ========== Phase 2: Build sync inputs with resolved IDs (existing or just-created) ==========
+      const rowsForSync: UserSyncInput[] = [];
+      let ignoredCount = 0;
+      resolvedRows.forEach(r => {
+        if (r.isTerminated || r.rowStatus === 'error') return;
+        const storeKey = r.storeRaw ? normalizePendingKey(r.storeRaw) : '';
+        const roleKey = r.roleRaw ? normalizePendingKey(r.roleRaw) : '';
+        const finalStoreId = r.store_id || createdStoreByKey[storeKey] || undefined;
+        const finalRoleId = r.role_id || createdRoleByKey[roleKey] || undefined;
+        if (finalStoreId && ignoredStoreIds.has(finalStoreId)) {
+          ignoredCount++;
+          return;
+        }
+        rowsForSync.push({
+          external_id: r.external_id || undefined,
+          email: r.email || undefined,
+          mobile_phone: r.mobile_phone || undefined,
+          first_name: r.first_name,
+          last_name: r.last_name,
+          role_id: finalRoleId,
+          store_id: finalStoreId,
+          employee_id: r.employee_id || undefined,
+          hire_date: r.hire_date || undefined,
+          source_row: r.rowIndex,
+        });
+      });
+
+      // ========== Phase 3: Classify (this is now the SOURCE OF TRUTH for commit) ==========
+      const result = await classifyUserSync(rowsForSync, {
+        organization_id: orgId,
+        match_strategy: matchStrategy,
+        external_id_source: 'csv',
+        missing_action: missingAction,
+        source: 'csv',
+        filename: file?.name,
+      });
+      setClassification(result);
+      setApplyFilter({});
+      setSyncTab('all');
+      setDeactivateConfirmText('');
+      setStep('sync_preview');
+    } catch (err: any) {
+      console.error('Sync classification failed:', err);
+      const msg = err.message || 'Failed to classify import. Please try again.';
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setPreviewLoading(false);
+    }
   };
 
   // ============================================================================
@@ -697,156 +897,95 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
       toast.error('No organization context available.');
       return;
     }
+    if (!classification) {
+      toast.error('No sync preview available. Please go back and try again.');
+      return;
+    }
+
+    // Mass-deactivation safety circuit (QA finding #13)
+    if (missingAction === 'deactivate' && classification.missing_users.length > 0) {
+      // Require typed confirmation
+      if (deactivateConfirmText.trim().toLowerCase() !== 'deactivate') {
+        toast.error('Type "deactivate" in the confirmation field to proceed with deactivations.');
+        return;
+      }
+      // Refuse mass deactivation without an extra hard confirmation
+      const totalActive = classification.classifications.length + classification.missing_users.length;
+      const deactivateRatio = classification.missing_users.length / Math.max(totalActive, 1);
+      if (deactivateRatio > 0.5) {
+        const proceed = window.confirm(
+          `WARNING: This will deactivate ${classification.missing_users.length} employees — more than half of your active workforce. ` +
+          `This usually means the uploaded file is a partial report (e.g. one department), not a complete census. ` +
+          `Are you absolutely sure you want to deactivate this many employees?`
+        );
+        if (!proceed) return;
+      }
+    }
 
     setStep('importing');
     setProgress(0);
     setError(null);
 
     try {
-      // Importable rows = ready + warning (but NOT error/terminated).
-      // Warning rows (landlines, etc.) are still valid — they just had soft flags.
-      const importableRows = resolvedRows.filter(r => !r.isTerminated && r.rowStatus !== 'error');
+      setImportingMessage('Applying changes...');
 
-      // Only create pending stores/roles that are actually referenced by importable rows
-      // (filters out orphans from admin's prior "Create new" clicks they later reverted)
-      const newStoreEntries = Object.entries(activePendingStores);
-      const newRoleEntries = Object.entries(activePendingRoles);
-
-      const createdStoreByKey: Record<string, string> = {};
-      const failedStoreByKey: Record<string, string> = {};
-      const createdRoleByKey: Record<string, string> = {};
-      const failedRoleByKey: Record<string, string> = {};
-
-      // ========== Phase 1: create pending stores + roles in parallel ==========
-      if (newStoreEntries.length > 0 || newRoleEntries.length > 0) {
-        const parts: string[] = [];
-        if (newStoreEntries.length > 0) parts.push(`${newStoreEntries.length} new unit${newStoreEntries.length !== 1 ? 's' : ''}`);
-        if (newRoleEntries.length > 0) parts.push(`${newRoleEntries.length} new role${newRoleEntries.length !== 1 ? 's' : ''}`);
-        setImportingMessage(`Creating ${parts.join(' and ')}...`);
-
-        const [storeResult, roleResult] = await Promise.all([
-          newStoreEntries.length > 0
-            ? bulkCreateStores({
-                rows: newStoreEntries.map(([, s]) => ({
-                  name: s.displayName,
-                  unit_number: extractNumber(s.displayName) ?? undefined,
-                })),
-                organization_id: orgId,
-              })
-            : Promise.resolve(null),
-          newRoleEntries.length > 0
-            ? bulkCreateRoles({
-                rows: newRoleEntries.map(([, r]) => ({ name: r.displayName })),
-                organization_id: orgId,
-              })
-            : Promise.resolve(null),
-        ]);
-
-        if (storeResult) {
-          storeResult.createdStores.forEach(created => {
-            const entry = newStoreEntries[created.input_index];
-            if (entry) createdStoreByKey[entry[0]] = created.id;
-          });
-          storeResult.errors.forEach(err => {
-            const entry = newStoreEntries[err.row];
-            if (entry) failedStoreByKey[entry[0]] = err.error;
-          });
-          if (storeResult.failed > 0) {
-            toast.error(`Failed to create ${storeResult.failed} unit${storeResult.failed !== 1 ? 's' : ''}`);
+      // Build pre-insert errors from any pending creates that failed in handleGoToSyncPreview
+      const preInsertErrors: Array<{ source_row: number; name: string; error: string }> = [];
+      Object.entries(failedStoreCreates).forEach(([rawValue, errMsg]) => {
+        // Find rows referencing this raw value and surface as warnings
+        resolvedRows.forEach(r => {
+          if (r.storeRaw && normalizePendingKey(r.storeRaw) === rawValue && !r.isTerminated) {
+            preInsertErrors.push({
+              source_row: r.rowIndex + 1,
+              name: `${r.first_name} ${r.last_name}`,
+              error: `Unit "${r.storeRaw}" creation failed: ${errMsg} — imported without unit`,
+            });
           }
-        }
-
-        if (roleResult) {
-          roleResult.createdRoles.forEach(created => {
-            const entry = newRoleEntries[created.input_index];
-            if (entry) createdRoleByKey[entry[0]] = created.id;
-          });
-          roleResult.errors.forEach(err => {
-            const entry = newRoleEntries[err.row];
-            if (entry) failedRoleByKey[entry[0]] = err.error;
-          });
-          if (roleResult.failed > 0) {
-            toast.error(`Failed to create ${roleResult.failed} role${roleResult.failed !== 1 ? 's' : ''}`);
+        });
+      });
+      Object.entries(failedRoleCreates).forEach(([rawValue, errMsg]) => {
+        resolvedRows.forEach(r => {
+          if (r.roleRaw && normalizePendingKey(r.roleRaw) === rawValue && !r.isTerminated) {
+            preInsertErrors.push({
+              source_row: r.rowIndex + 1,
+              name: `${r.first_name} ${r.last_name}`,
+              error: `Role "${r.roleRaw}" creation failed: ${errMsg} — imported without role`,
+            });
           }
-        }
-        setProgress(40);
-      }
-
-      // ========== Step 3: Import users ==========
-      setImportingMessage('Importing employees...');
-      const importErrors: Array<{ row: number; name: string; error: string }> = [];
-      const rowsToImport = importableRows.map(r => {
-        const storeKey = r.storeRaw ? normalizePendingKey(r.storeRaw) : '';
-        const roleKey = r.roleRaw ? normalizePendingKey(r.roleRaw) : '';
-
-        // Resolve final IDs:
-        // 1) Already-resolved ID (existing DB record, picked from dropdown or fuzzy matched)
-        // 2) Newly-created ID from this batch
-        // Note: if a pending create FAILED, the row proceeds without a store/role assigned
-        // rather than silently using an old/wrong ID.
-        const finalStoreId = r.store_id || createdStoreByKey[storeKey] || undefined;
-        const finalRoleId = r.role_id || createdRoleByKey[roleKey] || undefined;
-
-        // Surface warnings for failed pending creates so admins see them in the results screen
-        if (r.storePending && storeKey && !finalStoreId && failedStoreByKey[storeKey]) {
-          importErrors.push({
-            row: r.rowIndex + 1,
-            name: `${r.first_name} ${r.last_name}`,
-            error: `Unit "${r.storeRaw}" creation failed: ${failedStoreByKey[storeKey]} — imported without unit`
-          });
-        }
-        if (r.rolePending && roleKey && !finalRoleId && failedRoleByKey[roleKey]) {
-          importErrors.push({
-            row: r.rowIndex + 1,
-            name: `${r.first_name} ${r.last_name}`,
-            error: `Role "${r.roleRaw}" creation failed: ${failedRoleByKey[roleKey]} — imported without role`
-          });
-        }
-
-        return {
-          email: r.email || undefined,
-          first_name: r.first_name,
-          last_name: r.last_name,
-          role_id: finalRoleId,
-          store_id: finalStoreId,
-          employee_id: r.employee_id || undefined,
-          hire_date: r.hire_date || undefined,
-          mobile_phone: r.mobile_phone || undefined,
-        };
+        });
       });
 
-      const hadPendingCreates = newStoreEntries.length > 0 || newRoleEntries.length > 0;
-      const importResult = await bulkCreateUsers({
-        rows: rowsToImport,
+      // Commit using the SAME classification the admin saw in preview (no reclassification drift)
+      const commitResult = await commitUserSync(classification, {
         organization_id: orgId,
-        duplicateStrategy,
+        match_strategy: matchStrategy,
+        external_id_source: 'csv',
+        missing_action: missingAction,
+        apply_filter: applyFilter,
+        source: 'csv',
+        filename: file?.name,
         onProgress: (current, total) => {
-          const base = hadPendingCreates ? 40 : 0;
-          const span = 100 - base;
-          setProgress(base + Math.round((current / total) * span));
-        }
+          setProgress(Math.round((current / total) * 100));
+        },
       });
 
-      // Merge pre-insert errors (e.g., failed pending creates) into the final results
-      const mergedResult: BulkCreateUsersResult = {
-        ...importResult,
-        errors: [...importErrors, ...importResult.errors]
+      const mergedResult: SyncCommitResult = {
+        ...commitResult,
+        errors: [...preInsertErrors, ...commitResult.errors],
       };
+
       setResults(mergedResult);
       setStep('results');
 
-      if (mergedResult.created > 0) {
+      if (mergedResult.created > 0 || mergedResult.updated > 0 || mergedResult.reactivated > 0) {
         if (onSuccess) onSuccess();
       }
-
-      // Refetch so the next open shows new stores/roles
-      if (newStoreEntries.length > 0) refetchStores();
-      if (newRoleEntries.length > 0) refetchRoles();
-
     } catch (err: any) {
       console.error('Import failed:', err);
-      setError(err.message || 'Import failed');
-      setStep('review');
+      const msg = err.message || 'Import failed';
+      setError(msg);
+      toast.error(msg);
+      setStep('sync_preview');
     }
   };
 
@@ -891,6 +1030,7 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
             mappingFromCache={mappingFromCache}
             firstNameLooksLikeFullName={firstNameLooksLikeFullName}
             onConvertToFullName={handleConvertToFullName}
+            missingRecommended={missingRecommended}
           />
         )}
         {step === 'review' && (
@@ -914,6 +1054,23 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
             duplicateEmailCount={duplicateEmailCount}
           />
         )}
+        {step === 'sync_preview' && classification && (
+          <SyncPreviewStep
+            classification={classification}
+            activeTab={syncTab}
+            onTabChange={setSyncTab}
+            applyFilter={applyFilter}
+            onToggleApply={(sourceRow, kind, value) => {
+              setApplyFilter(prev => ({
+                ...prev,
+                [sourceRow]: { ...(prev[sourceRow] || {}), [kind]: value },
+              }));
+            }}
+            missingAction={missingAction}
+            onMissingActionChange={setMissingAction}
+            matchStrategy={matchStrategy}
+          />
+        )}
         {step === 'importing' && <ImportingStep progress={progress} message={importingMessage} />}
         {step === 'results' && results && <ResultsStep results={results} />}
       </div>
@@ -931,7 +1088,20 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
           )}
         </div>
         <div className="flex items-center gap-2">
-          {getFooterButtons({ step, hasRequiredMappings, importableCount: readyRows.length + warningRows.length, resetState, handleClose, handleGoToReview, handleImport, setStep })}
+          {getFooterButtons({
+            step,
+            hasRequiredMappings,
+            importableCount: readyRows.length + warningRows.length,
+            syncReadyCount: classification
+              ? classification.stats.new + classification.stats.update + classification.stats.reactivate
+              : 0,
+            resetState,
+            handleClose,
+            handleGoToReview,
+            handleGoToSyncPreview,
+            handleImport,
+            setStep,
+          })}
         </div>
       </div>
     </div>
@@ -947,7 +1117,8 @@ function StepIndicator({ step }: { step: Step }) {
   const steps: Array<{ key: Step; label: string }> = [
     { key: 'upload', label: 'Upload' },
     { key: 'mapping', label: 'Map' },
-    { key: 'review', label: 'Review' },
+    { key: 'review', label: 'Edit' },
+    { key: 'sync_preview', label: 'Sync' },
   ];
   return (
     <div className="flex items-center gap-1 text-xs">
@@ -1035,6 +1206,7 @@ function MappingStep({
   mappingFromCache,
   firstNameLooksLikeFullName,
   onConvertToFullName,
+  missingRecommended,
 }: {
   file: File | null;
   rawRows: Record<string, string>[];
@@ -1045,6 +1217,7 @@ function MappingStep({
   mappingFromCache: boolean;
   firstNameLooksLikeFullName: boolean;
   onConvertToFullName: () => void;
+  missingRecommended: MissingRecommendedField[];
 }) {
   const targetCounts: Record<string, number> = {};
   columnMappings.forEach(m => {
@@ -1103,6 +1276,27 @@ function MappingStep({
               >
                 Map as Full Name instead?
               </button>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {missingRecommended.length > 0 && (
+          <Alert className="bg-amber-50 dark:bg-amber-900/20 border-amber-200">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="text-sm">
+              <p className="text-amber-900 dark:text-amber-100 font-medium">
+                This file is missing some recommended columns:
+              </p>
+              <ul className="mt-1.5 text-xs text-amber-800 dark:text-amber-200 space-y-0.5">
+                {missingRecommended.map(f => (
+                  <li key={f.key}>
+                    <strong>{f.label}</strong> — {f.reason}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-1.5">
+                You can still import, but these fields will go stale during ongoing sync.
+              </p>
             </AlertDescription>
           </Alert>
         )}
@@ -1336,11 +1530,107 @@ function ImportingStep({ progress, message }: { progress: number; message: strin
   );
 }
 
-function ResultsStep({ results }: { results: BulkCreateUsersResult }) {
+function SyncPreviewStep({
+  classification,
+  activeTab,
+  onTabChange,
+  applyFilter,
+  onToggleApply,
+  missingAction,
+  onMissingActionChange,
+  matchStrategy,
+}: {
+  classification: SyncClassificationResult;
+  activeTab: SyncTab;
+  onTabChange: (t: SyncTab) => void;
+  applyFilter: Record<number, { create?: boolean; update?: boolean }>;
+  onToggleApply: (sourceRow: number, kind: 'create' | 'update', value: boolean) => void;
+  missingAction: MissingAction;
+  onMissingActionChange: (a: MissingAction) => void;
+  matchStrategy: MatchStrategy;
+}) {
+  const { stats } = classification;
+  const isInitialSeed = stats.unchanged === 0 && stats.update === 0 && stats.reactivate === 0 && stats.missing === 0;
+
+  return (
+    <div className="flex-1 flex overflow-hidden">
+      {/* Left sidebar — sync summary */}
+      <div className="w-64 border-r bg-muted/20 p-4 overflow-y-auto space-y-4">
+        <div>
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase mb-2">
+            {isInitialSeed ? 'Initial Import' : 'Sync Summary'}
+          </h3>
+          <div className="space-y-1.5 text-sm">
+            <div className="flex justify-between"><span className="text-muted-foreground">Total in file</span><span className="font-semibold">{stats.total}</span></div>
+            <Separator className="my-2" />
+            <div className="flex justify-between"><span className="text-green-600">New</span><span className="font-semibold text-green-600">{stats.new}</span></div>
+            <div className="flex justify-between"><span className="text-blue-600">Updates</span><span className="font-semibold text-blue-600">{stats.update}</span></div>
+            {stats.reactivate > 0 && (
+              <div className="flex justify-between"><span className="text-amber-600">Reactivate</span><span className="font-semibold text-amber-600">{stats.reactivate}</span></div>
+            )}
+            <div className="flex justify-between"><span className="text-muted-foreground">Unchanged</span><span className="font-semibold text-muted-foreground">{stats.unchanged}</span></div>
+            <Separator className="my-2" />
+            {stats.missing > 0 && (
+              <div className="flex justify-between"><span className="text-amber-600">Missing from file</span><span className="font-semibold text-amber-600">{stats.missing}</span></div>
+            )}
+            {stats.ambiguous > 0 && (
+              <div className="flex justify-between"><span className="text-red-600">Ambiguous</span><span className="font-semibold text-red-600">{stats.ambiguous}</span></div>
+            )}
+            {stats.duplicate_in_file > 0 && (
+              <div className="flex justify-between"><span className="text-red-600">Dupes in file</span><span className="font-semibold text-red-600">{stats.duplicate_in_file}</span></div>
+            )}
+          </div>
+        </div>
+
+        <Separator />
+
+        <div>
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Match Strategy</h3>
+          <Badge variant="outline" className="text-xs">
+            {matchStrategy === 'auto' ? 'Auto-detected' :
+             matchStrategy === 'external_id' ? 'HRIS Employee ID' :
+             matchStrategy === 'email' ? 'Email' :
+             'Mobile Phone'}
+          </Badge>
+          <p className="text-[11px] text-muted-foreground mt-1.5">
+            How we identify the same employee across imports. Configurable in Settings.
+          </p>
+        </div>
+
+        <Separator />
+
+        <div className="text-xs text-muted-foreground space-y-2">
+          <p><strong>Tip:</strong> Click any tab to inspect a category. Untick rows in the Changes tab to skip specific updates.</p>
+          {stats.missing > 0 && (
+            <p className="text-amber-600">
+              <strong>{stats.missing} employees</strong> in your DB aren't in this file. Decide what to do in the Missing tab before importing.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Main diff area */}
+      <div className="flex-1 overflow-hidden">
+        <SyncReviewDiff
+          classification={classification}
+          activeTab={activeTab}
+          onTabChange={onTabChange}
+          applyFilter={applyFilter}
+          onToggleApply={onToggleApply}
+          missingAction={missingAction}
+          onMissingActionChange={onMissingActionChange}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ResultsStep({ results }: { results: SyncCommitResult }) {
+  const ignoredCount = (results as any).ignoredCount as number | undefined;
   return (
     <div className="flex-1 overflow-y-auto p-8">
       <div className="max-w-3xl mx-auto space-y-4">
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -1361,9 +1651,22 @@ function ResultsStep({ results }: { results: BulkCreateUsersResult }) {
                   <CheckCircle className="h-5 w-5 text-blue-600" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{results.updated + results.skipped}</p>
+                  <p className="text-2xl font-bold">{results.updated}</p>
+                  <p className="text-sm text-muted-foreground">Updated</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                  <CheckCircle className="h-5 w-5 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{results.reactivated + results.deactivated}</p>
                   <p className="text-sm text-muted-foreground">
-                    {results.updated > 0 ? 'Updated' : 'Skipped'}
+                    {results.reactivated > 0 && results.deactivated > 0 ? 'Reactivated/Deactivated' : results.reactivated > 0 ? 'Reactivated' : 'Deactivated'}
                   </p>
                 </div>
               </div>
@@ -1384,13 +1687,21 @@ function ResultsStep({ results }: { results: BulkCreateUsersResult }) {
           </Card>
         </div>
 
+        {(results.unchanged > 0 || results.skipped > 0 || (ignoredCount && ignoredCount > 0)) && (
+          <div className="text-xs text-muted-foreground flex items-center gap-3">
+            {results.unchanged > 0 && <span>{results.unchanged} unchanged</span>}
+            {results.skipped > 0 && <span>{results.skipped} skipped</span>}
+            {ignoredCount && ignoredCount > 0 && <span>{ignoredCount} from ignored units</span>}
+          </div>
+        )}
+
         {results.errors.length > 0 && (
           <div className="space-y-2">
             <p className="text-sm font-medium text-red-500">Errors</p>
             <div className="max-h-60 overflow-auto border rounded-lg p-2 text-sm">
               {results.errors.slice(0, 30).map((err, idx) => (
                 <div key={idx} className="text-red-600 py-1">
-                  Row {err.row} ({err.name}): {err.error}
+                  Row {err.source_row} ({err.name}): {err.error}
                 </div>
               ))}
               {results.errors.length > 30 && (
@@ -1400,11 +1711,15 @@ function ResultsStep({ results }: { results: BulkCreateUsersResult }) {
           </div>
         )}
 
-        {results.created > 0 && (
+        {(results.created > 0 || results.updated > 0 || results.reactivated > 0) && (
           <Alert className="bg-green-50 dark:bg-green-900/20 border-green-200">
             <CheckCircle className="h-4 w-4 text-green-600" />
             <AlertDescription className="text-green-800 dark:text-green-200">
-              {results.created} imported{results.updated > 0 ? `, ${results.updated} updated` : ''}{results.skipped > 0 ? `, ${results.skipped} skipped` : ''}.
+              Sync complete.
+              {results.created > 0 && ` ${results.created} created.`}
+              {results.updated > 0 && ` ${results.updated} updated.`}
+              {results.reactivated > 0 && ` ${results.reactivated} reactivated.`}
+              {results.deactivated > 0 && ` ${results.deactivated} deactivated.`}
             </AlertDescription>
           </Alert>
         )}
@@ -1417,18 +1732,22 @@ function getFooterButtons({
   step,
   hasRequiredMappings,
   importableCount,
+  syncReadyCount,
   resetState,
   handleClose,
   handleGoToReview,
+  handleGoToSyncPreview,
   handleImport,
   setStep,
 }: {
   step: Step;
   hasRequiredMappings: boolean;
   importableCount: number;
+  syncReadyCount: number;
   resetState: () => void;
   handleClose: () => void;
   handleGoToReview: () => void;
+  handleGoToSyncPreview: () => void;
   handleImport: () => void;
   setStep: (s: Step) => void;
 }): React.ReactNode {
@@ -1452,9 +1771,21 @@ function getFooterButtons({
           <Button variant="outline" onClick={() => setStep('mapping')}>
             <ArrowLeft className="h-4 w-4 mr-2" />Back
           </Button>
-          <Button onClick={handleImport} disabled={importableCount === 0}>
+          <Button onClick={handleGoToSyncPreview} disabled={importableCount === 0}>
+            <Eye className="h-4 w-4 mr-2" />
+            Preview Sync
+          </Button>
+        </>
+      );
+    case 'sync_preview':
+      return (
+        <>
+          <Button variant="outline" onClick={() => setStep('review')}>
+            <ArrowLeft className="h-4 w-4 mr-2" />Back to Edit
+          </Button>
+          <Button onClick={handleImport} disabled={syncReadyCount === 0}>
             <Play className="h-4 w-4 mr-2" />
-            Import {importableCount} employee{importableCount !== 1 ? 's' : ''}
+            Apply {syncReadyCount} change{syncReadyCount !== 1 ? 's' : ''}
           </Button>
         </>
       );
