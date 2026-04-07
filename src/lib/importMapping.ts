@@ -17,7 +17,12 @@ export interface ColumnMatch {
   targetField: string | null;
   confidence: number;
   matchType: 'exact' | 'contains' | 'fuzzy' | 'none';
+  priority: number; // 1 = primary, 2 = fallback
 }
+
+// Fields that commonly have multiple columns in HRIS exports
+// (e.g., "Work Email" + "Personal Email", "Cell Phone" + "Home Phone")
+export const FALLBACK_FIELDS = new Set(['email', 'phone']);
 
 // Target fields with normalized aliases (all lowercase, no spaces/special chars)
 export const FIELD_DEFINITIONS: TargetField[] = [
@@ -119,7 +124,8 @@ export function normalizeHeader(header: string): string {
 /**
  * Match source headers to target fields with confidence scoring.
  * Returns one ColumnMatch per source header.
- * Prevents double-mapping — each target field is assigned at most once.
+ * For fallback-eligible fields (email, phone), allows a second column
+ * as a fallback — e.g., "Work Email" (primary) + "Personal Email" (fallback).
  */
 export function matchColumns(headers: string[]): ColumnMatch[] {
   const normalized = headers.map(h => normalizeHeader(h));
@@ -143,7 +149,6 @@ export function matchColumns(headers: string[]): ColumnMatch[] {
       // Contains match — normalized header contains an alias or vice versa
       for (const alias of field.aliases) {
         if (norm.includes(alias) || alias.includes(norm)) {
-          // Longer overlap = higher confidence
           const overlap = Math.min(norm.length, alias.length) / Math.max(norm.length, alias.length);
           scores.push({
             sourceIdx,
@@ -157,7 +162,7 @@ export function matchColumns(headers: string[]): ColumnMatch[] {
     });
   });
 
-  // Sort by confidence descending and greedily assign
+  // Sort by confidence descending and greedily assign primaries
   scores.sort((a, b) => b.confidence - a.confidence);
 
   const assignedTargets = new Set<string>();
@@ -166,9 +171,11 @@ export function matchColumns(headers: string[]): ColumnMatch[] {
     sourceHeader: h,
     targetField: null,
     confidence: 0,
-    matchType: 'none' as const
+    matchType: 'none' as const,
+    priority: 1
   }));
 
+  // Pass 1: assign primaries (one source per target)
   for (const score of scores) {
     if (assignedTargets.has(score.targetKey) || assignedSources.has(score.sourceIdx)) continue;
     assignedTargets.add(score.targetKey);
@@ -177,7 +184,23 @@ export function matchColumns(headers: string[]): ColumnMatch[] {
       sourceHeader: headers[score.sourceIdx],
       targetField: score.targetKey,
       confidence: score.confidence,
-      matchType: score.matchType
+      matchType: score.matchType,
+      priority: 1
+    };
+  }
+
+  // Pass 2: assign fallbacks for eligible fields (email, phone)
+  for (const score of scores) {
+    if (assignedSources.has(score.sourceIdx)) continue;
+    if (!FALLBACK_FIELDS.has(score.targetKey)) continue;
+    if (!assignedTargets.has(score.targetKey)) continue; // only if a primary exists
+    assignedSources.add(score.sourceIdx);
+    results[score.sourceIdx] = {
+      sourceHeader: headers[score.sourceIdx],
+      targetField: score.targetKey,
+      confidence: score.confidence,
+      matchType: score.matchType,
+      priority: 2
     };
   }
 
