@@ -213,6 +213,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
       complianceScore: selectedEmployee.compliance_score || 0,
       // Additional fields
       phone: selectedEmployee.phone || undefined,
+      mobilePhone: selectedEmployee.mobile_phone || undefined,
       employeeId: selectedEmployee.employee_id || undefined,
       hireDate: selectedEmployee.hire_date || undefined,
       terminationDate: selectedEmployee.termination_date || undefined,

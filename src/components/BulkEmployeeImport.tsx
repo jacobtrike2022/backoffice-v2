@@ -47,6 +47,8 @@ import {
   parseCSV,
   normalizeDateValue,
   normalizeEmailValue,
+  validatePhone,
+  formatPhoneDisplay,
   normalizeNameCase,
   getConfidenceColor,
   getConfidenceLabel,
@@ -152,6 +154,8 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
 
       const rawEmail = getValue('email');
       const email = normalizeEmailValue(rawEmail);
+      const rawMobile = getValue('mobile_phone');
+      const phoneResult = validatePhone(rawMobile);
       const rawDate = getValue('hire_date');
       const hireDate = normalizeDateValue(rawDate);
       const roleRaw = getValue('role_name');
@@ -170,11 +174,19 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
       const statusLower = statusRaw.toLowerCase();
       const isTerminated = statusLower.includes('termin') || statusLower.includes('inactive') || statusLower.includes('separated');
 
+      const firstName = normalizeNameCase(getValue('first_name'));
+      const lastName = normalizeNameCase(getValue('last_name'));
+
+      const isLandline = phoneResult.valid && !phoneResult.isMobile;
+
       return {
         rowIndex: idx + 1,
-        first_name: normalizeNameCase(getValue('first_name')),
-        last_name: normalizeNameCase(getValue('last_name')),
+        first_name: firstName,
+        last_name: lastName,
         email: email || '',
+        mobile_phone: phoneResult.e164 || '',
+        mobile_phone_formatted: phoneResult.formatted,
+        mobile_phone_type: phoneResult.type,
         employee_id: getValue('employee_id'),
         phone: getValue('phone'),
         hire_date: hireDate || '',
@@ -183,9 +195,14 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
         roleName: roleName || (roleRaw ? `(${roleRaw})` : ''),
         storeName: storeName || (storeRaw ? `(${storeRaw})` : ''),
         isTerminated,
-        hasError: !normalizeNameCase(getValue('first_name')) || !normalizeNameCase(getValue('last_name')),
+        isLandline,
+        hasError: !firstName || !lastName || !email || !phoneResult.e164,
+        missingName: !firstName || !lastName,
+        missingEmail: !email,
+        missingMobile: !phoneResult.e164,
         rawDateInvalid: !!rawDate && !hireDate,
-        rawEmailInvalid: !!rawEmail && !email
+        rawEmailInvalid: !!rawEmail && !email,
+        rawMobileInvalid: !!rawMobile && !phoneResult.valid
       };
     });
   }, [rawRows, columnMappings, roleValueMap, storeValueMap, roles, stores]);
@@ -193,13 +210,16 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
   // Stats for preview
   const activeRows = resolvedRows.filter(r => !r.isTerminated);
   const readyRows = activeRows.filter(r => !r.hasError);
-  const warningRows = activeRows.filter(r => !r.email);
-  const errorRows = activeRows.filter(r => r.hasError);
+  const landlineRows = readyRows.filter(r => r.isLandline);
+  const warningRows = activeRows.filter(r => r.hasError && !r.missingName);
+  const errorRows = activeRows.filter(r => r.missingName);
   const skippedRows = resolvedRows.filter(r => r.isTerminated);
 
-  // Check if first_name and last_name are mapped
+  // Check if all required fields are mapped
   const hasRequiredMappings = columnMappings.some(m => m.targetField === 'first_name') &&
-    columnMappings.some(m => m.targetField === 'last_name');
+    columnMappings.some(m => m.targetField === 'last_name') &&
+    columnMappings.some(m => m.targetField === 'email') &&
+    columnMappings.some(m => m.targetField === 'mobile_phone');
 
   // ============================================================================
   // HANDLERS
@@ -383,6 +403,7 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
         employee_id: r.employee_id || undefined,
         hire_date: r.hire_date || undefined,
         phone: r.phone || undefined,
+        mobile_phone: r.mobile_phone || undefined,
       }));
 
       const importResult = await bulkCreateUsers({
@@ -591,16 +612,14 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
-              First Name and Last Name must be mapped to continue.
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {hasRequiredMappings && !getMappingForTarget('email') && (
-          <Alert>
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>
-              No email mapped — employees won't be able to log in until one is added.
+              {(() => {
+                const missing = [];
+                if (!columnMappings.some(m => m.targetField === 'first_name')) missing.push('First Name');
+                if (!columnMappings.some(m => m.targetField === 'last_name')) missing.push('Last Name');
+                if (!columnMappings.some(m => m.targetField === 'email')) missing.push('Email');
+                if (!columnMappings.some(m => m.targetField === 'mobile_phone')) missing.push('Mobile Phone');
+                return `Required: ${missing.join(', ')}`;
+              })()}
             </AlertDescription>
           </Alert>
         )}
@@ -766,9 +785,14 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
           <Badge className="bg-green-100 text-green-700 border-green-200">
             {readyRows.length} ready
           </Badge>
+          {landlineRows.length > 0 && (
+            <Badge className="bg-orange-100 text-orange-700 border-orange-200">
+              {landlineRows.length} possible landline
+            </Badge>
+          )}
           {warningRows.length > 0 && (
             <Badge className="bg-amber-100 text-amber-700 border-amber-200">
-              {warningRows.length} no email
+              {warningRows.length} missing email or mobile
             </Badge>
           )}
           {errorRows.length > 0 && (
@@ -791,10 +815,9 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
                 <TableHead className="text-xs w-8">#</TableHead>
                 <TableHead className="text-xs">Name</TableHead>
                 <TableHead className="text-xs">Email</TableHead>
+                <TableHead className="text-xs">Mobile</TableHead>
                 <TableHead className="text-xs">Role</TableHead>
                 <TableHead className="text-xs">Store</TableHead>
-                <TableHead className="text-xs">Hire Date</TableHead>
-                <TableHead className="text-xs">Emp ID</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -803,19 +826,21 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
                   <TableCell className="text-xs text-muted-foreground">{row.rowIndex}</TableCell>
                   <TableCell className="text-xs font-medium">
                     {row.first_name} {row.last_name}
-                    {row.hasError && <AlertTriangle className="h-3 w-3 text-red-500 inline ml-1" />}
+                    {row.missingName && <AlertTriangle className="h-3 w-3 text-red-500 inline ml-1" />}
                   </TableCell>
                   <TableCell className="text-xs">
-                    {row.email || <span className="text-muted-foreground italic">none</span>}
+                    {row.email || <span className="text-red-400 italic">missing</span>}
                     {row.rawEmailInvalid && <AlertTriangle className="h-3 w-3 text-amber-500 inline ml-1" />}
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {row.mobile_phone
+                      ? <span className={row.isLandline ? 'text-orange-500' : ''}>{row.mobile_phone_formatted || formatPhoneDisplay(row.mobile_phone)}{row.isLandline && <span className="text-orange-400 ml-1 text-[10px]">landline?</span>}</span>
+                      : <span className="text-red-400 italic">missing</span>
+                    }
+                    {row.rawMobileInvalid && <AlertTriangle className="h-3 w-3 text-amber-500 inline ml-1" />}
                   </TableCell>
                   <TableCell className="text-xs">{row.roleName || <span className="text-muted-foreground">--</span>}</TableCell>
                   <TableCell className="text-xs">{row.storeName || <span className="text-muted-foreground">--</span>}</TableCell>
-                  <TableCell className="text-xs">
-                    {row.hire_date || <span className="text-muted-foreground">--</span>}
-                    {row.rawDateInvalid && <AlertTriangle className="h-3 w-3 text-amber-500 inline ml-1" />}
-                  </TableCell>
-                  <TableCell className="text-xs">{row.employee_id || <span className="text-muted-foreground">--</span>}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -982,9 +1007,9 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
   };
 
   const downloadTemplate = () => {
-    const headers = 'First Name,Last Name,Email,Phone,Employee ID,Hire Date,Position,Store\n';
-    const sample = 'Jane,Smith,jane@example.com,555-123-4567,EMP001,01/15/2024,Store Associate,Main Street\n' +
-      'John,Doe,john@example.com,555-987-6543,EMP002,03/22/2023,Store Manager,Downtown\n';
+    const headers = 'First Name,Last Name,Email,Cell Phone,Employee ID,Hire Date,Position,Store\n';
+    const sample = 'Jane,Smith,jane@example.com,(555) 123-4567,EMP001,01/15/2024,Store Associate,Main Street\n' +
+      'John,Doe,john@example.com,(555) 987-6543,EMP002,03/22/2023,Store Manager,Downtown\n';
     const blob = new Blob([headers + sample], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

@@ -89,6 +89,7 @@ interface Employee {
   complianceScore: number;
   // Additional fields
   phone?: string;
+  mobilePhone?: string;
   employeeId?: string;
   hireDate?: string;
   terminationDate?: string;
@@ -1097,7 +1098,8 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                     <div className="space-y-3 text-sm">
                       <div className="flex items-center gap-8 text-muted-foreground">
                         <span>{employee.email}</span>
-                        {employee.phone && <span>{employee.phone}</span>}
+                        {employee.mobilePhone && <span>{employee.mobilePhone}</span>}
+                        {employee.phone && !employee.mobilePhone && <span>{employee.phone}</span>}
                         <span>{employee.homeStore}</span>
                         {currentRole === 'admin' && <span>{employee.district} {t('people.districtLabel')}</span>}
                       </div>

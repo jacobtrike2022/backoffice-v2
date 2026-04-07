@@ -5,6 +5,8 @@
 // dictionaries and confidence scoring. No React dependencies.
 // ============================================================================
 
+import { parsePhoneNumber, isValidPhoneNumber } from 'libphonenumber-js';
+
 export interface TargetField {
   key: string;
   label: string;
@@ -21,8 +23,8 @@ export interface ColumnMatch {
 }
 
 // Fields that commonly have multiple columns in HRIS exports
-// (e.g., "Work Email" + "Personal Email", "Cell Phone" + "Home Phone")
-export const FALLBACK_FIELDS = new Set(['email', 'phone']);
+// (e.g., "Work Email" + "Personal Email")
+export const FALLBACK_FIELDS = new Set(['email']);
 
 // Target fields with normalized aliases (all lowercase, no spaces/special chars)
 export const FIELD_DEFINITIONS: TargetField[] = [
@@ -63,13 +65,22 @@ export const FIELD_DEFINITIONS: TargetField[] = [
     ]
   },
   {
+    key: 'mobile_phone',
+    label: 'Mobile Phone',
+    required: true,
+    aliases: [
+      'mobile', 'cell', 'cellphone', 'mobilephone', 'mobilenumber',
+      'cellphonenumber', 'mobilephonenumber', 'cellnumber',
+      'cellno', 'mobileno', 'mobiletel'
+    ]
+  },
+  {
     key: 'phone',
-    label: 'Phone',
+    label: 'Phone (Other)',
     required: false,
     aliases: [
-      'phone', 'phonenumber', 'mobile', 'cell', 'telephone',
-      'homephone', 'workphone', 'cellphone', 'mobilephone',
-      'phonehome', 'phonework', 'tel'
+      'phone', 'phonenumber', 'telephone', 'homephone', 'workphone',
+      'phonehome', 'phonework', 'tel', 'daytimephone', 'eveningphone'
     ]
   },
   {
@@ -242,6 +253,65 @@ export function normalizeDateValue(value: string): string | null {
   }
 
   return null;
+}
+
+export interface PhoneValidationResult {
+  e164: string | null;
+  formatted: string;
+  type: 'MOBILE' | 'FIXED_LINE' | 'FIXED_LINE_OR_MOBILE' | 'VOIP' | 'UNKNOWN';
+  valid: boolean;
+  isMobile: boolean;
+}
+
+/**
+ * Validate and normalize a phone number using libphonenumber-js.
+ * Returns structured result with E.164 format, line type, and mobile flag.
+ */
+export function validatePhone(value: string): PhoneValidationResult {
+  const empty: PhoneValidationResult = { e164: null, formatted: '', type: 'UNKNOWN', valid: false, isMobile: false };
+  if (!value || !value.trim()) return empty;
+
+  try {
+    // Try parsing with US default country
+    const phone = parsePhoneNumber(value.trim(), 'US');
+    if (!phone || !phone.isValid()) return empty;
+
+    const type = phone.getType() || 'UNKNOWN';
+    const isMobile = type === 'MOBILE' || type === 'FIXED_LINE_OR_MOBILE';
+
+    return {
+      e164: phone.format('E.164'),
+      formatted: phone.format('NATIONAL'),
+      type: type as PhoneValidationResult['type'],
+      valid: true,
+      isMobile
+    };
+  } catch {
+    return empty;
+  }
+}
+
+/**
+ * Normalize a phone number to E.164 format. Returns null if invalid.
+ * For mobile phone field — only accepts mobile/ambiguous types.
+ */
+export function normalizePhoneValue(value: string): string | null {
+  const result = validatePhone(value);
+  if (!result.valid) return null;
+  return result.e164;
+}
+
+/**
+ * Format a phone number for display using libphonenumber-js.
+ */
+export function formatPhoneDisplay(e164: string): string {
+  if (!e164) return '';
+  try {
+    const phone = parsePhoneNumber(e164);
+    return phone ? phone.format('NATIONAL') : e164;
+  } catch {
+    return e164;
+  }
 }
 
 /**
