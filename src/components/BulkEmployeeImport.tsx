@@ -52,6 +52,7 @@ import {
   getConfidenceLabel,
   fuzzyMatchValue,
   FIELD_DEFINITIONS,
+  FALLBACK_FIELDS,
   type ColumnMatch
 } from '../lib/importMapping';
 import { bulkCreateUsers, type BulkCreateUsersResult } from '../lib/crud/users';
@@ -135,10 +136,18 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
   // Build resolved rows for preview
   const resolvedRows = useMemo(() => {
     return rawRows.map((row, idx) => {
+      // Get value for a target field — checks primary first, then fallback
       const getValue = (targetKey: string): string => {
-        const mapping = columnMappings.find(m => m.targetField === targetKey);
-        if (!mapping) return '';
-        return row[mapping.sourceHeader]?.trim() || '';
+        const mappings = columnMappings
+          .filter(m => m.targetField === targetKey)
+          .sort((a, b) => a.priority - b.priority);
+        if (mappings.length === 0) return '';
+        // Return first non-empty value across primary + fallback(s)
+        for (const mapping of mappings) {
+          const val = row[mapping.sourceHeader]?.trim();
+          if (val) return val;
+        }
+        return '';
       };
 
       const rawEmail = getValue('email');
@@ -297,17 +306,29 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
 
   const updateMapping = (sourceHeader: string, newTargetKey: string) => {
     setColumnMappings(prev => {
+      const isFallbackEligible = FALLBACK_FIELDS.has(newTargetKey);
+      const existingCount = prev.filter(m => m.targetField === newTargetKey && m.sourceHeader !== sourceHeader).length;
+
       const updated = prev.map(m => {
-        // If another column was mapped to this target, clear it
-        if (m.targetField === newTargetKey && m.sourceHeader !== sourceHeader) {
-          return { ...m, targetField: null, confidence: 0, matchType: 'none' as const };
+        // For non-fallback fields, clear other columns mapped to this target
+        if (!isFallbackEligible && m.targetField === newTargetKey && m.sourceHeader !== sourceHeader) {
+          return { ...m, targetField: null, confidence: 0, matchType: 'none' as const, priority: 1 };
+        }
+        // For fallback fields, only allow max 2 columns per target
+        if (isFallbackEligible && m.targetField === newTargetKey && m.sourceHeader !== sourceHeader && existingCount >= 2) {
+          // Already have 2, clear the lowest priority one
+          if (m.priority === 2) {
+            return { ...m, targetField: null, confidence: 0, matchType: 'none' as const, priority: 1 };
+          }
         }
         // Update the selected column
         if (m.sourceHeader === sourceHeader) {
           if (newTargetKey === '__skip__') {
-            return { ...m, targetField: null, confidence: 0, matchType: 'none' as const };
+            return { ...m, targetField: null, confidence: 0, matchType: 'none' as const, priority: 1 };
           }
-          return { ...m, targetField: newTargetKey, confidence: 100, matchType: 'exact' as const };
+          // If this field already has a primary, this becomes fallback
+          const priority = (isFallbackEligible && existingCount > 0) ? 2 : 1;
+          return { ...m, targetField: newTargetKey, confidence: 100, matchType: 'exact' as const, priority };
         }
         return m;
       });
@@ -430,12 +451,41 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
   );
 
   const renderMappingStep = () => {
-    // Get all currently assigned target fields
-    const assignedTargets = new Set(columnMappings.filter(m => m.targetField).map(m => m.targetField!));
+    // Count how many columns are assigned to each target
+    const targetCounts: Record<string, number> = {};
+    columnMappings.forEach(m => {
+      if (m.targetField) targetCounts[m.targetField] = (targetCounts[m.targetField] || 0) + 1;
+    });
+
+    // A target is "full" if it's assigned and NOT fallback-eligible, or if it already has 2 mappings
+    const isTargetAvailable = (targetKey: string, currentCol: ColumnMatch) => {
+      if (currentCol.targetField === targetKey) return true; // always allow keeping current
+      const count = targetCounts[targetKey] || 0;
+      if (count === 0) return true;
+      if (FALLBACK_FIELDS.has(targetKey) && count < 2) return true;
+      return false;
+    };
 
     // Separate mapped and unmapped columns
     const mappedCols = columnMappings.filter(m => m.targetField);
     const unmappedCols = columnMappings.filter(m => !m.targetField);
+
+    // Helper to render the match/priority badge
+    const renderMatchBadge = (col: ColumnMatch) => {
+      const hasFallback = (targetCounts[col.targetField!] || 0) > 1;
+      if (hasFallback) {
+        return (
+          <Badge variant="outline" className={`text-xs ${col.priority === 1 ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+            {col.priority === 1 ? 'Primary' : 'Fallback'}
+          </Badge>
+        );
+      }
+      return (
+        <Badge variant="outline" className={`text-xs ${getConfidenceColor(col.confidence)}`}>
+          {getConfidenceLabel(col.confidence)}
+        </Badge>
+      );
+    };
 
     return (
       <div className="space-y-4">
@@ -468,9 +518,7 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
                   <TableRow key={col.sourceHeader}>
                     <TableCell className="font-medium text-sm">{col.sourceHeader}</TableCell>
                     <TableCell className="text-center">
-                      <Badge variant="outline" className={`text-xs ${getConfidenceColor(col.confidence)}`}>
-                        {getConfidenceLabel(col.confidence)}
-                      </Badge>
+                      {renderMatchBadge(col)}
                     </TableCell>
                     <TableCell>
                       <Select
@@ -488,7 +536,7 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
                             <SelectItem
                               key={f.key}
                               value={f.key}
-                              disabled={assignedTargets.has(f.key) && col.targetField !== f.key}
+                              disabled={!isTargetAvailable(f.key, col)}
                             >
                               {f.label} {f.required ? '*' : ''}
                             </SelectItem>
@@ -523,7 +571,7 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
                             <SelectItem
                               key={f.key}
                               value={f.key}
-                              disabled={assignedTargets.has(f.key)}
+                              disabled={!isTargetAvailable(f.key, col)}
                             >
                               {f.label} {f.required ? '*' : ''}
                             </SelectItem>
@@ -935,7 +983,8 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
 
   const downloadTemplate = () => {
     const headers = 'First Name,Last Name,Email,Phone,Employee ID,Hire Date,Position,Store\n';
-    const sample = 'Jane,Smith,jane@example.com,555-123-4567,EMP001,2024-01-15,Store Associate,Main Street\n';
+    const sample = 'Jane,Smith,jane@example.com,555-123-4567,EMP001,01/15/2024,Store Associate,Main Street\n' +
+      'John,Doe,john@example.com,555-987-6543,EMP002,03/22/2023,Store Manager,Downtown\n';
     const blob = new Blob([headers + sample], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
