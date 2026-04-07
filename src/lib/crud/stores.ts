@@ -555,6 +555,7 @@ export async function getStores(filters?: {
           id: store.id,
           name: store.name,
           code: store.code,
+          unit_number: store.unit_number,
           district: store.district,
           manager: store.manager,
           city: store.city,
@@ -631,6 +632,7 @@ export async function createStore(storeData: {
   store_email?: string | null;
   photo_url?: string | null;
   manager_id?: string | null;
+  unit_number?: number | null;
 }) {
   try {
     const orgId = await getCurrentUserOrgId();
@@ -652,7 +654,8 @@ export async function createStore(storeData: {
         phone: storeData.phone || null,
         store_email: storeData.store_email || null,
         photo_url: storeData.photo_url || null,
-        manager_id: storeData.manager_id || null
+        manager_id: storeData.manager_id || null,
+        unit_number: storeData.unit_number ?? null
       }])
       .select()
       .single();
@@ -684,6 +687,7 @@ export async function updateStore(
     county?: string | null;
     photo_url?: string | null;
     manager_id?: string | null;
+    unit_number?: number | null;
   }
 ) {
   try {
@@ -701,6 +705,7 @@ export async function updateStore(
     if (updates.county !== undefined) updateData.county = updates.county;
     if (updates.photo_url !== undefined) updateData.photo_url = updates.photo_url;
     if (updates.manager_id !== undefined) updateData.manager_id = updates.manager_id;
+    if (updates.unit_number !== undefined) updateData.unit_number = updates.unit_number;
     updateData.updated_at = new Date().toISOString();
 
     const { data, error } = await supabase
@@ -1145,4 +1150,130 @@ export async function getStoreQuickStats(storeId: string) {
     console.error('Error in getStoreQuickStats:', err);
     throw err;
   }
+}
+
+// ============================================================================
+// BULK STORE CREATION
+// ============================================================================
+
+export interface BulkCreateStoresInput {
+  rows: Array<{
+    name: string;
+    code?: string;
+    unit_number?: number;
+    district_id?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+    phone?: string;
+  }>;
+  organization_id: string;
+  onProgress?: (current: number, total: number) => void;
+}
+
+export interface BulkCreateStoresResult {
+  created: number;
+  failed: number;
+  errors: Array<{ row: number; name: string; error: string }>;
+  // input_index is the 0-based index in the input `rows` array. This lets callers
+  // map created stores back to their source row reliably, even when some rows fail.
+  createdStores: Array<{ input_index: number; id: string; name: string; unit_number?: number }>;
+}
+
+/**
+ * Bulk create stores. Validates rows up front, then attempts a single batch
+ * insert; falls back to per-row inserts only if the batch fails (so we can
+ * identify which row caused the error). Each created store carries its
+ * original input_index so callers can map back to source rows reliably.
+ */
+export async function bulkCreateStores(
+  input: BulkCreateStoresInput
+): Promise<BulkCreateStoresResult> {
+  const { rows, organization_id, onProgress } = input;
+
+  const result: BulkCreateStoresResult = {
+    created: 0,
+    failed: 0,
+    errors: [],
+    createdStores: [],
+  };
+
+  // Validate + build records keyed by original input_index
+  type Plan = { input_index: number; name: string; record: Record<string, any> };
+  const plans: Plan[] = [];
+  rows.forEach((row, i) => {
+    const trimmedName = (row?.name || '').trim();
+    if (!trimmedName) {
+      result.failed += 1;
+      result.errors.push({ row: i, name: trimmedName, error: 'Store name is required' });
+      return;
+    }
+    plans.push({
+      input_index: i,
+      name: trimmedName,
+      record: {
+        organization_id,
+        name: trimmedName,
+        code: row.code || null,
+        unit_number: row.unit_number ?? null,
+        district_id: row.district_id || null,
+        address: row.address || null,
+        city: row.city || null,
+        state: row.state || null,
+        zip: row.zip || null,
+        phone: row.phone || null,
+      },
+    });
+  });
+
+  if (plans.length === 0) return result;
+
+  try {
+    const { data, error } = await supabase
+      .from('stores')
+      .insert(plans.map(p => p.record))
+      .select('id, name, unit_number');
+    if (error) throw error;
+    // Supabase preserves input order in the returned rows
+    (data || []).forEach((created, idx) => {
+      const plan = plans[idx];
+      result.created += 1;
+      result.createdStores.push({
+        input_index: plan.input_index,
+        id: created.id,
+        name: created.name,
+        unit_number: created.unit_number ?? undefined,
+      });
+    });
+  } catch {
+    // Batch failed — fall back per-row to identify the offending row(s)
+    for (const plan of plans) {
+      try {
+        const { data, error } = await supabase
+          .from('stores')
+          .insert([plan.record])
+          .select('id, name, unit_number')
+          .single();
+        if (error) throw error;
+        result.created += 1;
+        result.createdStores.push({
+          input_index: plan.input_index,
+          id: data.id,
+          name: data.name,
+          unit_number: data.unit_number ?? undefined,
+        });
+      } catch (err: any) {
+        result.failed += 1;
+        result.errors.push({
+          row: plan.input_index,
+          name: plan.name,
+          error: err?.message || String(err),
+        });
+      }
+    }
+  }
+
+  onProgress?.(rows.length, rows.length);
+  return result;
 }

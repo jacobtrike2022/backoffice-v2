@@ -6,6 +6,13 @@
 // ============================================================================
 
 import { parsePhoneNumber, isValidPhoneNumber } from 'libphonenumber-js';
+import * as XLSX from 'xlsx';
+
+/**
+ * Sentinel value for "no mapping" in Radix Select. Radix forbids empty-string values,
+ * so we use this constant. Imported by both employee + unit import components.
+ */
+export const SKIP_VALUE = '__skip__';
 
 export interface TargetField {
   key: string;
@@ -36,6 +43,15 @@ export const FIELD_DEFINITIONS: TargetField[] = [
       'email', 'emailaddress', 'workemail', 'currentworkemail',
       'currenthomeemail', 'emailwork', 'emailhome', 'workemailaddress',
       'personalemail', 'homeemail'
+    ]
+  },
+  {
+    key: 'full_name',
+    label: 'Full Name',
+    required: false,
+    aliases: [
+      'fullname', 'name', 'employeename', 'displayname', 'preferredname',
+      'legalname', 'empname', 'personname', 'nameoflegalentity'
     ]
   },
   {
@@ -120,6 +136,16 @@ export const FIELD_DEFINITIONS: TargetField[] = [
     aliases: [
       'status', 'employeestatus', 'employeestatusdescription',
       'empstatus', 'activestatus', 'employmentstatus'
+    ]
+  },
+  {
+    key: 'employment_type',
+    label: 'Employment Type',
+    required: false,
+    aliases: [
+      'employmenttype', 'type', 'employmenttypedescription', 'flsastatus',
+      'flsa', 'exemptstatus', 'exempt', 'nonexempt', 'hourlysalary',
+      'payclass', 'payclassification'
     ]
   }
 ];
@@ -316,24 +342,41 @@ export function validatePhone(value: string): PhoneValidationResult {
   const cleaned = cleanPhoneInput(value);
   if (!cleaned) return empty;
 
-  try {
-    // Try parsing with US default country
-    const phone = parsePhoneNumber(cleaned, 'US');
-    if (!phone || !phone.isValid()) return empty;
+  const tryParse = (input: string, defaultCountry?: 'US'): PhoneValidationResult | null => {
+    try {
+      const phone = defaultCountry
+        ? parsePhoneNumber(input, defaultCountry)
+        : parsePhoneNumber(input);
+      if (!phone || !phone.isValid()) return null;
+      const type = phone.getType() || 'UNKNOWN';
+      const isMobile = type === 'MOBILE' || type === 'FIXED_LINE_OR_MOBILE';
+      const country = phone.country;
+      const formatted = country === 'US'
+        ? phone.format('NATIONAL')
+        : phone.format('INTERNATIONAL');
+      return {
+        e164: phone.format('E.164'),
+        formatted,
+        type: type as PhoneValidationResult['type'],
+        valid: true,
+        isMobile,
+      };
+    } catch {
+      return null;
+    }
+  };
 
-    const type = phone.getType() || 'UNKNOWN';
-    const isMobile = type === 'MOBILE' || type === 'FIXED_LINE_OR_MOBILE';
-
-    return {
-      e164: phone.format('E.164'),
-      formatted: phone.format('NATIONAL'),
-      type: type as PhoneValidationResult['type'],
-      valid: true,
-      isMobile
-    };
-  } catch {
-    return empty;
+  // 1. If input starts with '+', try international parsing (no default country)
+  if (cleaned.startsWith('+')) {
+    const intlResult = tryParse(cleaned);
+    if (intlResult) return intlResult;
   }
+
+  // 2. Fall back to US parsing for bare numbers
+  const usResult = tryParse(cleaned, 'US');
+  if (usResult) return usResult;
+
+  return empty;
 }
 
 /**
@@ -353,7 +396,8 @@ export function formatPhoneDisplay(e164: string): string {
   if (!e164) return '';
   try {
     const phone = parsePhoneNumber(e164);
-    return phone ? phone.format('NATIONAL') : e164;
+    if (!phone) return e164;
+    return phone.country === 'US' ? phone.format('NATIONAL') : phone.format('INTERNATIONAL');
   } catch {
     return e164;
   }
@@ -390,32 +434,72 @@ export function getConfidenceLabel(confidence: number): string {
 }
 
 /**
- * Fuzzy match a value against a list of candidates.
+ * Extract the first sequence of digits from a string as a number.
+ * Returns null if no digits found.
+ * Examples: "Unit 103" → 103, "FE103" → 103, "103" → 103, "Tifton" → null
+ */
+export function extractNumber(value: string): number | null {
+  if (!value) return null;
+  const match = value.match(/\d+/);
+  if (!match) return null;
+  const num = parseInt(match[0], 10);
+  return isNaN(num) ? null : num;
+}
+
+/**
+ * Fuzzy match a value against a list of candidates (e.g., stores/units).
+ * Handles unit_number matching, name/code matching, and combined cases like
+ * "Tifton 103" or "Friendly 103".
  * Returns the best match or null.
  */
 export function fuzzyMatchValue(
   value: string,
-  candidates: Array<{ id: string; name: string; code?: string }>
+  candidates: Array<{ id: string; name: string; code?: string; unit_number?: number | null }>
 ): string | null {
   if (!value) return null;
   const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
 
-  // Exact match on name
+  // 1. Extract digits — unit_number match takes highest priority
+  const num = extractNumber(normalized);
+  if (num !== null) {
+    const unitMatches = candidates.filter(
+      c => c.unit_number != null && c.unit_number === num
+    );
+    if (unitMatches.length === 1) return unitMatches[0].id;
+    if (unitMatches.length > 1) {
+      // Disambiguate using non-numeric words from the value
+      const words = normalized
+        .split(/\s+/)
+        .map(w => w.replace(/[^a-z0-9]/g, ''))
+        .filter(w => w && !/^\d+$/.test(w));
+      if (words.length > 0) {
+        const refined = unitMatches.find(c => {
+          const cName = c.name.toLowerCase();
+          return words.some(w => cName.includes(w));
+        });
+        if (refined) return refined.id;
+      }
+      return unitMatches[0].id;
+    }
+  }
+
+  // 2. Exact match on name
   const exact = candidates.find(c => c.name.toLowerCase() === normalized);
   if (exact) return exact.id;
 
-  // Exact match on code
+  // 3. Exact match on code
   const codeMatch = candidates.find(c => c.code && c.code.toLowerCase() === normalized);
   if (codeMatch) return codeMatch.id;
 
-  // Contains match — candidate name contains value or vice versa
+  // 4. Contains match — candidate name contains value or vice versa
   const contains = candidates.find(c => {
     const cName = c.name.toLowerCase();
     return cName.includes(normalized) || normalized.includes(cName);
   });
   if (contains) return contains.id;
 
-  // Code prefix match (e.g., "FE50" matches store with code "FE50")
+  // 5. Code prefix/contains match (e.g., "FE50" matches store with code "FE50")
   if (candidates.some(c => c.code)) {
     const codeContains = candidates.find(c =>
       c.code && (c.code.toLowerCase().includes(normalized) || normalized.includes(c.code.toLowerCase()))
@@ -423,6 +507,92 @@ export function fuzzyMatchValue(
     if (codeContains) return codeContains.id;
   }
 
+  return null;
+}
+
+/**
+ * Fuzzy match a role name against a list of candidate roles.
+ * Roles don't have unit_number, so this uses name-based matching with
+ * word-level fallback.
+ */
+export function fuzzyMatchRole(
+  value: string,
+  candidates: Array<{ id: string; name: string }>
+): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+
+  // Exact name match
+  const exact = candidates.find(c => c.name.toLowerCase() === normalized);
+  if (exact) return exact.id;
+
+  // Contains match (either direction)
+  const contains = candidates.find(c => {
+    const cName = c.name.toLowerCase();
+    return cName.includes(normalized) || normalized.includes(cName);
+  });
+  if (contains) return contains.id;
+
+  // Word-level match — all significant words in value appear in candidate name
+  const valueWords = normalized.split(/\s+/).filter(w => w.length >= 3);
+  if (valueWords.length > 0) {
+    const wordMatch = candidates.find(c => {
+      const cName = c.name.toLowerCase();
+      return valueWords.every(w => cName.includes(w));
+    });
+    if (wordMatch) return wordMatch.id;
+  }
+
+  return null;
+}
+
+export interface ParsedName {
+  first: string;
+  last: string;
+}
+
+/**
+ * Parse a single full-name string into first and last name components.
+ * Handles "First Last", "First Middle Last", "Last, First", single names,
+ * and extra whitespace. Case is preserved (use normalizeNameCase afterward
+ * if you want title-casing).
+ */
+export function parseName(fullName: string): ParsedName {
+  if (!fullName) return { first: '', last: '' };
+  const trimmed = fullName.replace(/\s+/g, ' ').trim();
+  if (!trimmed) return { first: '', last: '' };
+
+  // Comma format: "Last, First [Middle ...]"
+  if (trimmed.includes(',')) {
+    const [lastPart, firstPart = ''] = trimmed.split(',').map(s => s.trim());
+    const firstTokens = firstPart.split(/\s+/).filter(Boolean);
+    const first = firstTokens[0] || '';
+    return { first, last: lastPart || '' };
+  }
+
+  // Space-separated format: "First [Middle ...] Last"
+  const tokens = trimmed.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return { first: '', last: '' };
+  if (tokens.length === 1) return { first: tokens[0], last: '' };
+  return { first: tokens[0], last: tokens[tokens.length - 1] };
+}
+
+/**
+ * Normalize a raw employment type value from a CSV column to one of our
+ * canonical values. Handles common HRIS variants (FLSA exempt/non-exempt,
+ * H/S codes, etc.).
+ */
+export function normalizeEmploymentType(value: string): 'hourly' | 'salaried' | 'admin' | null {
+  if (!value) return null;
+  const v = value.trim().toLowerCase();
+  if (!v) return null;
+  // "hourly", "non-exempt", "nonexempt", "h"
+  if (v === 'h' || v.includes('hourly') || v.includes('non-exempt') || v.includes('nonexempt')) return 'hourly';
+  // "salaried", "salary", "exempt", "s"
+  if (v === 's' || v.includes('salaried') || v.includes('salary') || (v.includes('exempt') && !v.includes('non'))) return 'salaried';
+  // "admin", "administrator"
+  if (v.includes('admin')) return 'admin';
   return null;
 }
 
@@ -486,6 +656,60 @@ export function parseCSV(text: string): { headers: string[]; rows: Record<string
       });
       rows.push(row);
     }
+  }
+
+  return { headers, rows };
+}
+
+export class ImportFileParseError extends Error {}
+
+/**
+ * Read a CSV/Excel File and return parsed headers + rows.
+ * Handles .csv via parseCSV() and .xlsx/.xls via SheetJS with date-aware formatting.
+ * Throws ImportFileParseError with a user-friendly message on failure.
+ */
+export async function parseImportFile(
+  file: File
+): Promise<{ headers: string[]; rows: Record<string, string>[] }> {
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  if (!ext || !['csv', 'xlsx', 'xls'].includes(ext)) {
+    throw new ImportFileParseError('Please select a CSV or Excel file (.csv, .xlsx, .xls)');
+  }
+
+  let headers: string[] = [];
+  let rows: Record<string, string>[] = [];
+
+  if (ext === 'csv') {
+    const text = await file.text();
+    const result = parseCSV(text);
+    headers = result.headers;
+    rows = result.rows;
+  } else {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const data = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, raw: false, defval: '' });
+
+    if (data.length < 2) {
+      throw new ImportFileParseError('File appears to be empty or has no data rows.');
+    }
+    headers = (data[0] as any[]).map(h => String(h ?? '').trim()).filter(Boolean);
+    for (let i = 1; i < data.length; i++) {
+      const values = data[i] as any[];
+      if (!values || !values.some(v => v != null && v !== '')) continue;
+      const row: Record<string, string> = {};
+      headers.forEach((header, idx) => {
+        row[header] = String(values[idx] ?? '').trim();
+      });
+      rows.push(row);
+    }
+  }
+
+  if (headers.length === 0) {
+    throw new ImportFileParseError('Could not find headers in the file.');
+  }
+  if (rows.length === 0) {
+    throw new ImportFileParseError('File has headers but no data rows.');
   }
 
   return { headers, rows };

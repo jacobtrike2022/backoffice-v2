@@ -90,6 +90,7 @@ interface Employee {
   // Additional fields
   phone?: string;
   mobilePhone?: string;
+  employmentType?: 'hourly' | 'salaried' | 'admin';
   employeeId?: string;
   hireDate?: string;
   terminationDate?: string;
@@ -1092,7 +1093,14 @@ export function EmployeeProfile({ employee, onBack, currentRole }: EmployeeProfi
                 <>
                     <div>
                       <h2 className="text-2xl font-bold text-foreground">{employee.name}</h2>
-                      <p className="text-muted-foreground mt-1">{employee.role}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <p className="text-muted-foreground">{employee.role}</p>
+                        {employee.employmentType && (
+                          <Badge variant="outline" className="text-[10px] h-4 px-1.5 capitalize">
+                            {employee.employmentType}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
 
                     <div className="space-y-3 text-sm">

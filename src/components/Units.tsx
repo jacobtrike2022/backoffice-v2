@@ -6,10 +6,11 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
-import { 
-  Search, 
-  Filter, 
+import {
+  Search,
+  Filter,
   Download,
+  Upload,
   Building,
   TrendingUp,
   X,
@@ -21,6 +22,7 @@ import {
 import { Checkbox } from './ui/checkbox';
 import { StoreDetail } from './StoreDetail';
 import { NewUnit } from './NewUnit';
+import { BulkUnitImport } from './BulkUnitImport';
 import { useStores, useCurrentUser, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 
 type UserRole = 'admin' | 'district-manager' | 'store-manager' | 'trike-super-admin';
@@ -65,6 +67,7 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
   const [showFilters, setShowFilters] = useState(false);
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
   const [editingStore, setEditingStore] = useState<any | null>(null);  // NEW: Store being edited
+  const [showImportDialog, setShowImportDialog] = useState(false);
   
   // Filter states
   const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
@@ -75,14 +78,12 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
   const { orgId: effectiveOrgId } = useEffectiveOrgId();
   
   // Fetch stores for the effective org (so previewing Jiffy Trip shows Jiffy Trip's stores, not trike.co's)
-  const { stores: rawStores, loading: storesLoading, error: storesError } = useStores(
+  const { stores: rawStores, loading: storesLoading, error: storesError, refetch: refetchStores } = useStores(
     effectiveOrgId ? {
       organization_id: effectiveOrgId,
       is_active: true
     } : undefined
   );
-
-  console.log('🏪 Units - Stores data:', { rawStores, storesLoading, storesError });
 
   // Map database stores to UI format
   const allStores: Store[] = rawStores.map((store: any) => ({
@@ -289,6 +290,10 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
           >
             <Plus className="w-4 h-4 mr-2" />
             {t('units.newUnit')}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowImportDialog(true)}>
+            <Upload className="w-4 h-4 mr-2" />
+            Import
           </Button>
           <Button variant="outline" size="sm">
             <Download className="w-4 h-4 mr-2" />
@@ -531,6 +536,16 @@ export function Units({ role: currentRole, selectedStoreId: initialStoreId, onSt
           </div>
         </CardContent>
       </Card>
+      {/* Bulk Unit Import Dialog */}
+      <BulkUnitImport
+        open={showImportDialog}
+        onClose={() => setShowImportDialog(false)}
+        onSuccess={() => {
+          setShowImportDialog(false);
+          refetchStores();
+        }}
+      />
+
       <Footer />
     </div>
   );
