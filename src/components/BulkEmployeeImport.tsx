@@ -778,6 +778,7 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
   // Map targetKey → column.key for the editable table
   const tableColumns = useMemo<ColumnDef[]>(() => {
     const cols: ColumnDef[] = [
+      { key: 'external_id', label: 'HRIS ID', type: 'text', width: '110px' },
       { key: 'first_name', label: 'First Name', type: 'text', required: true, width: '120px' },
       { key: 'last_name', label: 'Last Name', type: 'text', required: true, width: '120px' },
       { key: 'email', label: 'Email', type: 'email', required: true, width: '200px' },
@@ -848,6 +849,7 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
       return {
         id: String(r.rowIndex),
         values: {
+          external_id: r.external_id,
           first_name: r.first_name,
           last_name: r.last_name,
           email: r.email,
@@ -1068,6 +1070,8 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
             }}
             missingAction={missingAction}
             onMissingActionChange={setMissingAction}
+            deactivateConfirmText={deactivateConfirmText}
+            onDeactivateConfirmTextChange={setDeactivateConfirmText}
             matchStrategy={matchStrategy}
           />
         )}
@@ -1095,6 +1099,7 @@ export function BulkEmployeeImport({ open, onClose, onSuccess }: BulkEmployeeImp
             syncReadyCount: classification
               ? classification.stats.new + classification.stats.update + classification.stats.reactivate
               : 0,
+            previewLoading,
             resetState,
             handleClose,
             handleGoToReview,
@@ -1538,6 +1543,8 @@ function SyncPreviewStep({
   onToggleApply,
   missingAction,
   onMissingActionChange,
+  deactivateConfirmText,
+  onDeactivateConfirmTextChange,
   matchStrategy,
 }: {
   classification: SyncClassificationResult;
@@ -1547,6 +1554,8 @@ function SyncPreviewStep({
   onToggleApply: (sourceRow: number, kind: 'create' | 'update', value: boolean) => void;
   missingAction: MissingAction;
   onMissingActionChange: (a: MissingAction) => void;
+  deactivateConfirmText: string;
+  onDeactivateConfirmTextChange: (v: string) => void;
   matchStrategy: MatchStrategy;
 }) {
   const { stats } = classification;
@@ -1619,6 +1628,8 @@ function SyncPreviewStep({
           onToggleApply={onToggleApply}
           missingAction={missingAction}
           onMissingActionChange={onMissingActionChange}
+          deactivateConfirmText={deactivateConfirmText}
+          onDeactivateConfirmTextChange={onDeactivateConfirmTextChange}
         />
       </div>
     </div>
@@ -1733,6 +1744,7 @@ function getFooterButtons({
   hasRequiredMappings,
   importableCount,
   syncReadyCount,
+  previewLoading,
   resetState,
   handleClose,
   handleGoToReview,
@@ -1744,6 +1756,7 @@ function getFooterButtons({
   hasRequiredMappings: boolean;
   importableCount: number;
   syncReadyCount: number;
+  previewLoading: boolean;
   resetState: () => void;
   handleClose: () => void;
   handleGoToReview: () => void;
@@ -1768,12 +1781,21 @@ function getFooterButtons({
     case 'review':
       return (
         <>
-          <Button variant="outline" onClick={() => setStep('mapping')}>
+          <Button variant="outline" onClick={() => setStep('mapping')} disabled={previewLoading}>
             <ArrowLeft className="h-4 w-4 mr-2" />Back
           </Button>
-          <Button onClick={handleGoToSyncPreview} disabled={importableCount === 0}>
-            <Eye className="h-4 w-4 mr-2" />
-            Preview Sync
+          <Button onClick={handleGoToSyncPreview} disabled={importableCount === 0 || previewLoading}>
+            {previewLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Classifying...
+              </>
+            ) : (
+              <>
+                <Eye className="h-4 w-4 mr-2" />
+                Preview Sync
+              </>
+            )}
           </Button>
         </>
       );
