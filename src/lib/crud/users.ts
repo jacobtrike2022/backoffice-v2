@@ -339,6 +339,161 @@ export async function linkAuthUserToInternalUser(
 }
 
 // ============================================================================
+// BULK IMPORT
+// ============================================================================
+
+export interface BulkCreateUsersInput {
+  rows: Array<{
+    email?: string;
+    first_name: string;
+    last_name: string;
+    role_id?: string;
+    store_id?: string;
+    employee_id?: string;
+    hire_date?: string;
+    phone?: string;
+  }>;
+  organization_id: string;
+  defaultRoleId?: string;
+  defaultStoreId?: string;
+  duplicateStrategy: 'skip' | 'update';
+  onProgress?: (current: number, total: number) => void;
+}
+
+export interface BulkCreateUsersResult {
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  errors: Array<{ row: number; name: string; error: string }>;
+}
+
+/**
+ * Bulk create/update users without sending invite emails.
+ * Processes in batches of 25 for performance.
+ */
+export async function bulkCreateUsers(input: BulkCreateUsersInput): Promise<BulkCreateUsersResult> {
+  const { rows, organization_id, defaultRoleId, defaultStoreId, duplicateStrategy, onProgress } = input;
+
+  const result: BulkCreateUsersResult = { created: 0, updated: 0, skipped: 0, failed: 0, errors: [] };
+
+  if (rows.length === 0) return result;
+
+  // Pre-fetch existing emails in this org for duplicate detection
+  const { data: existingUsers } = await supabase
+    .from('users')
+    .select('id, email')
+    .eq('organization_id', organization_id)
+    .not('email', 'is', null);
+
+  const existingEmailMap = new Map<string, string>();
+  existingUsers?.forEach(u => {
+    if (u.email) existingEmailMap.set(u.email.toLowerCase(), u.id);
+  });
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const name = `${row.first_name} ${row.last_name}`;
+
+    // Validate required fields
+    if (!row.first_name || row.first_name.trim().length === 0) {
+      result.failed++;
+      result.errors.push({ row: i + 1, name, error: 'Missing first name' });
+      onProgress?.(i + 1, rows.length);
+      continue;
+    }
+    if (!row.last_name || row.last_name.trim().length === 0) {
+      result.failed++;
+      result.errors.push({ row: i + 1, name, error: 'Missing last name' });
+      onProgress?.(i + 1, rows.length);
+      continue;
+    }
+
+    // Validate email format if provided
+    if (row.email && !row.email.includes('@')) {
+      result.failed++;
+      result.errors.push({ row: i + 1, name, error: `Invalid email: ${row.email}` });
+      onProgress?.(i + 1, rows.length);
+      continue;
+    }
+
+    // Validate hire_date format if provided
+    if (row.hire_date && !/^\d{4}-\d{2}-\d{2}$/.test(row.hire_date)) {
+      result.failed++;
+      result.errors.push({ row: i + 1, name, error: `Invalid date format: ${row.hire_date}` });
+      onProgress?.(i + 1, rows.length);
+      continue;
+    }
+
+    const emailLower = row.email?.toLowerCase();
+    const existingId = emailLower ? existingEmailMap.get(emailLower) : undefined;
+
+    if (existingId) {
+      if (duplicateStrategy === 'skip') {
+        result.skipped++;
+        onProgress?.(i + 1, rows.length);
+        continue;
+      }
+
+      // Update existing user — merge non-empty fields
+      const updates: Record<string, any> = {};
+      if (row.first_name) updates.first_name = row.first_name.trim();
+      if (row.last_name) updates.last_name = row.last_name.trim();
+      if (row.role_id || defaultRoleId) updates.role_id = row.role_id || defaultRoleId;
+      if (row.store_id || defaultStoreId) updates.store_id = row.store_id || defaultStoreId;
+      if (row.employee_id) updates.employee_id = row.employee_id;
+      if (row.hire_date) updates.hire_date = row.hire_date;
+      if (row.phone) updates.phone = row.phone;
+
+      try {
+        const { error } = await supabase
+          .from('users')
+          .update(updates)
+          .eq('id', existingId);
+        if (error) throw error;
+        result.updated++;
+      } catch (err: any) {
+        result.failed++;
+        result.errors.push({ row: i + 1, name, error: err.message || 'Update failed' });
+      }
+      onProgress?.(i + 1, rows.length);
+      continue;
+    }
+
+    // Insert new user
+    const record: Record<string, any> = {
+      organization_id,
+      first_name: row.first_name.trim(),
+      last_name: row.last_name.trim(),
+      role_id: row.role_id || defaultRoleId || null,
+      store_id: row.store_id || defaultStoreId || null,
+      status: 'active'
+    };
+    if (row.email) record.email = row.email.trim().toLowerCase();
+    if (row.employee_id) record.employee_id = row.employee_id;
+    if (row.hire_date) record.hire_date = row.hire_date;
+    if (row.phone) record.phone = row.phone;
+
+    try {
+      const { error } = await supabase
+        .from('users')
+        .insert(record);
+      if (error) throw error;
+      result.created++;
+      // Track for subsequent duplicate detection within same batch
+      if (row.email) existingEmailMap.set(row.email.toLowerCase(), 'new');
+    } catch (err: any) {
+      result.failed++;
+      result.errors.push({ row: i + 1, name, error: err.message || 'Insert failed' });
+    }
+
+    onProgress?.(i + 1, rows.length);
+  }
+
+  return result;
+}
+
+// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
