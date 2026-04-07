@@ -8,10 +8,11 @@ import { Badge } from './ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Progress } from './ui/progress';
 import { Skeleton } from './ui/skeleton';
-import { 
-  Search, 
-  Filter, 
-  Download, 
+import {
+  Search,
+  Filter,
+  Download,
+  Upload,
   UserPlus,
   Users,
   Building,
@@ -33,6 +34,7 @@ import { DialogDescription } from './ui/dialog';
 import { Label } from './ui/label';
 import { EmployeeProfile } from './EmployeeProfile';
 import { EditPeopleDialog } from './EditPeopleDialog';
+import { BulkEmployeeImport } from './BulkEmployeeImport';
 import { useUsers, useCurrentUser, useRoles, useStores, useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import * as crud from '../lib/crud';
 import { toast } from 'sonner@2.0.3';
@@ -53,6 +55,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<any | null>(null);
+  const [showImportDialog, setShowImportDialog] = useState(false);
   
   // Filter states
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
@@ -252,6 +255,12 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
             <Download className="w-4 h-4 mr-2" />
             {t('common.export')}
           </Button>
+          {(currentRole === 'admin' || currentRole === 'trike-super-admin') && (
+            <Button variant="outline" size="sm" onClick={() => setShowImportDialog(true)}>
+              <Upload className="w-4 h-4 mr-2" />
+              Import
+            </Button>
+          )}
           {currentRole === 'admin' && (
             <Button 
               size="sm" 
@@ -702,6 +711,16 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Bulk Employee Import Dialog */}
+      <BulkEmployeeImport
+        open={showImportDialog}
+        onClose={() => {
+          setShowImportDialog(false);
+          refetch();
+        }}
+        onSuccess={() => refetch()}
+      />
 
       <Footer />
     </div>
