@@ -149,7 +149,7 @@ export async function getUsers(filters: {
     .from('users')
     .select(`
       *,
-      role:roles!users_role_id_fkey(name),
+      role:roles!users_role_id_fkey(name, employment_type),
       store:stores!store_id(name, code, district:districts(name))
     `)
     .eq('organization_id', orgId);
@@ -373,7 +373,8 @@ export interface BulkCreateUsersResult {
 
 /**
  * Bulk create/update users without sending invite emails.
- * Processes in batches of 25 for performance.
+ * Two-phase: (1) validate + classify all rows, (2) batch inserts in groups of 25
+ * and run updates per-row (since they target specific existing IDs).
  */
 export async function bulkCreateUsers(input: BulkCreateUsersInput): Promise<BulkCreateUsersResult> {
   const { rows, organization_id, defaultRoleId, defaultStoreId, duplicateStrategy, onProgress } = input;
@@ -394,51 +395,70 @@ export async function bulkCreateUsers(input: BulkCreateUsersInput): Promise<Bulk
     if (u.email) existingEmailMap.set(u.email.toLowerCase(), u.id);
   });
 
+  // ---------- Phase 1: validate + classify ----------
+  type Plan =
+    | { kind: 'insert'; rowIndex: number; name: string; record: Record<string, any> }
+    | { kind: 'update'; rowIndex: number; name: string; existingId: string; updates: Record<string, any> };
+
+  const plans: Plan[] = [];
+  // Sentinel id for emails queued for insert during this same import.
+  // Distinct from real UUIDs so the existing-row branch never picks it up.
+  const BATCH_PENDING_SENTINEL = '__pending_insert__';
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const name = `${row.first_name} ${row.last_name}`;
+    const rowNum = i + 1;
 
-    // Validate required fields
+    // Required fields
     if (!row.first_name || row.first_name.trim().length === 0) {
       result.failed++;
-      result.errors.push({ row: i + 1, name, error: 'Missing first name' });
-      onProgress?.(i + 1, rows.length);
+      result.errors.push({ row: rowNum, name, error: 'Missing first name' });
       continue;
     }
     if (!row.last_name || row.last_name.trim().length === 0) {
       result.failed++;
-      result.errors.push({ row: i + 1, name, error: 'Missing last name' });
-      onProgress?.(i + 1, rows.length);
+      result.errors.push({ row: rowNum, name, error: 'Missing last name' });
       continue;
     }
 
-    // Validate email format if provided
+    // Email format
     if (row.email && !row.email.includes('@')) {
       result.failed++;
-      result.errors.push({ row: i + 1, name, error: `Invalid email: ${row.email}` });
-      onProgress?.(i + 1, rows.length);
+      result.errors.push({ row: rowNum, name, error: `Invalid email: ${row.email}` });
       continue;
     }
 
-    // Validate hire_date format if provided
+    // Date format
     if (row.hire_date && !/^\d{4}-\d{2}-\d{2}$/.test(row.hire_date)) {
       result.failed++;
-      result.errors.push({ row: i + 1, name, error: `Invalid date format: ${row.hire_date}` });
-      onProgress?.(i + 1, rows.length);
+      result.errors.push({ row: rowNum, name, error: `Invalid date format: ${row.hire_date}` });
+      continue;
+    }
+
+    // Mobile phone format (defense-in-depth — UI should already enforce E.164)
+    if (row.mobile_phone && !/^\+\d{10,15}$/.test(row.mobile_phone)) {
+      result.failed++;
+      result.errors.push({ row: rowNum, name, error: `Invalid mobile phone format (expected E.164): ${row.mobile_phone}` });
       continue;
     }
 
     const emailLower = row.email?.toLowerCase();
     const existingId = emailLower ? existingEmailMap.get(emailLower) : undefined;
 
+    // Intra-batch duplicate: email was queued for insert by an earlier row in this same import
+    if (existingId === BATCH_PENDING_SENTINEL) {
+      result.skipped++;
+      result.errors.push({ row: rowNum, name, error: `Duplicate email within file: ${row.email}` });
+      continue;
+    }
+
     if (existingId) {
       if (duplicateStrategy === 'skip') {
         result.skipped++;
-        onProgress?.(i + 1, rows.length);
         continue;
       }
-
-      // Update existing user — merge non-empty fields
+      // Build update payload — merge non-empty fields only
       const updates: Record<string, any> = {};
       if (row.first_name) updates.first_name = row.first_name.trim();
       if (row.last_name) updates.last_name = row.last_name.trim();
@@ -448,23 +468,11 @@ export async function bulkCreateUsers(input: BulkCreateUsersInput): Promise<Bulk
       if (row.hire_date) updates.hire_date = row.hire_date;
       if (row.phone) updates.phone = row.phone;
       if (row.mobile_phone) updates.mobile_phone = row.mobile_phone;
-
-      try {
-        const { error } = await supabase
-          .from('users')
-          .update(updates)
-          .eq('id', existingId);
-        if (error) throw error;
-        result.updated++;
-      } catch (err: any) {
-        result.failed++;
-        result.errors.push({ row: i + 1, name, error: err.message || 'Update failed' });
-      }
-      onProgress?.(i + 1, rows.length);
+      plans.push({ kind: 'update', rowIndex: i, name, existingId, updates });
       continue;
     }
 
-    // Insert new user
+    // Build insert record
     const record: Record<string, any> = {
       organization_id,
       first_name: row.first_name.trim(),
@@ -479,20 +487,63 @@ export async function bulkCreateUsers(input: BulkCreateUsersInput): Promise<Bulk
     if (row.phone) record.phone = row.phone;
     if (row.mobile_phone) record.mobile_phone = row.mobile_phone;
 
+    plans.push({ kind: 'insert', rowIndex: i, name, record });
+    if (emailLower) existingEmailMap.set(emailLower, BATCH_PENDING_SENTINEL);
+  }
+
+  // ---------- Phase 2: batch inserts + per-row updates ----------
+  const totalOps = plans.length;
+  let opsDone = 0;
+  const reportProgress = () => onProgress?.(opsDone, totalOps || 1);
+
+  // Group inserts in batches of 25
+  const inserts = plans.filter((p): p is Extract<Plan, { kind: 'insert' }> => p.kind === 'insert');
+  const updates = plans.filter((p): p is Extract<Plan, { kind: 'update' }> => p.kind === 'update');
+  const BATCH_SIZE = 25;
+
+  for (let i = 0; i < inserts.length; i += BATCH_SIZE) {
+    const batch = inserts.slice(i, i + BATCH_SIZE);
     try {
-      const { error } = await supabase
-        .from('users')
-        .insert(record);
+      const { error } = await supabase.from('users').insert(batch.map(p => p.record));
       if (error) throw error;
-      result.created++;
-      // Track for subsequent duplicate detection within same batch
-      if (row.email) existingEmailMap.set(row.email.toLowerCase(), 'new');
+      result.created += batch.length;
+    } catch {
+      // Batch failed — fall back to per-row inserts so we can identify which rows failed
+      for (const plan of batch) {
+        try {
+          const { error: rowErr } = await supabase.from('users').insert(plan.record);
+          if (rowErr) throw rowErr;
+          result.created++;
+        } catch (rowErr: any) {
+          result.failed++;
+          result.errors.push({
+            row: plan.rowIndex + 1,
+            name: plan.name,
+            error: rowErr?.message || 'Insert failed'
+          });
+        }
+      }
+    }
+    opsDone += batch.length;
+    reportProgress();
+  }
+
+  // Updates run per-row (each targets a specific id)
+  for (const plan of updates) {
+    try {
+      const { error } = await supabase.from('users').update(plan.updates).eq('id', plan.existingId);
+      if (error) throw error;
+      result.updated++;
     } catch (err: any) {
       result.failed++;
-      result.errors.push({ row: i + 1, name, error: err.message || 'Insert failed' });
+      result.errors.push({
+        row: plan.rowIndex + 1,
+        name: plan.name,
+        error: err?.message || 'Update failed'
+      });
     }
-
-    onProgress?.(i + 1, rows.length);
+    opsDone++;
+    reportProgress();
   }
 
   return result;

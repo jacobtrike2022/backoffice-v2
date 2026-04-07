@@ -29,24 +29,25 @@ export const rolesApi = {
     
     const { data, error } = await query;
     if (error) throw error;
-    
-    // Get user counts for each role
-    const rolesWithCounts = await Promise.all(
-      (data || []).map(async (role) => {
-        const { count } = await supabase
-          .from('users')
-          .select('id', { count: 'exact', head: true })
-          .eq('role_id', role.id)
-          .eq('organization_id', orgId);
-        
-        return {
-          ...role,
-          user_count: count || 0
-        };
-      })
-    );
-    
-    return rolesWithCounts;
+
+    // Single query for all role assignments in this org, then aggregate in JS.
+    // Replaces an N+1 pattern that fired one count query per role.
+    const { data: userRoleRows } = await supabase
+      .from('users')
+      .select('role_id')
+      .eq('organization_id', orgId)
+      .not('role_id', 'is', null);
+
+    const countByRoleId = new Map<string, number>();
+    (userRoleRows || []).forEach(row => {
+      if (!row.role_id) return;
+      countByRoleId.set(row.role_id, (countByRoleId.get(row.role_id) || 0) + 1);
+    });
+
+    return (data || []).map(role => ({
+      ...role,
+      user_count: countByRoleId.get(role.id) || 0,
+    }));
   },
 
   async get(roleId: string): Promise<Role> {
@@ -103,6 +104,7 @@ export const rolesApi = {
         job_description: input.job_description,
         job_description_source: input.job_description_source,
         reports_to_role_id: input.reports_to_role_id ?? null,
+        employment_type: input.employment_type ?? null,
         created_by: userData?.id,
         status: 'active',
         permissions: [],
@@ -316,8 +318,113 @@ export const rolesApi = {
       .from('roles')
       .update({ reports_to_role_id: reportsToRoleId })
       .eq('id', roleId);
-    
+
     if (error) throw error;
   }
 };
+
+// ============================================================================
+// BULK ROLE CREATION
+// ============================================================================
+
+export interface BulkCreateRolesInput {
+  rows: Array<{
+    name: string;
+    description?: string;
+    employment_type?: 'hourly' | 'salaried' | 'admin';
+  }>;
+  organization_id: string;
+}
+
+export interface BulkCreateRolesResult {
+  created: number;
+  failed: number;
+  errors: Array<{ row: number; name: string; error: string }>;
+  // input_index is the 0-based index in the input `rows` array. This lets callers
+  // map created roles back to their source row reliably, even when some rows fail.
+  createdRoles: Array<{ input_index: number; id: string; name: string }>;
+}
+
+/**
+ * Bulk create roles. Validates rows up front, attempts a single batch insert,
+ * and falls back to per-row inserts only on batch failure (so we can identify
+ * the offending row). Each created role carries its original input_index.
+ */
+export async function bulkCreateRoles(
+  input: BulkCreateRolesInput
+): Promise<BulkCreateRolesResult> {
+  const { rows, organization_id } = input;
+
+  const result: BulkCreateRolesResult = {
+    created: 0,
+    failed: 0,
+    errors: [],
+    createdRoles: [],
+  };
+
+  type Plan = { input_index: number; name: string; record: Record<string, any> };
+  const plans: Plan[] = [];
+  rows.forEach((row, i) => {
+    const trimmedName = (row?.name || '').trim();
+    if (!trimmedName) {
+      result.failed += 1;
+      result.errors.push({ row: i, name: trimmedName, error: 'Role name is required' });
+      return;
+    }
+    plans.push({
+      input_index: i,
+      name: trimmedName,
+      record: {
+        organization_id,
+        name: trimmedName,
+        description: row.description || null,
+        employment_type: row.employment_type ?? null,
+        status: 'active',
+        permissions: [],
+        permissions_json: {},
+        level: 0,
+        is_manager: false,
+        is_frontline: true,
+        permission_level: 1,
+      },
+    });
+  });
+
+  if (plans.length === 0) return result;
+
+  try {
+    const { data, error } = await supabase
+      .from('roles')
+      .insert(plans.map(p => p.record))
+      .select('id, name');
+    if (error) throw error;
+    (data || []).forEach((created, idx) => {
+      const plan = plans[idx];
+      result.created += 1;
+      result.createdRoles.push({ input_index: plan.input_index, id: created.id, name: created.name });
+    });
+  } catch {
+    for (const plan of plans) {
+      try {
+        const { data, error } = await supabase
+          .from('roles')
+          .insert(plan.record)
+          .select('id, name')
+          .single();
+        if (error) throw error;
+        result.created += 1;
+        result.createdRoles.push({ input_index: plan.input_index, id: data.id, name: data.name });
+      } catch (err: any) {
+        result.failed += 1;
+        result.errors.push({
+          row: plan.input_index,
+          name: plan.name,
+          error: err?.message || String(err),
+        });
+      }
+    }
+  }
+
+  return result;
+}
 

@@ -138,6 +138,7 @@ export interface CreateRoleInput {
   job_description_source?: 'manual' | 'hris' | 'uploaded' | 'extracted';
   reports_to_role_id?: string | null;
   onet_soc_code?: string;
+  employment_type?: 'hourly' | 'salaried' | 'admin' | null;
 }
 
 export interface UpdateRoleInput extends Partial<CreateRoleInput> {

@@ -201,6 +201,7 @@ export function People({ currentRole, onBackToDashboard }: PeopleProps) {
       name: `${selectedEmployee.first_name || ''} ${selectedEmployee.last_name || ''}`.trim(),
       email: selectedEmployee.email || '',
       role: selectedEmployee.role?.name || t('people.noRole'),
+      employmentType: selectedEmployee.role?.employment_type || undefined,
       homeStore: selectedEmployee.store?.name || t('people.noStore'),
       district: selectedEmployee.store?.district?.name || t('people.noDistrict'),
       avatar: selectedEmployee.avatar_url || undefined,
