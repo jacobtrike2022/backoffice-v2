@@ -11,14 +11,14 @@ import {
   TableCell,
   TableHead,
   TableHeader,
-  TableRow
+  TableRow,
 } from './ui/table';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue
+  SelectValue,
 } from './ui/select';
 import {
   Upload,
@@ -31,20 +31,19 @@ import {
   Play,
   Eye,
   ArrowLeft,
-  ArrowRight
+  ArrowRight,
 } from 'lucide-react';
 import {
   normalizeHeader,
-  extractNumber,
-  fuzzyMatchValue,
+  normalizeEmploymentType,
   getConfidenceColor,
   getConfidenceLabel,
   parseImportFile,
   ImportFileParseError,
   SKIP_VALUE,
 } from '../lib/importMapping';
-import { bulkCreateStores, type BulkCreateStoresResult } from '../lib/crud/stores';
-import { useEffectiveOrgId, useDistricts } from '../lib/hooks/useSupabase';
+import { bulkCreateRoles, rolesApi, type BulkCreateRolesResult } from '../lib/api/roles';
+import { useEffectiveOrgId } from '../lib/hooks/useSupabase';
 import { toast } from 'sonner@2.0.3';
 
 // ============================================================================
@@ -53,104 +52,95 @@ import { toast } from 'sonner@2.0.3';
 
 type Step = 'upload' | 'mapping' | 'preview' | 'importing' | 'results';
 
-interface BulkUnitImportProps {
+interface BulkRoleImportProps {
   open: boolean;
   onClose: () => void;
   onSuccess?: () => void;
 }
 
-interface UnitTargetField {
+interface RoleTargetField {
   key: string;
   label: string;
   required: boolean;
   aliases: string[];
 }
 
-interface UnitColumnMatch {
+interface RoleColumnMatch {
   sourceHeader: string;
   targetField: string | null;
   confidence: number;
 }
 
-const UNIT_FIELDS: UnitTargetField[] = [
+const ROLE_FIELDS: RoleTargetField[] = [
   {
     key: 'name',
-    label: 'Unit Name',
+    label: 'Role Name',
     required: true,
-    aliases: ['name', 'unitname', 'storename', 'location', 'locationname', 'sitename', 'site']
+    aliases: [
+      'name',
+      'rolename',
+      'jobname',
+      'jobtitle',
+      'title',
+      'position',
+      'positionname',
+      'positiondescription',
+      'roletitle',
+    ],
   },
   {
-    key: 'unit_number',
-    label: 'Unit Number',
-    required: true,
-    aliases: ['unitnumber', 'unitno', 'unit', 'storenumber', 'storeno', 'number', 'locationnumber', 'sitenumber', 'storecode']
-  },
-  {
-    key: 'code',
-    label: 'Code',
+    key: 'description',
+    label: 'Description',
     required: false,
-    aliases: ['code', 'storecode', 'unitcode', 'locationcode']
+    aliases: [
+      'description',
+      'desc',
+      'jobdescription',
+      'roledescription',
+      'summary',
+      'jobsummary',
+    ],
   },
   {
-    key: 'district_name',
-    label: 'District',
+    key: 'employment_type',
+    label: 'Employment Type',
     required: false,
-    aliases: ['district', 'districtname', 'region', 'area', 'zone', 'group']
+    aliases: [
+      'employmenttype',
+      'type',
+      'flsastatus',
+      'flsa',
+      'exemptstatus',
+      'exempt',
+      'nonexempt',
+      'hourlysalary',
+      'payclass',
+      'payclassification',
+    ],
   },
   {
-    key: 'address',
-    label: 'Address',
+    key: 'department',
+    label: 'Department',
     required: false,
-    aliases: ['address', 'streetaddress', 'street', 'addressline1']
+    aliases: ['department', 'dept', 'jobfamily', 'family'],
   },
-  {
-    key: 'city',
-    label: 'City',
-    required: false,
-    aliases: ['city', 'town']
-  },
-  {
-    key: 'state',
-    label: 'State',
-    required: false,
-    aliases: ['state', 'province', 'region']
-  },
-  {
-    key: 'zip',
-    label: 'Zip',
-    required: false,
-    aliases: ['zip', 'zipcode', 'postalcode', 'postal']
-  },
-  {
-    key: 'phone',
-    label: 'Phone',
-    required: false,
-    aliases: ['phone', 'phonenumber', 'storephone', 'telephone']
-  },
-  {
-    key: 'status',
-    label: 'Status',
-    required: false,
-    aliases: ['status', 'unitstatus', 'storestatus', 'state', 'lifecyclestate']
-  }
 ];
 
 // ============================================================================
 // LOCAL HELPERS
 // ============================================================================
 
-function matchUnitColumns(headers: string[]): UnitColumnMatch[] {
+function matchRoleColumns(headers: string[]): RoleColumnMatch[] {
   const used = new Set<string>();
-  const matches: UnitColumnMatch[] = [];
+  const matches: RoleColumnMatch[] = [];
 
-  // First pass: exact matches on normalized header against any alias
   const headerNormMap = headers.map(h => ({ raw: h, norm: normalizeHeader(h) }));
 
   for (const { raw, norm } of headerNormMap) {
     let bestField: string | null = null;
     let bestConfidence = 0;
 
-    for (const field of UNIT_FIELDS) {
+    for (const field of ROLE_FIELDS) {
       if (used.has(field.key)) continue;
       // exact match
       if (field.aliases.includes(norm)) {
@@ -178,11 +168,8 @@ function matchUnitColumns(headers: string[]): UnitColumnMatch[] {
 // MAIN COMPONENT
 // ============================================================================
 
-export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps) {
+export function BulkRoleImport({ open, onClose, onSuccess }: BulkRoleImportProps) {
   const { orgId } = useEffectiveOrgId();
-
-  // Districts via shared hook
-  const { districts } = useDistricts(orgId ?? undefined);
 
   // File state
   const [file, setFile] = useState<File | null>(null);
@@ -191,13 +178,17 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Mapping
-  const [columnMappings, setColumnMappings] = useState<UnitColumnMatch[]>([]);
+  const [columnMappings, setColumnMappings] = useState<RoleColumnMatch[]>([]);
 
   // Step state
   const [step, setStep] = useState<Step>('upload');
   const [progress, setProgress] = useState(0);
-  const [results, setResults] = useState<BulkCreateStoresResult | null>(null);
+  const [results, setResults] = useState<BulkCreateRolesResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Existing roles for duplicate detection
+  const [existingRoleNames, setExistingRoleNames] = useState<Set<string>>(new Set());
+  const [loadingExisting, setLoadingExisting] = useState(false);
 
   // ============================================================================
   // DERIVED
@@ -215,59 +206,33 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
       };
 
       const name = getValue('name');
-      const parsedNum = extractNumber(getValue('unit_number'));
-      const unit_number = parsedNum != null && parsedNum > 0 ? parsedNum : null;
-
-      const districtRaw = getValue('district_name');
-      let district_id: string | null = null;
-      let districtMatchedName: string | null = null;
-      if (districtRaw && districts.length > 0) {
-        const matchedId = fuzzyMatchValue(districtRaw, districts.map(d => ({ id: d.id, name: d.name })));
-        if (matchedId) {
-          const matched = districts.find(d => d.id === matchedId);
-          if (matched) {
-            district_id = matched.id;
-            districtMatchedName = matched.name;
-          }
-        }
-      }
-
-      // Status: normalize raw value, default 'active' if blank/unrecognized
-      const statusRaw = getValue('status').toLowerCase().trim();
-      let status: 'active' | 'ignored' | 'deactivated' = 'active';
-      if (statusRaw.includes('ignor')) status = 'ignored';
-      else if (statusRaw.includes('deactiv') || statusRaw.includes('inactive') || statusRaw.includes('disabl')) status = 'deactivated';
+      const description = getValue('description');
+      const employmentRaw = getValue('employment_type');
+      const employment_type = employmentRaw ? normalizeEmploymentType(employmentRaw) : null;
+      const department = getValue('department');
 
       const missingName = !name;
-      const missingNumber = unit_number == null;
+      const isDuplicate = !!name && existingRoleNames.has(name.toLowerCase());
 
       return {
         rowIndex: idx + 1,
         name,
-        unit_number,
-        code: getValue('code'),
-        district_id,
-        districtRaw,
-        districtMatchedName,
-        address: getValue('address'),
-        city: getValue('city'),
-        state: getValue('state'),
-        zip: getValue('zip'),
-        phone: getValue('phone'),
-        status,
+        description,
+        employment_type,
+        employmentRaw,
+        department,
         missingName,
-        missingNumber,
-        hasError: missingName || missingNumber
+        isDuplicate,
+        hasError: missingName,
       };
     });
-  }, [rawRows, columnMappings, districts]);
+  }, [rawRows, columnMappings, existingRoleNames]);
 
-  const readyRows = resolvedRows.filter(r => !r.hasError);
+  const readyRows = resolvedRows.filter(r => !r.hasError && !r.isDuplicate);
+  const duplicateRows = resolvedRows.filter(r => !r.hasError && r.isDuplicate);
   const errorRows = resolvedRows.filter(r => r.hasError);
 
-  const hasRequiredMappings =
-    columnMappings.some(m => m.targetField === 'name') &&
-    columnMappings.some(m => m.targetField === 'unit_number');
+  const hasRequiredMappings = columnMappings.some(m => m.targetField === 'name');
 
   // ============================================================================
   // HANDLERS
@@ -304,6 +269,32 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
     }
   }, [open]);
 
+  // Load existing roles when dialog opens (for duplicate detection)
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoadingExisting(true);
+    rolesApi
+      .list()
+      .then(roles => {
+        if (cancelled) return;
+        const set = new Set<string>();
+        roles.forEach(r => {
+          if (r?.name) set.add(r.name.toLowerCase());
+        });
+        setExistingRoleNames(set);
+      })
+      .catch(err => {
+        console.error('Failed to load existing roles:', err);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingExisting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
   const handleFileSelect = useCallback(async (selectedFile: File) => {
     setError(null);
 
@@ -312,7 +303,7 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
       setFile(selectedFile);
       setHeaders(parsedHeaders);
       setRawRows(parsedRows);
-      setColumnMappings(matchUnitColumns(parsedHeaders));
+      setColumnMappings(matchRoleColumns(parsedHeaders));
       setStep('mapping');
     } catch (err: any) {
       if (err instanceof ImportFileParseError) {
@@ -336,7 +327,7 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
   const updateMapping = (sourceHeader: string, newTargetKey: string) => {
     setColumnMappings(prev =>
       prev.map(m => {
-        // Clear other columns mapped to this same target (no fallbacks for units)
+        // Clear other columns mapped to this same target (no fallbacks for roles)
         if (
           newTargetKey !== SKIP_VALUE &&
           m.targetField === newTargetKey &&
@@ -355,6 +346,23 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
     );
   };
 
+  const downloadTemplate = () => {
+    const headerLine = 'Role Name,Description,Employment Type,Department\n';
+    const sample =
+      'Store Associate,Front-line cashier and customer service,hourly,Store Operations\n' +
+      'Store Manager,Manages day-to-day store operations,salaried,Store Operations\n' +
+      'PIT Driver,Forklift / powered industrial truck operator,hourly,Warehouse\n';
+    const blob = new Blob([headerLine + sample], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'roles-template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const handleImport = async () => {
     if (!orgId) {
       toast.error('No organization context available.');
@@ -367,23 +375,21 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
     try {
       const rowsToImport = readyRows.map(r => ({
         name: r.name,
-        unit_number: r.unit_number as number,
-        code: r.code || undefined,
-        district_id: r.district_id || undefined,
-        address: r.address || undefined,
-        city: r.city || undefined,
-        state: r.state || undefined,
-        zip: r.zip || undefined,
-        phone: r.phone || undefined,
-        status: r.status,
+        description: r.description || undefined,
+        employment_type: (r.employment_type || undefined) as
+          | 'hourly'
+          | 'salaried'
+          | 'admin'
+          | undefined,
       }));
 
-      const result = await bulkCreateStores({
+      // bulkCreateRoles doesn't expose progress; show indeterminate-ish progress
+      setProgress(50);
+      const result = await bulkCreateRoles({
         rows: rowsToImport,
         organization_id: orgId,
-        onProgress: (current, total) =>
-          setProgress(Math.round((current / total) * 100))
       });
+      setProgress(100);
 
       setResults(result);
       setStep('results');
@@ -415,7 +421,7 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
           onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
         />
         <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-        <p className="font-semibold text-lg">Drop your unit file here</p>
+        <p className="font-semibold text-lg">Drop your roles file here</p>
         <p className="text-sm text-muted-foreground mt-1">or click to browse</p>
         <div className="flex items-center justify-center gap-2 mt-4">
           <Badge variant="secondary">.csv</Badge>
@@ -423,16 +429,17 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
           <Badge variant="secondary">.xls</Badge>
         </div>
       </div>
-      <p className="text-xs text-center text-muted-foreground">
-        We'll auto-detect your columns.{' '}
+
+      <div className="text-center text-sm text-muted-foreground">
+        Need a template?{' '}
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); downloadUnitTemplate(); }}
-          className="underline hover:text-foreground transition-colors"
+          onClick={downloadTemplate}
+          className="text-primary hover:underline font-medium"
         >
-          Need a template?
+          Download CSV template
         </button>
-      </p>
+      </div>
     </div>
   );
 
@@ -443,7 +450,7 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
         targetCounts[m.targetField] = (targetCounts[m.targetField] || 0) + 1;
     });
 
-    const isTargetAvailable = (targetKey: string, currentCol: UnitColumnMatch) => {
+    const isTargetAvailable = (targetKey: string, currentCol: RoleColumnMatch) => {
       if (currentCol.targetField === targetKey) return true;
       return (targetCounts[targetKey] || 0) === 0;
     };
@@ -501,7 +508,7 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
                           <SelectItem value={SKIP_VALUE}>
                             <span className="text-muted-foreground">-- Skip --</span>
                           </SelectItem>
-                          {UNIT_FIELDS.map(f => (
+                          {ROLE_FIELDS.map(f => (
                             <SelectItem
                               key={f.key}
                               value={f.key}
@@ -540,7 +547,7 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
                           <SelectItem value={SKIP_VALUE}>
                             <span className="text-muted-foreground">-- Skip --</span>
                           </SelectItem>
-                          {UNIT_FIELDS.map(f => (
+                          {ROLE_FIELDS.map(f => (
                             <SelectItem
                               key={f.key}
                               value={f.key}
@@ -562,16 +569,7 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
         {!hasRequiredMappings && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>
-              {(() => {
-                const missing = [];
-                if (!columnMappings.some(m => m.targetField === 'name'))
-                  missing.push('Unit Name');
-                if (!columnMappings.some(m => m.targetField === 'unit_number'))
-                  missing.push('Unit Number');
-                return `Required: ${missing.join(', ')}`;
-              })()}
-            </AlertDescription>
+            <AlertDescription>Required: Role Name</AlertDescription>
           </Alert>
         )}
       </div>
@@ -585,12 +583,21 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
       <div className="space-y-5">
         <div className="flex items-center gap-2 flex-wrap">
           <Badge className="bg-green-100 text-green-700 border-green-200">
-            {readyRows.length} ready
+            {readyRows.length} new
           </Badge>
-          {errorRows.length > 0 && (
-            <Badge variant="destructive">
-              {errorRows.length} missing name or number
+          {duplicateRows.length > 0 && (
+            <Badge className="bg-amber-100 text-amber-700 border-amber-200">
+              {duplicateRows.length} already exist (will skip)
             </Badge>
+          )}
+          {errorRows.length > 0 && (
+            <Badge variant="destructive">{errorRows.length} missing name</Badge>
+          )}
+          {loadingExisting && (
+            <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Checking existing roles...
+            </span>
           )}
         </div>
 
@@ -600,23 +607,32 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
               <TableRow className="bg-muted/30">
                 <TableHead className="text-xs w-8">#</TableHead>
                 <TableHead className="text-xs">Name</TableHead>
-                <TableHead className="text-xs">Unit #</TableHead>
-                <TableHead className="text-xs">Code</TableHead>
-                <TableHead className="text-xs">District</TableHead>
-                <TableHead className="text-xs">City</TableHead>
-                <TableHead className="text-xs">State</TableHead>
+                <TableHead className="text-xs">Description</TableHead>
+                <TableHead className="text-xs">Employment Type</TableHead>
+                <TableHead className="text-xs">Department</TableHead>
+                <TableHead className="text-xs">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {previewData.map(row => (
                 <TableRow
                   key={row.rowIndex}
-                  className={row.hasError ? 'bg-red-50 dark:bg-red-900/10' : ''}
+                  className={
+                    row.hasError
+                      ? 'bg-red-50 dark:bg-red-900/10'
+                      : row.isDuplicate
+                      ? 'bg-amber-50 dark:bg-amber-900/10'
+                      : ''
+                  }
                 >
                   <TableCell className="text-xs text-muted-foreground">
                     {row.rowIndex}
                   </TableCell>
-                  <TableCell className="text-xs font-medium">
+                  <TableCell
+                    className={`text-xs font-medium ${
+                      row.isDuplicate ? 'line-through text-muted-foreground' : ''
+                    }`}
+                  >
                     {row.name || (
                       <span className="text-red-400 italic">missing</span>
                     )}
@@ -624,36 +640,32 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
                       <AlertTriangle className="h-3 w-3 text-red-500 inline ml-1" />
                     )}
                   </TableCell>
-                  <TableCell className="text-xs">
-                    {row.unit_number ?? (
-                      <span className="text-red-400 italic">missing</span>
-                    )}
-                    {row.missingNumber && (
-                      <AlertTriangle className="h-3 w-3 text-red-500 inline ml-1" />
-                    )}
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {row.code || (
+                  <TableCell className="text-xs max-w-[240px] truncate">
+                    {row.description || (
                       <span className="text-muted-foreground">--</span>
                     )}
                   </TableCell>
                   <TableCell className="text-xs">
-                    {row.districtMatchedName ? (
-                      row.districtMatchedName
-                    ) : row.districtRaw ? (
-                      <span className="text-amber-600">({row.districtRaw})</span>
+                    {row.employment_type ? (
+                      row.employment_type
+                    ) : row.employmentRaw ? (
+                      <span className="text-amber-600">({row.employmentRaw})</span>
                     ) : (
                       <span className="text-muted-foreground">--</span>
                     )}
                   </TableCell>
                   <TableCell className="text-xs">
-                    {row.city || (
+                    {row.department || (
                       <span className="text-muted-foreground">--</span>
                     )}
                   </TableCell>
                   <TableCell className="text-xs">
-                    {row.state || (
-                      <span className="text-muted-foreground">--</span>
+                    {row.hasError ? (
+                      <span className="text-red-600">missing name</span>
+                    ) : row.isDuplicate ? (
+                      <span className="text-amber-700">already exists</span>
+                    ) : (
+                      <span className="text-green-700">new</span>
                     )}
                   </TableCell>
                 </TableRow>
@@ -678,9 +690,7 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
         <p className="font-medium">Importing...</p>
       </div>
       <Progress value={progress} className="w-full" />
-      <p className="text-center text-sm text-muted-foreground">
-        {progress}% complete
-      </p>
+      <p className="text-center text-sm text-muted-foreground">{progress}% complete</p>
     </div>
   );
 
@@ -741,7 +751,7 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
           <Alert className="bg-green-50 dark:bg-green-900/20 border-green-200">
             <CheckCircle className="h-4 w-4 text-green-600" />
             <AlertDescription className="text-green-800 dark:text-green-200">
-              {results.created} unit{results.created !== 1 ? 's' : ''} imported.
+              {results.created} role{results.created !== 1 ? 's' : ''} imported.
             </AlertDescription>
           </Alert>
         )}
@@ -756,7 +766,11 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
   const getFooterButtons = () => {
     switch (step) {
       case 'upload':
-        return <Button variant="outline" onClick={handleClose}>Cancel</Button>;
+        return (
+          <Button variant="outline" onClick={handleClose}>
+            Cancel
+          </Button>
+        );
       case 'mapping':
         return (
           <>
@@ -782,7 +796,7 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
             </Button>
             <Button onClick={handleImport} disabled={readyRows.length === 0}>
               <Play className="h-4 w-4 mr-2" />
-              Import {readyRows.length} unit{readyRows.length !== 1 ? 's' : ''}
+              Import {readyRows.length} role{readyRows.length !== 1 ? 's' : ''}
             </Button>
           </>
         );
@@ -791,7 +805,9 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
       case 'results':
         return (
           <>
-            <Button variant="outline" onClick={resetState}>Import More</Button>
+            <Button variant="outline" onClick={resetState}>
+              Import More
+            </Button>
             <Button onClick={handleClose}>Done</Button>
           </>
         );
@@ -807,21 +823,29 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
     mapping: 'Review the column mapping below.',
     preview: 'Confirm and import.',
     importing: 'Importing...',
-    results: 'Import complete.'
+    results: 'Import complete.',
   };
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-background flex flex-col" role="dialog" aria-labelledby="unit-import-title">
+    <div
+      className="fixed inset-0 z-50 bg-background flex flex-col"
+      role="dialog"
+      aria-labelledby="role-import-title"
+    >
       {/* Top bar */}
       <div className="flex items-center justify-between px-6 py-3 border-b bg-background">
         <div className="flex items-center gap-3">
           <FileSpreadsheet className="h-5 w-5 text-primary" />
           <div>
-            <h2 id="unit-import-title" className="text-lg font-semibold">Import Units</h2>
+            <h2 id="role-import-title" className="text-lg font-semibold">
+              Import Roles
+            </h2>
             {file && step !== 'upload' && (
-              <p className="text-xs text-muted-foreground">{file.name} · {rawRows.length} rows</p>
+              <p className="text-xs text-muted-foreground">
+                {file.name} · {rawRows.length} rows
+              </p>
             )}
           </div>
         </div>
@@ -881,23 +905,4 @@ export function BulkUnitImport({ open, onClose, onSuccess }: BulkUnitImportProps
       </div>
     </div>
   );
-}
-
-// ============================================================================
-// TEMPLATE DOWNLOAD
-// ============================================================================
-
-function downloadUnitTemplate() {
-  const headers = 'Unit Name,Unit Number,Code,District,Address,City,State,Zip,Phone,Status\n';
-  const sample =
-    'Friendly Express #103 Tifton,103,FE103,South Region,123 Main St,Tifton,GA,31794,(229) 555-0103,active\n' +
-    'Friendly Express #104 Adel,104,FE104,South Region,456 Oak Ave,Adel,GA,31620,(229) 555-0104,active\n' +
-    'Corporate Office,1,CORP,,789 Office Pkwy,Atlanta,GA,30303,(404) 555-0001,ignored\n';
-  const blob = new Blob([headers + sample], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'unit_import_template.csv';
-  a.click();
-  URL.revokeObjectURL(url);
 }

@@ -37,6 +37,7 @@ interface Store {
   store_email?: string | null;
   photo_url?: string | null;
   manager_id?: string | null;
+  status?: 'active' | 'ignored' | 'deactivated' | null;
 }
 
 interface NewUnitProps {
@@ -78,7 +79,10 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
   
   // Staff
   const [selectedManagerId, setSelectedManagerId] = useState<string>('');
-  
+
+  // Status
+  const [status, setStatus] = useState<'active' | 'ignored' | 'deactivated'>(editStore?.status || 'active');
+
   // UI State
   const [saving, setSaving] = useState(false);
 
@@ -124,6 +128,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
       setEmail(editStore.store_email || '');
       setSelectedDistrictId(editStore.district_id || '');
       setSelectedManagerId(editStore.manager_id || '');
+      setStatus(editStore.status || 'active');
       setPhotoPreview(editStore.photo_url || null);
       
       console.log('✅ Edit mode - State variables set:', {
@@ -261,6 +266,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
         phone: phone || null,
         store_email: email || null,
         manager_id: selectedManagerId || null,
+        status,
       };
 
         console.log('📝 Update data being sent:', updateData);
@@ -312,6 +318,7 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
           phone: phone || null,
           store_email: email || null,
           manager_id: selectedManagerId || null,
+          status,
           photo_url: null // Will update this after photo upload
         };
 
@@ -577,6 +584,30 @@ export function NewUnit({ onBack, onSuccess, editStore }: NewUnitProps) {
                   )}
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          {/* Unit Status */}
+          <div className="space-y-4">
+            <h3 className="text-foreground">Unit Status</h3>
+            <div>
+              <Label htmlFor="status">Status</Label>
+              <Select
+                value={status}
+                onValueChange={(v) => setStatus(v as 'active' | 'ignored' | 'deactivated')}
+              >
+                <SelectTrigger id="status" className="w-full max-w-md">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active — visible and importable</SelectItem>
+                  <SelectItem value="ignored">Ignored — exclude from CSV/HRIS imports</SelectItem>
+                  <SelectItem value="deactivated">Deactivated — soft-deleted</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1 max-w-md">
+                Use <strong>Ignored</strong> for locations like Office or Corporate that shouldn't have their employees imported, but should still exist in the system.
+              </p>
             </div>
           </div>
         </CardContent>

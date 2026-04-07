@@ -434,7 +434,9 @@ export async function getTopPerformingStores(organizationId: string, limit: numb
 export async function getStores(filters?: {
   organization_id?: string;
   district_id?: string;
-  is_active?: boolean;
+  is_active?: boolean;          // legacy — keep for backward compat
+  status?: 'active' | 'ignored' | 'deactivated';  // new
+  include_ignored?: boolean;    // when true, include 'ignored' stores in addition to 'active'
 }) {
   try {
     // Always filter by org - use passed value or fall back to current user's effective org
@@ -454,8 +456,20 @@ export async function getStores(filters?: {
     if (filters?.district_id) {
       query = query.eq('district_id', filters.district_id);
     }
-    if (filters?.is_active !== undefined) {
-      query = query.eq('is_active', filters.is_active);
+
+    // Status filter logic:
+    // 1. Explicit `status` filter wins
+    // 2. Else legacy `is_active === false` maps to 'deactivated'
+    // 3. Else `include_ignored === true` returns active + ignored
+    // 4. Else default to active only
+    if (filters?.status) {
+      query = query.eq('status', filters.status);
+    } else if (filters?.is_active === false) {
+      query = query.eq('status', 'deactivated');
+    } else if (filters?.include_ignored === true) {
+      query = query.in('status', ['active', 'ignored']);
+    } else {
+      query = query.eq('status', 'active');
     }
 
     const { data: stores, error } = await query.order('name');
@@ -575,6 +589,7 @@ export async function getStores(filters?: {
           timezone: store.timezone,
           organization_id: store.organization_id,
           is_active: store.is_active,
+          status: store.status,
           employeeCount,
           avgProgress,
           compliance,
@@ -633,6 +648,7 @@ export async function createStore(storeData: {
   photo_url?: string | null;
   manager_id?: string | null;
   unit_number?: number | null;
+  status?: 'active' | 'ignored' | 'deactivated';
 }) {
   try {
     const orgId = await getCurrentUserOrgId();
@@ -655,7 +671,8 @@ export async function createStore(storeData: {
         store_email: storeData.store_email || null,
         photo_url: storeData.photo_url || null,
         manager_id: storeData.manager_id || null,
-        unit_number: storeData.unit_number ?? null
+        unit_number: storeData.unit_number ?? null,
+        status: storeData.status || 'active',
       }])
       .select()
       .single();
@@ -688,6 +705,7 @@ export async function updateStore(
     photo_url?: string | null;
     manager_id?: string | null;
     unit_number?: number | null;
+    status?: 'active' | 'ignored' | 'deactivated';
   }
 ) {
   try {
@@ -706,6 +724,7 @@ export async function updateStore(
     if (updates.photo_url !== undefined) updateData.photo_url = updates.photo_url;
     if (updates.manager_id !== undefined) updateData.manager_id = updates.manager_id;
     if (updates.unit_number !== undefined) updateData.unit_number = updates.unit_number;
+    if (updates.status !== undefined) updateData.status = updates.status;
     updateData.updated_at = new Date().toISOString();
 
     const { data, error } = await supabase
@@ -1167,6 +1186,7 @@ export interface BulkCreateStoresInput {
     state?: string;
     zip?: string;
     phone?: string;
+    status?: 'active' | 'ignored' | 'deactivated';
   }>;
   organization_id: string;
   onProgress?: (current: number, total: number) => void;
@@ -1223,6 +1243,7 @@ export async function bulkCreateStores(
         state: row.state || null,
         zip: row.zip || null,
         phone: row.phone || null,
+        status: row.status || 'active',
       },
     });
   });
@@ -1276,4 +1297,63 @@ export async function bulkCreateStores(
 
   onProgress?.(rows.length, rows.length);
   return result;
+}
+
+/**
+ * Fetch the full set of stores used by the import flow for matching, including
+ * ignored ones (so the matcher can detect them and surface "this row maps to an
+ * ignored store" UX). Returns active and ignored stores partitioned in JS from a
+ * single query.
+ */
+export async function getActiveAndIgnoredStores(organization_id: string): Promise<{
+  active: any[];
+  ignored: any[];
+}> {
+  try {
+    const { data, error } = await supabase
+      .from('stores')
+      .select('*')
+      .eq('organization_id', organization_id)
+      .in('status', ['active', 'ignored'])
+      .order('name');
+
+    if (error) throw error;
+
+    const active: any[] = [];
+    const ignored: any[] = [];
+    (data || []).forEach((store) => {
+      if (store.status === 'ignored') {
+        ignored.push(store);
+      } else {
+        active.push(store);
+      }
+    });
+
+    return { active, ignored };
+  } catch (err) {
+    console.error('Error in getActiveAndIgnoredStores:', err);
+    throw err;
+  }
+}
+
+/**
+ * Returns just the IDs of ignored stores — used by the upsert engine to filter
+ * rows efficiently (e.g. soft-skipping HRIS census rows that map to a store the
+ * admin marked as ignored).
+ */
+export async function getIgnoredStoreIds(organization_id: string): Promise<Set<string>> {
+  try {
+    const { data, error } = await supabase
+      .from('stores')
+      .select('id')
+      .eq('organization_id', organization_id)
+      .eq('status', 'ignored');
+
+    if (error) throw error;
+
+    return new Set((data || []).map((s: { id: string }) => s.id));
+  } catch (err) {
+    console.error('Error in getIgnoredStoreIds:', err);
+    throw err;
+  }
 }

@@ -35,11 +35,12 @@ import {
   Image,
   Upload,
   ImageIcon,
-  Mail
+  Mail,
+  Lock
 } from 'lucide-react';
 import { EmailSettings } from './Settings/EmailSettings';
 import { toast } from 'sonner@2.0.3';
-import { supabase, getCurrentUserOrgId } from '../lib/supabase';
+import { supabase, getCurrentUserOrgId, updateOrganization, type EmployeeMatchStrategy } from '../lib/supabase';
 import { useTranslation } from 'react-i18next';
 import { Globe } from 'lucide-react';
 
@@ -183,6 +184,11 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
   const [logoLightFile, setLogoLightFile] = useState<File | null>(null);
   const [savingLogos, setSavingLogos] = useState(false);
 
+  // Employee match strategy state
+  const [matchStrategy, setMatchStrategy] = useState<EmployeeMatchStrategy>('auto');
+  const [matchStrategyLocked, setMatchStrategyLocked] = useState<boolean>(true);
+  const isTrikeSuperAdmin = currentRole === 'trike-super-admin';
+
   const filteredHRIS = hrisIntegrations.filter(hris =>
     hris.name.toLowerCase().includes(hrisSearchQuery.toLowerCase())
   );
@@ -224,6 +230,34 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
       toast.error(t('settingsPage.failedUpdateCompany'), {
         description: error.message 
       });
+    }
+  };
+
+  const handleMatchStrategyChange = async (newStrategy: string) => {
+    if (!organizationId) return;
+    if (matchStrategyLocked && !isTrikeSuperAdmin) {
+      toast.error('This setting is locked. Contact Trike support to change it.');
+      return;
+    }
+    try {
+      await updateOrganization(organizationId, {
+        employee_match_strategy: newStrategy as EmployeeMatchStrategy,
+      });
+      setMatchStrategy(newStrategy as EmployeeMatchStrategy);
+      toast.success('Match strategy updated');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update match strategy');
+    }
+  };
+
+  const handleLockToggle = async (value: boolean) => {
+    if (!organizationId) return;
+    try {
+      await updateOrganization(organizationId, { employee_match_strategy_locked: value });
+      setMatchStrategyLocked(value);
+      toast.success(value ? 'Match strategy locked' : 'Match strategy unlocked');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update lock setting');
     }
   };
 
@@ -277,7 +311,7 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
 
         const { data: org } = await supabase
           .from('organizations')
-          .select('name, street_address, city, state, zip_code, phone, email, website, logo_dark_url, logo_light_url, preferred_language')
+          .select('name, street_address, city, state, zip_code, phone, email, website, logo_dark_url, logo_light_url, preferred_language, employee_match_strategy, employee_match_strategy_locked')
           .eq('id', orgId)
           .single();
 
@@ -290,6 +324,14 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
           // Set language preference
           if (org.preferred_language) {
             setPreferredLanguage(org.preferred_language);
+          }
+
+          // Set employee match strategy
+          if ((org as any).employee_match_strategy) {
+            setMatchStrategy((org as any).employee_match_strategy as EmployeeMatchStrategy);
+          }
+          if (typeof (org as any).employee_match_strategy_locked === 'boolean') {
+            setMatchStrategyLocked((org as any).employee_match_strategy_locked);
           }
 
           // Update company info state with all org data
@@ -710,13 +752,64 @@ export function Settings({ onBackToDashboard, currentRole }: SettingsProps) {
                 </div>
                 <div className="md:col-span-2">
                   <Label htmlFor="website">{t('settingsPage.website')}</Label>
-                  <Input 
+                  <Input
                     id="website"
                     value={companyInfo.website}
                     onChange={(e) => setCompanyInfo({...companyInfo, website: e.target.value})}
                   />
                 </div>
               </div>
+
+              <Separator />
+
+              {/* Employee Match Strategy */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="match-strategy">Employee Match Strategy</Label>
+                  {matchStrategyLocked && !isTrikeSuperAdmin && (
+                    <Badge variant="outline" className="text-xs">
+                      <Lock className="h-3 w-3 mr-1" />
+                      Locked
+                    </Badge>
+                  )}
+                </div>
+                <Select
+                  value={matchStrategy || 'auto'}
+                  onValueChange={handleMatchStrategyChange}
+                  disabled={matchStrategyLocked && !isTrikeSuperAdmin}
+                >
+                  <SelectTrigger id="match-strategy">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Auto-detect (recommended)</SelectItem>
+                    <SelectItem value="external_id">HRIS Employee ID (Paylocity, ADP, Workday)</SelectItem>
+                    <SelectItem value="email">Email address</SelectItem>
+                    <SelectItem value="mobile_phone">Mobile phone number</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  How we identify the same employee across multiple imports. Changing this can break sync — only do it if you know what you're doing.
+                </p>
+                {matchStrategyLocked && !isTrikeSuperAdmin && (
+                  <p className="text-[11px] text-amber-600">
+                    This setting is locked. Contact Trike support to change it.
+                  </p>
+                )}
+                {isTrikeSuperAdmin && (
+                  <div className="flex items-center justify-between mt-2 p-2 bg-muted/30 rounded">
+                    <div className="flex items-center gap-2">
+                      <Lock className="h-3 w-3 text-muted-foreground" />
+                      <span className="text-xs">Lock this setting</span>
+                    </div>
+                    <Switch
+                      checked={matchStrategyLocked ?? true}
+                      onCheckedChange={handleLockToggle}
+                    />
+                  </div>
+                )}
+              </div>
+
               <div className="flex justify-end">
                 <Button 
                   className="bg-brand-gradient text-white shadow-brand hover:opacity-90 border-0"

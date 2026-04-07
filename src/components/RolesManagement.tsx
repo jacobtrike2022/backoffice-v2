@@ -22,8 +22,10 @@ import {
 import { Checkbox } from './ui/checkbox';
 import { Label } from './ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { BulkRoleImport } from './BulkRoleImport';
 import {
   Plus,
+  Upload,
   Search,
   Edit,
   Trash2,
@@ -56,6 +58,7 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
   const [selectedRoleIds, setSelectedRoleIds] = useState<Set<string>>(new Set());
   const [showManualMergeWizard, setShowManualMergeWizard] = useState(false);
   const [mergingRoles, setMergingRoles] = useState<Role[]>([]);
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   useEffect(() => {
     loadRoles();
@@ -236,6 +239,13 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
           >
             <Plus className="w-4 h-4 mr-2" />
             {t('rolesManagement.newRole')}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setShowImportDialog(true)}
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            Import
           </Button>
           {selectedRoleIds.size >= 2 ? (
             <Button
@@ -570,6 +580,16 @@ export function RolesManagement({ onRoleClick, onCreateNew }: RolesManagementPro
         }}
       />
     )}
+
+      {/* Bulk Role Import Dialog */}
+      <BulkRoleImport
+        open={showImportDialog}
+        onClose={() => setShowImportDialog(false)}
+        onSuccess={() => {
+          setShowImportDialog(false);
+          loadRoles();
+        }}
+      />
     </div>
   );
 }
