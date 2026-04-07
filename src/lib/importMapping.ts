@@ -264,6 +264,48 @@ export interface PhoneValidationResult {
 }
 
 /**
+ * Pre-clean a raw phone value from an HRIS export before validation.
+ * Strips common artifacts: labels, suffixes, multiple numbers, scientific notation.
+ */
+export function cleanPhoneInput(value: string): string {
+  if (!value) return '';
+  let cleaned = value.trim();
+
+  // Normalize unicode whitespace (non-breaking spaces, etc.)
+  cleaned = cleaned.replace(/\s+/g, ' ');
+
+  // Handle Excel scientific notation: "5.55123e+09" → "5551230000"
+  if (/^\d+(\.\d+)?e[+-]?\d+$/i.test(cleaned)) {
+    const num = Number(cleaned);
+    if (!isNaN(num) && isFinite(num)) {
+      cleaned = Math.round(num).toString();
+    }
+  }
+
+  // Strip leading labels: "Cell: 555...", "Mobile - 555...", "Phone: 555..."
+  cleaned = cleaned.replace(/^(cell|mobile|phone|tel|home|work|primary)\s*[:\-–]\s*/i, '');
+
+  // Take only the first number if multiple are present (separated by / , ; or "or")
+  const multiSep = cleaned.split(/\s*(?:\/|;|\bor\b)\s*/i);
+  if (multiSep.length > 1) cleaned = multiSep[0];
+  // Comma split — but only if the part before contains enough digits to be a phone
+  if (cleaned.includes(',')) {
+    const firstPart = cleaned.split(',')[0];
+    if ((firstPart.match(/\d/g) || []).length >= 10) cleaned = firstPart;
+  }
+
+  // Strip trailing annotation after the number ends.
+  // Matches: a digit or closing paren, then whitespace, then a letter or opening paren, then anything.
+  // This preserves "(212) 555-1234" while stripping "555-1234 (cell)" or "555-1234 home".
+  cleaned = cleaned.replace(/([\d)])\s+[a-zA-Z(].*$/, '$1');
+
+  // Strip trailing extension markers attached directly: "x567", "ext567"
+  cleaned = cleaned.replace(/\s*(?:ext\.?|x)\s*\d+\s*$/i, '');
+
+  return cleaned.trim();
+}
+
+/**
  * Validate and normalize a phone number using libphonenumber-js.
  * Returns structured result with E.164 format, line type, and mobile flag.
  */
@@ -271,9 +313,12 @@ export function validatePhone(value: string): PhoneValidationResult {
   const empty: PhoneValidationResult = { e164: null, formatted: '', type: 'UNKNOWN', valid: false, isMobile: false };
   if (!value || !value.trim()) return empty;
 
+  const cleaned = cleanPhoneInput(value);
+  if (!cleaned) return empty;
+
   try {
     // Try parsing with US default country
-    const phone = parsePhoneNumber(value.trim(), 'US');
+    const phone = parsePhoneNumber(cleaned, 'US');
     if (!phone || !phone.isValid()) return empty;
 
     const type = phone.getType() || 'UNKNOWN';
