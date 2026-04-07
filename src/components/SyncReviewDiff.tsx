@@ -52,6 +52,10 @@ export interface SyncReviewDiffProps {
   ) => void;
   missingAction: MissingAction;
   onMissingActionChange: (action: MissingAction) => void;
+  // Typed confirmation for the "deactivate" action — bubbled up to parent so the
+  // Apply button can gate on it. Without this, admins could click Apply without typing.
+  deactivateConfirmText?: string;
+  onDeactivateConfirmTextChange?: (value: string) => void;
   className?: string;
 }
 
@@ -420,8 +424,9 @@ const MissingTab: React.FC<{
   missingUsers: SyncClassificationResult['missing_users'];
   missingAction: MissingAction;
   onMissingActionChange: (action: MissingAction) => void;
-}> = ({ missingUsers, missingAction, onMissingActionChange }) => {
-  const [confirmText, setConfirmText] = useState('');
+  confirmText: string;
+  onConfirmTextChange: (value: string) => void;
+}> = ({ missingUsers, missingAction, onMissingActionChange, confirmText, onConfirmTextChange }) => {
 
   if (missingUsers.length === 0) {
     return (
@@ -499,7 +504,7 @@ const MissingTab: React.FC<{
             </p>
             <Input
               value={confirmText}
-              onChange={(e) => setConfirmText(e.target.value)}
+              onChange={(e) => onConfirmTextChange(e.target.value)}
               placeholder="deactivate"
               className="max-w-xs bg-white"
             />
@@ -661,6 +666,8 @@ export const SyncReviewDiff: React.FC<SyncReviewDiffProps> = ({
   onToggleApply,
   missingAction,
   onMissingActionChange,
+  deactivateConfirmText = '',
+  onDeactivateConfirmTextChange = () => {},
   className,
 }) => {
   const { classifications, stats, missing_users } = classification;
@@ -750,6 +757,8 @@ export const SyncReviewDiff: React.FC<SyncReviewDiffProps> = ({
             missingUsers={missing_users}
             missingAction={missingAction}
             onMissingActionChange={onMissingActionChange}
+            confirmText={deactivateConfirmText}
+            onConfirmTextChange={onDeactivateConfirmTextChange}
           />
         )}
       </div>
