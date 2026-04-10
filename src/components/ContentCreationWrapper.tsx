@@ -17,6 +17,7 @@ export function ContentCreationWrapper({
   onBack,
   isSuperAdminAuthenticated = false 
 }: ContentCreationWrapperProps) {
+  const { t } = useTranslation();
   const [track, setTrack] = useState<any>(null);
   const [isCreating, setIsCreating] = useState(true);
   const [error, setError] = useState<string | null>(null);
